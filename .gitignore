@@ -121,6 +121,7 @@ modules.order
 !.mailmap
 !.pylintrc
 !.rustfmt.toml
+!.gitlab-ci.yml
 
 #
 # Generated include files

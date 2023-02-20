@@ -1,0 +1,471 @@
+device_type: {{job.DEVTYPE}}
+
+job_name: Hardware enablement {{ job.LAVA_TEST }} test on {{job.DEVTYPE}} {{job.CI_JOB_ID}}
+timeouts:
+  job:
+    minutes: 15
+  action:
+   minutes: 5
+priority: high
+visibility: public
+
+context:
+  extra_kernel_args: rootwait systemd.tty.term.console=dumb loglevel=8 tcpm.dyndbg="+p" fusb302.dyndbg="+p"
+
+actions:
+  - deploy:
+      timeout:
+        minutes: 5
+      timeouts:
+        http-download:
+          minutes: 5 {{! Workaround for http-download timeout divided by number of retries}}
+      to: tftp
+      kernel:
+        url: "{{job.CI_PROJECT_URL}}/-/jobs/%%KERNEL_BUILD_JOB%%/artifacts/raw/vmlinuz"
+        type: image
+      modules:
+        url: "{{job.CI_PROJECT_URL}}/-/jobs/%%KERNEL_BUILD_JOB%%/artifacts/raw/modules.tar.gz"
+        compression: gz
+      dtb:
+        url: "{{job.CI_PROJECT_URL}}/-/jobs/%%KERNEL_BUILD_JOB%%/artifacts/raw/dtbs/rockchip/{{job.DEVTYPE}}.dtb"
+      ramdisk:
+        url: https://gitlab.collabora.com/hardware-enablement/rockchip-3588/debian-image-recipes/-/jobs/artifacts/main/raw/out/trixie-rootfs-arm64-initramfs.gz?job=ci+image
+        compression: gz
+      nfsrootfs:
+        url: https://gitlab.collabora.com/hardware-enablement/rockchip-3588/debian-image-recipes/-/jobs/artifacts/main/raw/out/trixie-rootfs-arm64.tar.gz?job=ci+image
+        compression: gz
+
+  - boot:
+      method: u-boot
+      commands: nfs
+      timeout:
+        minutes: 10
+      auto_login:
+        login_prompt: 'login:'
+        username: user
+        password_prompt: 'Password:'
+        password: user
+        login_commands:
+          - sudo su
+          - export TERM=dumb
+          - export SYSTEMD_LOG_COLOR=no
+          - export SYSTEMD_PAGER=cat
+          - export SYSTEMD_PAGERSECURE=false
+          - export SYSTEMD_COLORS=no
+          - env
+          - systemctl --failed
+          - timedatectl set-ntp true
+          - systemctl restart systemd-timesyncd
+          - sleep 15 # wait for delayed regulator poweroff
+      prompts:
+        - 'user@rk3588-ci:(.*)$'
+        - 'root@rk3588-ci:(.*)#'
+
+{{ #if job.LAVA_TEST_AVVIDEOCOMPARE }}
+  - test:
+      definitions:
+        - from: git
+          name: avvideocompare
+          path: avvideocompare/avvideocompare.yaml
+          repository: https://gitlab.collabora.com/hardware-enablement/common/lava-test-definitions.git
+          revision: main
+          parameters:
+            PIPELINE1: "{{{ job.AVVIDEOCOMPARE_GST_PIPELINE1 }}}"
+            PIPELINE2: "{{{ job.AVVIDEOCOMPARE_GST_PIPELINE2 }}}"
+            VID_SRC_MEDIA_TYPE: "{{{ job.AVVIDEOCOMPARE_GST_VID_SRC_MEDIA_TYPE }}}"
+            MIN_SCORE: "{{{ job.AVVIDEOCOMPARE_MIN_SCORE }}}"
+      timeout:
+        minutes: 10
+{{ /if }}
+{{ #if job.LAVA_TEST_BASELINE }}
+  - test:
+      timeout:
+        minutes: 5
+      definitions:
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: rtc
+            description: "Run some RTC/NTP tests"
+            os:
+              - apertis
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - ip link
+              - hwclock -w
+              - timedatectl set-ntp true
+              - systemctl restart systemd-timesyncd
+              - timedatectl status
+              - timedatectl timesync-status
+        from: inline
+        name: rtc
+        path: inline/rtc.yaml
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: usb
+            description: "Run USB tests"
+            os:
+              - apertis
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - lsusb
+        from: inline
+        name: usb
+        path: inline/usb.yaml
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: pci
+            description: "Run PCI tests"
+            os:
+              - apertis
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - lspci -nn
+        from: inline
+        name: pci
+        path: inline/pci.yaml
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: i2c
+            description: "Run I2C tests"
+            os:
+              - apertis
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - i2cdetect -l
+        from: inline
+        name: i2c
+        path: inline/i2c.yaml
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: alsa
+            description: "Run ALSA tests"
+            os:
+              - apertis
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - cat /proc/asound/cards
+        from: inline
+        name: alsa
+        path: inline/alsa.yaml
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: hwmon
+            description: "Run hwmon tests"
+            os:
+              - apertis
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - sensors
+        from: inline
+        name: hwmon
+        path: inline/hwmon.yaml
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: iio
+            description: "Run iio tests"
+            os:
+              - apertis
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - iio_info
+        from: inline
+        name: iio
+        path: inline/iio.yaml
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: nvmem
+            description: "Run nvmem tests"
+            os:
+              - apertis
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - hexdump /sys/bus/nvmem/devices/rockchip-otp0/nvmem
+        from: inline
+        name: nvmem
+        path: inline/nvmem.yaml
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: tcpm
+            description: "Run tcpm tests"
+            os:
+              - apertis
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - cat /sys/class/power_supply/tcpm-source-psy-4-0022/uevent || true
+        from: inline
+        name: tcpm
+        path: inline/tcpm.yaml
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: v4l2
+            description: "Run v4l2 tests"
+            os:
+              - apertis
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - find /dev -mindepth 1 -maxdepth 1 -type c -name 'video*' -exec bash -c 'echo "Device $0" ; v4l2-ctl -d $0 -l -D ; echo ""' {} \;
+        from: inline
+        name: v4l2
+        path: inline/v4l2.yaml
+{{ /if }}
+{{ #if job.LAVA_TEST_DMESG }}
+  - test:
+      definitions:
+        - from: git
+          name: dmesg
+          path: dmesg/dmesg.yaml
+          repository: https://gitlab.collabora.com/hardware-enablement/common/lava-test-definitions.git
+          revision: main
+          parameters:
+            LEVELS: crit,alert,emerg,err,warn
+            IGNORE_REGEX: >-
+              dw-apb-uart .* forbid DMA for kernel console|
+              gpio gpiochip.*: Static allocation of GPIO base is deprecated, use dynamic allocation|
+              panthor fb000000.gpu: \[drm\] Firmware protected mode entry not be supported, ignoring|
+              panthor fb000000.gpu: \[drm\] Firmware protected mode entry is not supported, ignoring|
+              pci .*: Primary bus is hard wired to 0|
+              platform .*pcie: deferred probe pending: rockchip-dw-pcie: missing PHY|
+              platform .*usb: deferred probe pending: dwc3: failed to initialize core|
+              platform .*usb: deferred probe pending: dwc3-rockchip: failed to initialize core|
+              platform sdio-pwrseq: deferred probe pending: pwrseq_simple: external clock not ready|
+              platform 2a320000.mmc: deferred probe pending: platform: supplier sdio-pwrseq not ready|
+              platform regulatory.0: Direct firmware load for regulatory.db failed with error -2|
+              faux_driver regulatory: Direct firmware load for regulatory.db failed with error -2|
+              r8169 0004:41:00.0: Unable to load firmware rtl_nic/rtl8125b-2.fw \(-2\)|
+              Failed to create device link \(0x180\) with supplier|
+              rockchip-pm-domain [0-9a-f]*.power-management:power-controller: Failed to enable supply: -517|
+              rockchip-pm-domain [0-9a-f]*.power-management:power-controller: sync_state\(\) pending due to|
+              rockchip-thermal .* Missing rockchip,grf property|
+              rtc-hym8563 .* hctosys: unable to read the hardware clock|
+              rtc-hym8563 .* no valid clock/calendar values available|
+              rtc-hym8563 2-0051: could not init device, -6|
+              dwmmc_rockchip fe2d0000.mmc: Busy; trying anyway|
+              dwmmc_rockchip 2a320000.mmc: card claims to support voltages below defined range|
+              mmc_host mmc2: Timeout sending command \(cmd 0x202000 arg 0x0 status 0x80202000\)|
+              dwhdmiqp-rockchip fde80000.hdmi: i2c read error|
+              fdee0000.hdmi_receiver: hdmirx_wait_signal_lock wait avi_pkt_rcv failed|
+              fdee0000.hdmi_receiver: failed to unpack AVI infoframe|
+              rockchip-drm display-subsystem: .* HDMI Sink doesn.* support RGB, something.* wrong|
+              rk_gmac-dwmac .* Can not read property: [rt]x_delay|
+              rk_gmac-dwmac .* set [rt]x_delay to|
+              rk_gmac-dwmac .* supply phy not found, using dummy regulator|
+              rockchip-usb2phy .* Requested PHY is disabled|
+              cacheinfo: Unable to detect cache hierarchy for CPU 0|
+              ufshcd-rockchip 2a2d0000.ufshc: .*|
+              host_regs: 000000[0-9]0: .*|
+              rockchip-i2s-tdm .*: using zero-initialized flat cache, this may cause unexpected behavior|
+              rockchip-sai .*: using zero-initialized flat cache, this may cause unexpected behavior|
+              brcmfmac .*: Direct firmware load for brcm/brcmfmac43752-sdio.*.bin failed with error -2|
+              brcmfmac: brcmf_sdio_htclk: HT Avail timeout \(1000000\): clkctl 0x50|
+              DUMMY_TERMINATOR_ENTRY
+      timeout:
+        minutes: 10
+{{ /if }}
+{{ #if job.LAVA_TEST_FLUSTER }}
+  - test:
+      definitions:
+      - from: git
+        name: fluster
+        path: fluster/fluster.yaml
+        repository: https://gitlab.collabora.com/hardware-enablement/common/lava-test-definitions.git
+        revision: main
+        parameters:
+          TESTSUITE: {{ job.TESTSUITE }}
+          DECODERS: {{ job.DECODERS }}
+          SKIP_VECTORS: >
+            av1-1-b10-23-film_grain-50
+            av1-1-b8-01-size-16x16
+            av1-1-b8-01-size-16x18
+            av1-1-b8-01-size-16x32
+            av1-1-b8-01-size-16x34
+            av1-1-b8-01-size-16x64
+            av1-1-b8-01-size-16x66
+            av1-1-b8-01-size-18x16
+            av1-1-b8-01-size-18x18
+            av1-1-b8-01-size-18x32
+            av1-1-b8-01-size-18x34
+            av1-1-b8-01-size-18x64
+            av1-1-b8-01-size-18x66
+            av1-1-b8-01-size-32x16
+            av1-1-b8-01-size-32x18
+            av1-1-b8-01-size-32x32
+            av1-1-b8-01-size-32x34
+            av1-1-b8-01-size-32x64
+            av1-1-b8-01-size-32x66
+            av1-1-b8-01-size-34x16
+            av1-1-b8-01-size-34x18
+            av1-1-b8-01-size-34x32
+            av1-1-b8-01-size-34x34
+            av1-1-b8-01-size-34x64
+            av1-1-b8-01-size-34x66
+            av1-1-b8-01-size-64x16
+            av1-1-b8-01-size-64x32
+            av1-1-b8-01-size-64x64
+            av1-1-b8-01-size-64x66
+            av1-1-b8-01-size-66x16
+            av1-1-b8-01-size-66x18
+            av1-1-b8-01-size-66x32
+            av1-1-b8-01-size-66x64
+            av1-1-b8-23-film_grain-50
+
+            CVFC1_Sony_C
+            FM1_BT_B
+            FM1_FT_E
+            FM2_SVA_C
+            MR8_BT_B
+            SP1_BT_A
+            sp2_bt_b
+      timeout:
+        minutes: 10
+{{ /if }}
+{{ #if job.LAVA_TEST_KSELFTEST_DT }}
+  - test:
+      definitions:
+      - from: git
+        name: kselftest-dt
+        parameters:
+          ENV: ''
+          SKIPFILE: /dev/null
+          SKIP_INSTALL: true
+          TESTPROG_URL: "{{job.CI_PROJECT_URL}}/-/jobs/%%KSELFTEST_BUILD_JOB%%/artifacts/raw/artifacts/kselftest.tar.gz"
+          TST_CASENAME: ''
+          TST_CMDFILES: dt
+        path: automated/linux/kselftest/kselftest.yaml
+        repository: https://github.com/kernelci/test-definitions.git
+        revision: kernelci.org
+      timeout:
+        minutes: 10
+{{ /if }}
+{{ #if job.LAVA_TEST_WATCHDOG }}
+  - test:
+      timeout:
+        minutes: 5
+      interactive:
+      - name: wdt-reset
+        prompts: ['root@rk3588-ci:(.*)#']
+        script:
+        - name: wdt-get-timeout
+          command: "wdt_timeout=$(cat /sys/class/watchdog/watchdog0/timeout)"
+          wait_for_prompt: true
+          failures:
+          - message: "cat: /sys/class/watchdog/watchdog\\d+/timeout: No such file or directory"
+            exception: JobError
+        - name: wdt-trigger-reset
+          command: "sleep $((wdt_timeout + 5)) > /dev/watchdog0"
+          wait_for_prompt: false
+          successes:
+          - message: U-Boot
+{{ /if }}
+{{ #if job.LAVA_TEST_RTCWAKE }}
+  - test:
+      definitions:
+      - from: git
+        name: rtcwake
+        parameters:
+          ITERATIONS: 3
+          SECONDS: 120
+          DELTA: 70
+        path: rtcwake/rtcwake.yaml
+        repository: https://gitlab.collabora.com/hardware-enablement/common/lava-test-definitions.git
+        revision: main
+      timeout:
+        minutes: 10
+{{ /if }}
+{{ #if job.LAVA_TEST_PM_TEST_SUSPEND }}
+  - test:
+      timeout:
+        minutes: 5
+      interactive:
+      - name: pm-test-suspend
+        prompts: ['root@rk3588-ci:(.*)#']
+        script:
+        - name: keep-console-enabled
+          command: "echo N > /sys/module/printk/parameters/console_suspend"
+          wait_for_prompt: true
+        - name: print-pm-times
+          command: "echo 1 > /sys/power/pm_print_times"
+          wait_for_prompt: true
+        - name: print-pm-debug-messages
+          command: "echo 1 > /sys/power/pm_debug_messages"
+          wait_for_prompt: true
+        - name: do-pm-test
+          command: "echo core > /sys/power/pm_test"
+          wait_for_prompt: true
+        - name: suspend-for-5s
+          command: "echo mem > /sys/power/state"
+          wait_for_prompt: true
+{{ /if }}
+{{ #if job.LAVA_TEST_PM_TEST_SUSPEND_DEEP }}
+  - test:
+      timeout:
+        minutes: 5
+      interactive:
+      - name: pm-test-suspend-deep
+        prompts: ['root@rk3588-ci:(.*)#']
+        script:
+        - name: keep-console-enabled
+          command: "echo N > /sys/module/printk/parameters/console_suspend"
+          wait_for_prompt: true
+        - name: print-pm-times
+          command: "echo 1 > /sys/power/pm_print_times"
+          wait_for_prompt: true
+        - name: print-pm-debug-messages
+          command: "echo 1 > /sys/power/pm_debug_messages"
+          wait_for_prompt: true
+        - name: do-pm-test
+          command: "echo none > /sys/power/pm_test"
+          wait_for_prompt: true
+        - name: suspend-for-120s
+          command: "rtcwake -m mem -s 120"
+          wait_for_prompt: true
+{{ /if }}
