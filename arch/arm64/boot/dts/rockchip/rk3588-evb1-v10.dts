@@ -554,7 +554,7 @@
 &pcie2x1l1 {
 	reset-gpios = <&gpio4 RK_PA2 GPIO_ACTIVE_HIGH>;
 	pinctrl-names = "default";
-	pinctrl-0 = <&pcie2_1_rst>, <&rtl8111_isolate>;
+	pinctrl-0 = <&pcie2_1_rst>, <&pcie2_1_wake>, <&pcie2_1_clkreq>, <&rtl8111_isolate>;
 	status = "okay";
 };
 
@@ -635,6 +635,14 @@
 
 		pcie2_1_rst: pcie2-1-rst {
 			rockchip,pins = <4 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		pcie2_1_wake: pcie2-1-wake {
+			rockchip,pins = <4 RK_PA1 4 &pcfg_pull_none>;
+		};
+
+		pcie2_1_clkreq: pcie2-1-clkreq {
+			rockchip,pins = <4 RK_PA0 4 &pcfg_pull_none>;
 		};
 	};
 
