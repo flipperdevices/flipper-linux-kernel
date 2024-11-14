@@ -2670,6 +2670,21 @@ static int vop2_bind(struct device *dev, struct device *master, void *data)
 
 	dev_set_drvdata(dev, vop2);
 
+	vop2->resets[RST_ACLK].id = "aclk";
+	vop2->resets[RST_HCLK].id = "hclk";
+	ret = devm_reset_control_bulk_get_optional_exclusive(vop2->dev,
+						RST_VOP2_MAX, vop2->resets);
+	if (ret)
+		return dev_err_probe(drm->dev, ret, "failed to get resets\n");
+
+	ret = reset_control_bulk_assert(RST_VOP2_MAX, vop2->resets);
+	if (ret < 0)
+		drm_warn(vop2->drm, "failed to assert resets\n");
+	udelay(10);
+	ret = reset_control_bulk_deassert(RST_VOP2_MAX, vop2->resets);
+	if (ret < 0)
+		drm_warn(vop2->drm, "failed to deassert resets\n");
+
 	res = platform_get_resource_byname(pdev, IORESOURCE_MEM, "vop");
 	if (!res)
 		return dev_err_probe(drm->dev, -EINVAL,
