@@ -82,6 +82,26 @@ properties:
       - {}
       - {}
 
+  resets:
+    minItems: 5
+    items:
+      - description: AXI clock reset.
+      - description: AHB clock reset.
+      - description: Pixel clock reset for video port 0.
+      - description: Pixel clock reset for video port 1.
+      - description: Pixel clock reset for video port 2.
+      - description: Pixel clock reset for video port 3.
+
+  reset-names:
+    minItems: 5
+    items:
+      - const: aclk
+      - const: hclk
+      - const: dclk_vp0
+      - const: dclk_vp1
+      - const: dclk_vp2
+      - const: dclk_vp3
+
   rockchip,grf:
     $ref: /schemas/types.yaml#/definitions/phandle
     description:
@@ -153,6 +173,12 @@ allOf:
 
         interrupt-names: false
 
+        resets:
+          maxItems: 5
+
+        reset-names:
+          maxItems: 5
+
         ports:
           required:
             - port@0
@@ -199,6 +225,12 @@ allOf:
 
         interrupt-names:
           minItems: 4
+
+        resets:
+          maxItems: 5
+
+        reset-names:
+          maxItems: 5
 
         ports:
           required:
@@ -251,6 +283,12 @@ allOf:
 
         interrupt-names: false
 
+        resets:
+          minItems: 6
+
+        reset-names:
+          minItems: 6
+
         ports:
           required:
             - port@0
@@ -285,6 +323,16 @@ examples:
                          <&cru DCLK_VOP1>,
                          <&cru DCLK_VOP2>;
                 clock-names = "aclk",
+                              "hclk",
+                              "dclk_vp0",
+                              "dclk_vp1",
+                              "dclk_vp2";
+                resets = <&cru SRST_A_VOP>,
+                         <&cru SRST_H_VOP>,
+                         <&cru SRST_VOP0>,
+                         <&cru SRST_VOP1>,
+                         <&cru SRST_VOP2>;
+                reset-names = "aclk",
                               "hclk",
                               "dclk_vp0",
                               "dclk_vp1",
