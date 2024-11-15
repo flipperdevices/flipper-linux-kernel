@@ -17,6 +17,7 @@
 #include <linux/platform_device.h>
 #include <linux/pm_runtime.h>
 #include <linux/regmap.h>
+#include <linux/reset.h>
 #include <linux/swab.h>
 
 #include <drm/drm.h>
@@ -1605,6 +1606,26 @@ static int us_to_vertical_line(struct drm_display_mode *mode, int us)
 	return us * mode->clock / mode->htotal / 1000;
 }
 
+static int vop2_clk_reset(struct vop2_video_port *vp)
+{
+	struct reset_control *rstc = vp->dclk_rst;
+	struct vop2 *vop2 = vp->vop2;
+	int ret;
+
+	if (!rstc)
+		return 0;
+
+	ret = reset_control_assert(rstc);
+	if (ret < 0)
+		drm_warn(vop2->drm, "failed to assert reset\n");
+	udelay(10);
+	ret = reset_control_deassert(rstc);
+	if (ret < 0)
+		drm_warn(vop2->drm, "failed to deassert reset\n");
+
+	return ret;
+}
+
 static void vop2_crtc_atomic_enable(struct drm_crtc *crtc,
 				    struct drm_atomic_state *state)
 {
@@ -1788,6 +1809,8 @@ static void vop2_crtc_atomic_enable(struct drm_crtc *crtc,
 	vop2_cfg_done(vp);
 
 	vop2_vp_write(vp, RK3568_VP_DSP_CTRL, dsp_ctrl);
+
+	vop2_clk_reset(vp);
 
 	vop2_crtc_atomic_try_set_gamma(vop2, vp, crtc, crtc_state);
 
@@ -2362,6 +2385,11 @@ static int vop2_create_crtcs(struct vop2 *vop2)
 		vp->vop2 = vop2;
 		vp->id = vp_data->id;
 		vp->data = vp_data;
+
+		vp->dclk_rst = devm_reset_control_get_optional(vop2->dev, dclk_name);
+		if (IS_ERR(vp->dclk_rst))
+		        return dev_err_probe(drm->dev, PTR_ERR(vp->dclk_rst),
+					     "failed to get %s reset\n", dclk_name);
 
 		snprintf(dclk_name, sizeof(dclk_name), "dclk_vp%d", vp->id);
 		vp->dclk = devm_clk_get(vop2->dev, dclk_name);
