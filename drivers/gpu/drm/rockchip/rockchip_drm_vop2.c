@@ -645,6 +645,39 @@ static void vop2_setup_scale(struct vop2 *vop2, const struct vop2_win *win,
 	}
 }
 
+/*
+ * Convert drm_colorspace to v4l2_colorspace.
+ *
+ * TODO: this should be moved to rockchip_drm_drv.c but it requires
+ * including <uapi/linux/videodev2.h> which is not used elsewere.
+ */
+int rockchip_drm_colorimetry_to_v4l_colorspace(int drm_colorspace)
+{
+	switch (drm_colorspace) {
+	case DRM_MODE_COLORIMETRY_SMPTE_170M_YCC:
+	case DRM_MODE_COLORIMETRY_XVYCC_601:
+	case DRM_MODE_COLORIMETRY_SYCC_601:
+	case DRM_MODE_COLORIMETRY_OPYCC_601:
+	case DRM_MODE_COLORIMETRY_BT601_YCC:
+		return V4L2_COLORSPACE_SMPTE170M;
+
+	default:
+	case DRM_MODE_COLORIMETRY_NO_DATA:
+	case DRM_MODE_COLORIMETRY_BT709_YCC:
+	case DRM_MODE_COLORIMETRY_XVYCC_709:
+	case DRM_MODE_COLORIMETRY_RGB_WIDE_FIXED:
+	case DRM_MODE_COLORIMETRY_RGB_WIDE_FLOAT:
+		return V4L2_COLORSPACE_DEFAULT;
+
+	case DRM_MODE_COLORIMETRY_BT2020_CYCC:
+	case DRM_MODE_COLORIMETRY_BT2020_YCC:
+	case DRM_MODE_COLORIMETRY_BT2020_RGB:
+	case DRM_MODE_COLORIMETRY_DCI_P3_RGB_D65:
+	case DRM_MODE_COLORIMETRY_DCI_P3_RGB_THEATER:
+		return V4L2_COLORSPACE_BT2020;
+	}
+}
+
 static int vop2_convert_csc_mode(int csc_mode)
 {
 	switch (csc_mode) {
@@ -1553,6 +1586,7 @@ static void vop2_post_config(struct drm_crtc *crtc)
 	struct vop2_video_port *vp = to_vop2_video_port(crtc);
 	struct vop2 *vop2 = vp->vop2;
 	struct drm_display_mode *mode = &crtc->state->adjusted_mode;
+	struct rockchip_crtc_state *vcstate = to_rockchip_crtc_state(crtc->state);
 	u64 bgcolor = crtc->state->background_color;
 	u16 vtotal = mode->crtc_vtotal;
 	u16 hdisplay = mode->crtc_hdisplay;
@@ -1604,6 +1638,15 @@ static void vop2_post_config(struct drm_crtc *crtc)
 	val |= FIELD_PREP(RK3568_VP_DSP_BG__DSP_BG_GREEN, DRM_ARGB64_GETG_BPC(bgcolor, 10));
 	val |= FIELD_PREP(RK3568_VP_DSP_BG__DSP_BG_BLUE, DRM_ARGB64_GETB_BPC(bgcolor, 10));
 	vop2_vp_write(vp, RK3568_VP_DSP_BG, val);
+
+	if (vcstate->output_mode == ROCKCHIP_OUT_MODE_YUV420) {
+		val = RK3568_VP_BCSH_CTRL__BCSH_R2Y_EN;
+		u32 csc_mode = vop2_convert_csc_mode(vcstate->color_space);
+		val |= FIELD_PREP(RK3568_VP_BCSH_CTRL__BCSH_R2Y_CSC_MODE, csc_mode);
+	} else {
+		val = 0;
+	}
+	vop2_vp_write(vp, RK3568_VP_BCSH_CTRL, val);
 }
 
 static int us_to_vertical_line(struct drm_display_mode *mode, int us)

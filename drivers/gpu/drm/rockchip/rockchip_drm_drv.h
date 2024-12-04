@@ -57,6 +57,8 @@ struct rockchip_crtc_state {
 #define to_rockchip_crtc_state(s) \
 		container_of(s, struct rockchip_crtc_state, base)
 
+int rockchip_drm_colorimetry_to_v4l_colorspace(int drm_colorspace);
+
 /*
  * Rockchip drm private structure.
  *
