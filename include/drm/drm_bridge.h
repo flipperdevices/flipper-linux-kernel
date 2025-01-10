@@ -664,6 +664,13 @@ struct drm_bridge_funcs {
 	enum drm_connector_status (*detect)(struct drm_bridge *bridge,
 					    struct drm_connector *connector);
 
+	//TODO: document variant used by bridge_connector framework
+	// When ctx == NULL, detect_ctx should not return < 0 and behaves
+	// exactly like ->detect() above.
+	// When both detect_cts and detect are defined, the latter is ignored.
+	int (*detect_ctx)(struct drm_bridge *bridge,
+			  struct drm_modeset_acquire_ctx *ctx);
+
 	/**
 	 * @get_modes:
 	 *
