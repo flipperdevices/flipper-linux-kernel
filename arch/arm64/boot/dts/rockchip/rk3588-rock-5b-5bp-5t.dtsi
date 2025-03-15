@@ -304,6 +304,10 @@
 	};
 };
 
+&i2c3 {
+	status = "okay";
+};
+
 &i2c4 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c4m1_xfer>;
