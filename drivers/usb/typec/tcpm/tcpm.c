@@ -826,6 +826,8 @@ static void _tcpm_log(struct tcpm_port *port, const char *fmt, va_list args)
 
 	vsnprintf(tmpbuffer, sizeof(tmpbuffer), fmt, args);
 
+	dev_dbg(port->dev, "%s\n", tmpbuffer);
+
 	if (tcpm_log_full(port)) {
 		port->logbuffer_head = max(port->logbuffer_head - 1, 0);
 		strscpy(tmpbuffer, "overflow");
