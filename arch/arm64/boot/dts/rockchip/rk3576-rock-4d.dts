@@ -6,6 +6,7 @@
 /dts-v1/;
 
 #include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/input/input.h>
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/rockchip.h>
 #include <dt-bindings/pwm/pwm.h>
@@ -45,6 +46,31 @@
 		shutdown-gpios = <&gpio2 RK_PD1 GPIO_ACTIVE_HIGH>;
 	};
 
+	es8388_sound: es8388-sound {
+		compatible = "simple-audio-card";
+		simple-audio-card,format = "i2s";
+		simple-audio-card,mclk-fs = <256>;
+		simple-audio-card,name = "On-board Analog ES8388";
+		simple-audio-card,widgets = "Microphone", "Headphone Mic",
+					    "Headphone", "Headphone";
+		simple-audio-card,routing = "Headphone", "LOUT1",
+					    "Headphone", "ROUT1",
+					    "Left PGA Mux", "Differential Mux",
+					    "Differential Mux", "LINPUT1",
+					    "Differential Mux", "RINPUT1",
+					    "LINPUT1", "Headphone Mic",
+					    "RINPUT1", "Headphone Mic";
+
+		simple-audio-card,cpu {
+			sound-dai = <&sai1>;
+		};
+
+		simple-audio-card,codec {
+			sound-dai = <&es8388>;
+			system-clock-frequency = <12288000>;
+		};
+	};
+
 	leds: leds {
 		compatible = "gpio-leds";
 		pinctrl-names = "default";
@@ -62,6 +88,37 @@
 			function = LED_FUNCTION_HEARTBEAT;
 			gpios = <&gpio0 RK_PC4 GPIO_ACTIVE_LOW>;
 			linux,default-trigger = "heartbeat";
+		};
+	};
+
+	saradc_keys: adc-keys {
+		compatible = "adc-keys";
+		io-channels = <&saradc 3>;
+		io-channel-names = "buttons";
+		keyup-threshold-microvolt = <3000000>;
+		poll-interval = <100>;
+
+		/*
+		 * During insertion and removal of a regular set of headphones,
+		 * i.e. one without a microphone, the voltage level briefly
+		 * dips below the 220mV of the headset connection switch.
+		 * By having a button definition with a KEY_RESERVED signal
+		 * between 0 to 220, we ensure no driver implementation thinks
+		 * that the closest thing to 0V is 220mV so clearly there must
+		 * be a headset connected.
+		 */
+
+		button-headset-disconnected {
+			label = "Headset Microphone Disconnected";
+			linux,code = <KEY_RESERVED>;
+			press-threshold-microvolt = <0>;
+		};
+
+		button-headset-connected {
+			label = "Headset Microphone Connected";
+			linux,code = <SW_MICROPHONE_INSERT>;
+			linux,input-type = <EV_SW>;
+			press-threshold-microvolt = <220000>;
 		};
 	};
 
@@ -682,6 +739,25 @@
 	};
 };
 
+&i2c3 {
+	status = "okay";
+
+	es8388: audio-codec@10 {
+		compatible = "everest,es8388", "everest,es8328";
+		reg = <0x10>;
+		clocks = <&cru CLK_SAI1_MCLKOUT_TO_IO>;
+		AVDD-supply = <&vcca_3v3_s0>;
+		DVDD-supply = <&vcc_3v3_s0>;
+		HPVDD-supply = <&vcca_3v3_s0>;
+		PVDD-supply = <&vcc_3v3_s0>;
+		assigned-clocks = <&cru CLK_SAI1_MCLKOUT_TO_IO>;
+		assigned-clock-rates = <12288000>;
+		#sound-dai-cells = <0>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&sai1m0_mclk>;
+	};
+};
+
 &i2c6 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&i2c6m3_xfer>;
@@ -770,7 +846,21 @@
 	};
 };
 
+&sai1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&sai1m0_lrck
+		     &sai1m0_sclk
+		     &sai1m0_sdi0
+		     &sai1m0_sdo0>;
+	status = "okay";
+};
+
 &sai6 {
+	status = "okay";
+};
+
+&saradc {
+	vref-supply = <&vcca1v8_pldo2_s0>;
 	status = "okay";
 };
 
