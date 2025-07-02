@@ -270,6 +270,8 @@ static int rtl821x_probe(struct phy_device *phydev)
 	if (IS_ERR(priv->clk))
 		return dev_err_probe(dev, PTR_ERR(priv->clk),
 				     "failed to get phy clock\n");
+	if (priv->clk)
+		phy_reset_after_clk_enable(phydev);
 
 	priv->enable_aldps = of_property_read_bool(dev->of_node,
 						   "realtek,aldps-enable");
@@ -798,8 +800,10 @@ static int rtl821x_resume(struct phy_device *phydev)
 	struct rtl821x_priv *priv = phydev->priv;
 	int ret;
 
-	if (!phydev->wol_enabled)
+	if (!phydev->wol_enabled && priv->clk) {
 		clk_prepare_enable(priv->clk);
+		phy_reset_after_clk_enable(phydev);
+	}
 
 	ret = genphy_resume(phydev);
 	if (ret < 0)
@@ -2226,7 +2230,7 @@ static struct phy_driver realtek_drvs[] = {
 		.resume		= rtl8211f_resume,
 		.read_page	= rtl821x_read_page,
 		.write_page	= rtl821x_write_page,
-		.flags		= PHY_ALWAYS_CALL_SUSPEND,
+		.flags		= PHY_ALWAYS_CALL_SUSPEND | PHY_RST_AFTER_CLK_EN,
 		.led_hw_is_supported = rtl8211x_led_hw_is_supported,
 		.led_hw_control_get = rtl8211f_led_hw_control_get,
 		.led_hw_control_set = rtl8211f_led_hw_control_set,
