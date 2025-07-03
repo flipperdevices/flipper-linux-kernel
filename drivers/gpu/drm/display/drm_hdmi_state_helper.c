@@ -535,7 +535,9 @@ hdmi_clock_valid(const struct drm_connector *connector,
 	const struct drm_connector_hdmi_funcs *funcs = connector->hdmi.funcs;
 	const struct drm_display_info *info = &connector->display_info;
 
-	if (info->max_tmds_clock && clock > info->max_tmds_clock * 1000)
+	//TODO: add proper FRL rate check
+	if ((!info->hdmi.max_frl_rate_per_lane || !info->hdmi.max_lanes) &&
+	    (info->max_tmds_clock && clock > info->max_tmds_clock * 1000))
 		return MODE_CLOCK_HIGH;
 
 	if (funcs && funcs->tmds_char_rate_valid) {
