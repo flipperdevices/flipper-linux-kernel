@@ -365,6 +365,67 @@ actions:
             MR8_BT_B
             SP1_BT_A
             sp2_bt_b
+            CVFI2_SVA_C
+            CVMAPAQP3_Sony_E
+            CVMAQP2_Sony_G
+            CVMAQP3_Sony_D
+            CVMA1_TOSHIBA_B
+            CVMANL1_TOSHIBA_B
+            CI1_FT_B
+            CVBS3_Sony_C
+            CVMANL2_TOSHIBA_B
+            CVNLFI1_Sony_C
+            CVPCMNL2_SVA_C
+            CVPCMNL1_SVA_C
+            CVMP_MOT_FRM_L31_B
+            CVNLFI2_Sony_H
+            CVMP_MOT_FLD_L30_B
+            CVPA1_TOSHIBA_B
+            CVWP1_TOSHIBA_E
+            CVWP3_TOSHIBA_E
+            CVWP2_TOSHIBA_E
+            CVWP5_TOSHIBA_E
+            FI1_Sony_E
+            CVSEFDFT3_Sony_E
+            CVSE2_Sony_B
+            CVSE3_Sony_H
+            MIDR_MW_D
+            MR1_BT_A
+            MPS_MW_A
+            HCBP1_HHI_A
+            HCBP2_HHI_A
+            HCMP1_HHI_A
+            MR1_MW_A
+            MR7_BT_B
+            MR8_BT_B
+            MR6_BT_B
+            MR2_MW_A
+            MR9_BT_B
+            NL1_Sony_D
+            MR2_TANDBERG_E
+            NL3_SVA_E
+            MR5_TANDBERG_C
+            NLMQ1_JVC_C
+            MR3_TANDBERG_B
+            NLMQ2_JVC_C
+            MR4_TANDBERG_C
+            Sharp_MP_Field_1_B
+            Sharp_MP_Field_2_B
+            NRF_MW_E
+            Sharp_MP_Field_3_B
+            Sharp_MP_PAFF_1r2
+            Sharp_MP_PAFF_2r
+            SL1_SVA_B
+            SVA_Base_B
+            SVA_BA1_B
+            SVA_BA2_D
+            NL2_Sony_H
+            SVA_NL2_E
+            SVA_CL1_E
+            SVA_FM1_E
+            SVA_NL1_B
+            MV1_BRCM_D
+            LS_SVA_D
       timeout:
         minutes: 10
 {{ /if }}
