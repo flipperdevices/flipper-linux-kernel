@@ -1545,6 +1545,42 @@ struct drm_mode_closefb {
 	__u32 pad;
 };
 
+/*
+ * Put 16-bit ARGB values into a standard 64-bit representation that
+ * can be used for ioctl parameters, inter-driver communication, etc.
+ *
+ * If the component values being provided contain less than 16 bits
+ * of precision, shift them into the most significant bits.
+ */
+#define __DRM_ARGB64_PREP(c, shift, bpc)			\
+	(((__u64)(c) << (16 - (bpc)) & 0xffffU) << (shift))
+
+#define DRM_ARGB64_PREP_BPC(alpha, red, green, blue, bpc)	\
+	(__DRM_ARGB64_PREP(alpha, 48, bpc) |			\
+	 __DRM_ARGB64_PREP(red,   32, bpc) |			\
+	 __DRM_ARGB64_PREP(green, 16, bpc) |			\
+	 __DRM_ARGB64_PREP(blue,   0, bpc))
+
+#define DRM_ARGB64_PREP(alpha, red, green, blue)		\
+	DRM_ARGB64_PREP_BPC(alpha, red, green, blue, 16)
+
+/*
+ * Extract the specified number of most-significant bits of a specific
+ * color component from a standard 64-bit ARGB value.
+ */
+#define __DRM_ARGB64_GET(c, shift, bpc)				\
+	((__u16)((0xffffULL << (shift) & (c)) >> ((shift) + 16 - (bpc))))
+
+#define DRM_ARGB64_GETA_BPC(c, bpc)	__DRM_ARGB64_GET(c, 48, bpc)
+#define DRM_ARGB64_GETR_BPC(c, bpc)	__DRM_ARGB64_GET(c, 32, bpc)
+#define DRM_ARGB64_GETG_BPC(c, bpc)	__DRM_ARGB64_GET(c, 16, bpc)
+#define DRM_ARGB64_GETB_BPC(c, bpc)	__DRM_ARGB64_GET(c, 0, bpc)
+
+#define DRM_ARGB64_GETA(c)		DRM_ARGB64_GETA_BPC(c, 16)
+#define DRM_ARGB64_GETR(c)		DRM_ARGB64_GETR_BPC(c, 16)
+#define DRM_ARGB64_GETG(c)		DRM_ARGB64_GETG_BPC(c, 16)
+#define DRM_ARGB64_GETB(c)		DRM_ARGB64_GETB_BPC(c, 16)
+
 #if defined(__cplusplus)
 }
 #endif
