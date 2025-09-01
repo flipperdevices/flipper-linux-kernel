@@ -1394,17 +1394,21 @@
 			vicap_mipi0: port@1 {
 				reg = <1>;
 
+/*
 				vicap_mipi0_input: endpoint {
 					remote-endpoint = <&csi0_output>;
 				};
+*/
 			};
 
 			vicap_mipi1: port@2 {
 				reg = <2>;
 
+/*
 				vicap_mipi1_input: endpoint {
 					remote-endpoint = <&csi1_output>;
 				};
+*/
 			};
 
 			vicap_mipi2: port@3 {
@@ -1453,6 +1457,7 @@
 		status = "disabled";
 	};
 
+/*
 	csi0: csi@fdd10000 {
 		compatible = "rockchip,rk3588-mipi-csi", "rockchip,rk3568-mipi-csi";
 		reg = <0x0 0xfdd10000 0x0 0x10000>;
@@ -1512,6 +1517,7 @@
 			};
 		};
 	};
+*/
 
 	csi2: csi@fdd30000 {
 		compatible = "rockchip,rk3588-mipi-csi", "rockchip,rk3568-mipi-csi";
