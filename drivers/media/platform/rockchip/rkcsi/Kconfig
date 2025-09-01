@@ -1,0 +1,16 @@
+config VIDEO_ROCKCHIP_CSI
+	tristate "Rockchip MIPI CSI-2 Receiver"
+	depends on VIDEO_DEV
+	depends on ARCH_ROCKCHIP || COMPILE_TEST
+	depends on V4L_PLATFORM_DRIVERS
+	depends on PM && COMMON_CLK
+	select MEDIA_CONTROLLER
+	select V4L2_FWNODE
+	select VIDEO_V4L2_SUBDEV_API
+	help
+	  This is a driver for Rockchip MIPI CSI-2 Receiver. It is featured
+	  in various Rockchips SoCs, usually in combination with a Video
+	  Capture (VICAP) unit (see Rockchip Camera Interface (CIF) driver).
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called rockchip-mipi-csi.
