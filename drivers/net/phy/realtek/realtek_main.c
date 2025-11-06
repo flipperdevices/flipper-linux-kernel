@@ -936,11 +936,13 @@ err:
 static int rtl821x_resume(struct phy_device *phydev)
 {
 	struct rtl821x_priv *priv = phydev->priv;
+	bool reinit = false;
 	int ret;
 
 	if (!phydev->wol_enabled && priv->clk) {
 		clk_prepare_enable(priv->clk);
 		phy_reset_after_clk_enable(phydev);
+		reinit = true;
 	}
 
 	ret = genphy_resume(phydev);
@@ -948,6 +950,9 @@ static int rtl821x_resume(struct phy_device *phydev)
 		return ret;
 
 	msleep(20);
+
+	if (reinit)
+		phy_init_hw(phydev);
 
 	return 0;
 }
