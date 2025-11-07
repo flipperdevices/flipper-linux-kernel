@@ -2012,6 +2012,7 @@ err_pm_runtime_put:
 static int qcom_pcie_suspend_noirq(struct device *dev)
 {
 	struct qcom_pcie *pcie;
+	struct dw_pcie_rp *pp;
 	int ret = 0;
 
 	pcie = dev_get_drvdata(dev);
@@ -2047,8 +2048,9 @@ static int qcom_pcie_suspend_noirq(struct device *dev)
 	 * powerdown state. This will affect the lifetime of the storage devices
 	 * like NVMe.
 	 */
-	if (!dw_pcie_link_up(pcie->pci)) {
-		qcom_pcie_host_deinit(&pcie->pci->pp);
+	pp = &pcie->pci->pp;
+	if (!pci_root_ports_have_device(pp->bridge->bus)) {
+		qcom_pcie_host_deinit(pp);
 		pcie->suspended = true;
 	}
 
