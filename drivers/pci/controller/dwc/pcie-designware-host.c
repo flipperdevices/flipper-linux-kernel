@@ -20,6 +20,7 @@
 #include <linux/platform_device.h>
 
 #include "../../pci.h"
+#include "../pci-host-common.h"
 #include "pcie-designware.h"
 
 static struct pci_ops dw_pcie_ops;
@@ -1161,6 +1162,9 @@ int dw_pcie_suspend_noirq(struct dw_pcie *pci)
 	u32 val;
 	int ret;
 
+	if (!pci_root_ports_have_device(pci->pp.bridge->bus))
+		goto stop_link;
+
 	/*
 	 * If L1SS is supported, then do not put the link into L2 as some
 	 * devices such as NVMe expect low resume latency.
@@ -1194,6 +1198,7 @@ int dw_pcie_suspend_noirq(struct dw_pcie *pci)
 	 */
 	udelay(1);
 
+stop_link:
 	dw_pcie_stop_link(pci);
 	if (pci->pp.ops->deinit)
 		pci->pp.ops->deinit(&pci->pp);
@@ -1226,6 +1231,14 @@ int dw_pcie_resume_noirq(struct dw_pcie *pci)
 	ret = dw_pcie_start_link(pci);
 	if (ret)
 		return ret;
+
+	/*
+	 * If there was no device before suspend, skip waiting for link up as
+	 * it is bound to fail. It is very unlikely that a device will get
+	 * connected *during* suspend.
+	 */
+	if (!pci_root_ports_have_device(pci->pp.bridge->bus))
+		return 0;
 
 	ret = dw_pcie_wait_for_link(pci);
 	if (ret)
