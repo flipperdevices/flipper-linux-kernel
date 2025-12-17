@@ -586,8 +586,7 @@ static int rkvdec_hevc_run(struct rkvdec_ctx *ctx)
 		dev_warn_ratelimited(rkvdec->dev, "Long and short term RPS not set\n");
 	}
 
-	rkvdec_hevc_assemble_hw_scaling_list(&run,
-					     &tbl->scaling_list,
+	rkvdec_hevc_assemble_hw_scaling_list(ctx, &run, &tbl->scaling_list,
 					     &hevc_ctx->scaling_matrix_cache);
 	assemble_hw_pps(ctx, &run);
 	rkvdec_hevc_assemble_hw_rps(&run, &tbl->rps, &hevc_ctx->st_cache);
