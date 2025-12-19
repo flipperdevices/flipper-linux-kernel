@@ -98,6 +98,20 @@ config DRM_PIXPAPER
 
 	  If M is selected, the module will be built as pixpaper.ko.
 
+config TINYDRM_FLIPCTL_DISPLAY
+	tristate "DRM support for Flipper FlipCTL display"
+	depends on DRM && SPI
+	select DRM_CLIENT_SELECTION
+	select DRM_GEM_DMA_HELPER
+	select DRM_KMS_HELPER
+	default y
+	help
+	  DRM Driver for the Flipper embedded control board display, which
+	  uses an onboard MCU to drive a 258x144 grayscale LCD based on a
+	  framebuffer written over SPI (full frame at a time, 8 bpp)
+
+	  If M is selected the module will be called flipctl_display.
+
 config TINYDRM_HX8357D
 	tristate "DRM support for HX8357D display panels"
 	depends on DRM && SPI
