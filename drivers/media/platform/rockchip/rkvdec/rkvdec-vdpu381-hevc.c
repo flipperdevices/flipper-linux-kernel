@@ -577,6 +577,10 @@ static int rkvdec_hevc_run(struct rkvdec_ctx *ctx)
 
 	rkvdec_hevc_run_preamble(ctx, &run);
 
+	rkvdec_hevc_assemble_hw_scaling_list(ctx, &run, &tbl->scaling_list,
+					     &hevc_ctx->scaling_matrix_cache);
+	assemble_hw_pps(ctx, &run);
+
 	/*
 	 * On vdpu381, not setting the long and short term ref sets will just output wrong frames.
 	 * Let's just warn about it and let the decoder run anyway.
@@ -584,12 +588,10 @@ static int rkvdec_hevc_run(struct rkvdec_ctx *ctx)
 	if ((!ctx->has_sps_lt_rps && run.sps->num_long_term_ref_pics_sps) ||
 		(!ctx->has_sps_st_rps && run.sps->num_short_term_ref_pic_sets)) {
 		dev_warn_ratelimited(rkvdec->dev, "Long and short term RPS not set\n");
+	} else {
+		dev_warn_ratelimited(rkvdec->dev, "setting lt/rt\n");
+		rkvdec_hevc_assemble_hw_rps(&run, &tbl->rps, &hevc_ctx->st_cache);
 	}
-
-	rkvdec_hevc_assemble_hw_scaling_list(ctx, &run, &tbl->scaling_list,
-					     &hevc_ctx->scaling_matrix_cache);
-	assemble_hw_pps(ctx, &run);
-	rkvdec_hevc_assemble_hw_rps(&run, &tbl->rps, &hevc_ctx->st_cache);
 
 	config_registers(ctx, &run);
 
