@@ -3702,7 +3702,7 @@ brcmf_cfg80211_escan_handler(struct brcmf_if *ifp,
 		list = (struct brcmf_scan_results *)
 				cfg->escan_info.escan_buf;
 		if (bi_length > BRCMF_ESCAN_BUF_SIZE - list->buflen) {
-			bphy_err(drvr, "Buffer is too small: ignoring\n");
+			wiphy_dbg((drvr)->wiphy, "Buffer is too small: ignoring\n");
 			goto exit;
 		}
 
