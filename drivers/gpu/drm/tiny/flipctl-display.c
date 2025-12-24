@@ -77,7 +77,7 @@ static void flipctl_set_tx_buffer_data(struct flipctl_device *fctl,
 	clip.y2 = fb->height;
 
 	iosys_map_set_vaddr(&dst, fctl->tx_buffer);
-	drm_fb_xrgb8888_to_gray8(&dst, NULL, src, fb, &clip, &s_plane_state->fmtcnv_state);
+	drm_fb_xrgb8888_to_gray8(&dst, &fctl->pitch, src, fb, &clip, &s_plane_state->fmtcnv_state);
 	drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);
 }
 
@@ -322,8 +322,8 @@ static int flipctl_probe(struct spi_device *spi)
 
 	drm->mode_config.funcs = &flipctl_mode_config_funcs;
 	fctl->mode = spi_get_device_match_data(spi);
-	/* The controller expects 3-byte aligned buffers */
-	fctl->pitch = ((fctl->mode->hdisplay - 1) / 3 + 1) * 3;
+	/* The controller expects 3-byte aligned input */
+	fctl->pitch = roundup(fctl->mode->hdisplay, 3);
 	fctl->tx_buffer_size = (fctl->pitch) * (fctl->mode->vdisplay);
 
 	fctl->tx_buffer = devm_kzalloc(dev, fctl->tx_buffer_size, GFP_KERNEL);
