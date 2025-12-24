@@ -744,6 +744,12 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 	if (ret)
 		goto deinit_phy;
 
+	ret = phy_calibrate(rockchip->phy);
+	if (ret) {
+		dev_err(dev, "phy lock failed\n");
+		goto assert_controller;
+	}
+
 	ret = rockchip_pcie_clk_init(rockchip);
 	if (ret)
 		goto deinit_phy;
@@ -766,7 +772,8 @@ static int rockchip_pcie_probe(struct platform_device *pdev)
 	}
 
 	return 0;
-
+assert_controller:
+	reset_control_assert(rockchip->rst);
 deinit_clk:
 	clk_bulk_disable_unprepare(rockchip->clk_cnt, rockchip->clks);
 deinit_phy:
