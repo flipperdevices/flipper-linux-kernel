@@ -64,12 +64,17 @@ static void flipctl_set_tx_buffer_data(struct flipctl_device *fctl,
 {
 	struct drm_shadow_plane_state *s_plane_state = to_drm_shadow_plane_state(plane_state);
 	struct drm_framebuffer *fb = plane_state->fb;
-	struct drm_rect clip = {0, fb->width, 0, fb->height};
+	struct drm_rect clip;
 	struct iosys_map *src = s_plane_state->data;
 	struct iosys_map dst;
 
 	if (drm_gem_fb_begin_cpu_access(fb, DMA_FROM_DEVICE))
 		return;
+
+	clip.x1 = 0;
+	clip.x2 = fb->width;
+	clip.y1 = 0;
+	clip.y2 = fb->height;
 
 	iosys_map_set_vaddr(&dst, fctl->tx_buffer);
 	drm_fb_xrgb8888_to_gray8(&dst, NULL, src, fb, &clip, &s_plane_state->fmtcnv_state);
