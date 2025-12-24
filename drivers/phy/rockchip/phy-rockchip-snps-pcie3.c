@@ -183,6 +183,7 @@ static int rockchip_p3phy_rk3588_init(struct rockchip_p3phy_priv *priv)
 	}
 
 	reg = mode;
+	priv->pcie30_phymode = mode;
 	regmap_write(priv->phy_grf, RK3588_PCIE3PHY_GRF_CMN_CON0,
 		     RK3588_PCIE30_PHY_MODE_EN | reg);
 
@@ -208,10 +209,13 @@ static int rockchip_p3phy_rk3588_calibrate(struct rockchip_p3phy_priv *priv)
 				       RK3588_PCIE3PHY_GRF_PHY0_STATUS1,
 				       reg, RK3588_SRAM_INIT_DONE(reg),
 				       0, RK_SRAM_INIT_TIMEOUT_US);
-	ret |= regmap_read_poll_timeout(priv->phy_grf,
-					RK3588_PCIE3PHY_GRF_PHY1_STATUS1,
-					reg, RK3588_SRAM_INIT_DONE(reg),
-					0, RK_SRAM_INIT_TIMEOUT_US);
+	if (priv->pcie30_phymode & (RK3588_LANE_AGGREGATION | RK3588_BIFURCATION_LANE_2_3)) {
+		ret |= regmap_read_poll_timeout(priv->phy_grf,
+						RK3588_PCIE3PHY_GRF_PHY1_STATUS1,
+						reg, RK3588_SRAM_INIT_DONE(reg),
+						0, RK_SRAM_INIT_TIMEOUT_US);
+	}
+
 	if (ret)
 		dev_err(&priv->phy->dev, "lock failed 0x%x, check input refclk and power supply\n",
 			reg);
