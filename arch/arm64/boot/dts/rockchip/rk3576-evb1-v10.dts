@@ -250,15 +250,14 @@
 	sound {
 		compatible = "simple-audio-card";
 		pinctrl-names = "default";
-		pinctrl-0 = <&hp_detect>;
+		pinctrl-0 = <&hp_det>;
 		simple-audio-card,name = "On-board Analog ES8388";
-		simple-audio-card,aux-devs = <&amp_headphone>, <&amp_speaker>;
+		simple-audio-card,aux-devs = <&hp_power>, <&spk_power>;
 		simple-audio-card,bitclock-master = <&masterdai>;
 		simple-audio-card,format = "i2s";
 		simple-audio-card,frame-master = <&masterdai>;
 		simple-audio-card,hp-det-gpios = <&gpio0 RK_PD3 GPIO_ACTIVE_LOW>;
 		simple-audio-card,mclk-fs = <256>;
-		simple-audio-card,pin-switches = "Headphones", "Speaker";
 		simple-audio-card,routing =
 			"Headphone Power INL", "LOUT1",
 			"Headphone Power INR", "ROUT1",
@@ -288,19 +287,19 @@
 		};
 	};
 
-	amp_headphone: headphone-amplifier {
+	hp_power: headphone-amplifier {
 		compatible = "simple-audio-amplifier";
 		enable-gpios = <&gpio3 RK_PD6 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&headphone_amplifier_en>;
+		pinctrl-0 = <&hp_ctl>;
 		sound-name-prefix = "Headphone Power";
 	};
 
-	amp_speaker: speaker-amplifier {
+	spk_power: speaker-amplifier {
 		compatible = "simple-audio-amplifier";
 		enable-gpios = <&gpio2 RK_PB1 GPIO_ACTIVE_HIGH>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&speaker_amplifier_en>;
+		pinctrl-0 = <&spk_ctl>;
 		sound-name-prefix = "Speaker Power";
 		VCC-supply = <&vcc5v0_device>;
 	};
@@ -858,15 +857,15 @@
 
 &pinctrl {
 	audio {
-		hp_detect: headphone-detect {
-			rockchip,pins = <0 RK_PD3 RK_FUNC_GPIO &pcfg_pull_none>;
+		hp_det: hp-det {
+			rockchip,pins = <0 RK_PD3 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 
-		headphone_amplifier_en: headphone-amplifier-en {
-			rockchip,pins = <3 RK_PD6 RK_FUNC_GPIO &pcfg_pull_none>;
+		hp_ctl: hp-ctl {
+			rockchip,pins = <3 RK_PD6 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
 
-		speaker_amplifier_en: speaker-amplifier-en {
+		spk_ctl: spk-ctl {
 			rockchip,pins = <2 RK_PB1 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
