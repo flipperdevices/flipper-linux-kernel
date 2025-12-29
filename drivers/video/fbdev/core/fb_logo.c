@@ -6,7 +6,15 @@
 #include "fb_internal.h"
 
 bool fb_center_logo __read_mostly;
-int fb_logo_count __read_mostly = -1;
+/*
+ * fb_logo_count: number of boot logos to display
+ *   -1 = show one logo per online CPU (default upstream behavior)
+ *    0 = disable logo
+ *   >0 = show exactly this many logos
+ *
+ * Flipper: hardcode to 1 to always show single logo regardless of CPU count
+ */
+int fb_logo_count __read_mostly = 1;
 
 static inline unsigned int safe_shift(unsigned int d, int n)
 {
