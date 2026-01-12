@@ -348,6 +348,7 @@
 };
 
 &hdmi {
+	frl-enable-gpios = <&gpio2 RK_PB0 GPIO_ACTIVE_LOW>;
 	status = "okay";
 };
 
