@@ -18,6 +18,9 @@
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
 
+#define HUSB311_VID		0x2E99
+#define HUSB311_PID		0x0311
+#define HUSB311_DID		0x0000
 #define RT1711H_VID		0x29CF
 #define RT1711H_PID		0x1711
 #define RT1711H_DID		0x2171
@@ -55,6 +58,8 @@
 
 struct rt1711h_chip_info {
 	u32 rxdz_sel;
+	u16 vid;
+	u16 pid;
 	u16 did;
 	bool enable_pd30_extended_message;
 };
@@ -308,14 +313,14 @@ static int rt1711h_check_revision(struct i2c_client *i2c, struct rt1711h_chip *c
 	ret = i2c_smbus_read_word_data(i2c, TCPC_VENDOR_ID);
 	if (ret < 0)
 		return ret;
-	if (ret != RT1711H_VID) {
+	if (ret != chip->info->vid) {
 		dev_err(&i2c->dev, "vid is not correct, 0x%04x\n", ret);
 		return -ENODEV;
 	}
 	ret = i2c_smbus_read_word_data(i2c, TCPC_PRODUCT_ID);
 	if (ret < 0)
 		return ret;
-	if (ret != RT1711H_PID) {
+	if (ret != chip->info->pid) {
 		dev_err(&i2c->dev, "pid is not correct, 0x%04x\n", ret);
 		return -ENODEV;
 	}
@@ -405,17 +410,28 @@ static void rt1711h_remove(struct i2c_client *client)
 	tcpci_unregister_port(chip->tcpci);
 }
 
+static const struct rt1711h_chip_info husb311 = {
+	.vid = HUSB311_VID,
+	.pid = HUSB311_PID,
+	.did = HUSB311_DID,
+};
+
 static const struct rt1711h_chip_info rt1711h = {
+	.vid = RT1711H_VID,
+	.pid = RT1711H_PID,
 	.did = RT1711H_DID,
 };
 
 static const struct rt1711h_chip_info rt1715 = {
 	.rxdz_sel = RT1711H_BMCIO_RXDZSEL,
+	.vid = RT1711H_VID,
+	.pid = RT1711H_PID,
 	.did = RT1715_DID,
 	.enable_pd30_extended_message = true,
 };
 
 static const struct i2c_device_id rt1711h_id[] = {
+	{ "husb311", (kernel_ulong_t)&husb311 },
 	{ "rt1711h", (kernel_ulong_t)&rt1711h },
 	{ "rt1715", (kernel_ulong_t)&rt1715 },
 	{}
@@ -423,6 +439,7 @@ static const struct i2c_device_id rt1711h_id[] = {
 MODULE_DEVICE_TABLE(i2c, rt1711h_id);
 
 static const struct of_device_id rt1711h_of_match[] = {
+	{ .compatible = "hynetek,husb311", .data = &husb311 },
 	{ .compatible = "richtek,rt1711h", .data = &rt1711h },
 	{ .compatible = "richtek,rt1715", .data = &rt1715 },
 	{}
