@@ -288,6 +288,10 @@
 	};
 };
 
+&dp0_sound {
+	status = "okay";
+};
+
 &gmac0 {
 	phy-mode = "rgmii-id";
 	clock_in_out = "output";
@@ -963,6 +967,10 @@
 	sd-uhs-sdr104;
 	vmmc-supply = <&vcc_3v3_s3>;
 	vqmmc-supply = <&vccio_sd_s0>;
+	status = "okay";
+};
+
+&spdif_tx3 {
 	status = "okay";
 };
 
