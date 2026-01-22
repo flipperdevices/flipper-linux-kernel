@@ -1638,8 +1638,7 @@ rockchip_thermal_register_sensor(struct platform_device *pdev,
 	if (tsadc->get_trim_code && sensor->of_node) {
 		error = rockchip_get_efuse_value(sensor->of_node, "trim", &trim);
 		if (error < 0 && error != -ENOENT) {
-			dev_err(dev, "failed reading trim of sensor %d: %pe\n",
-				id, ERR_PTR(error));
+			dev_err_probe(dev, error, "failed reading trim of sensor %d\n", id);
 			return error;
 		}
 		if (trim) {
