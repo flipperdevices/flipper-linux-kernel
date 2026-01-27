@@ -588,6 +588,8 @@ patternProperties:
     description: Fitipower Integrated Technology Inc.
   "^flipkart,.*":
     description: Flipkart Inc.
+  "^flipper,.*":
+    description: Flipper FZCO
   "^focaltech,.*":
     description: FocalTech Systems Co.,Ltd
   "^forlinx,.*":
