@@ -858,6 +858,20 @@
 		};
 	};
 
+	spi3 {
+		spi3m2_wo_miso: spi3m2-pins-wo-miso {
+			rockchip,pins =
+				/* spi3_clk_m2 */
+				<4 RK_PA7 9 &pcfg_pull_none>,
+				/* spi3_mosi_m2 */
+				<4 RK_PA4 9 &pcfg_pull_none>;
+		};
+
+		display_gpio: spi3m2-miso {
+			rockchip,pins = <4 RK_PA6 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+
 	usb {
 		usb3_host_pwren_h: usb3-host-pwren-h {
 			rockchip,pins = <0 RK_PC7 RK_FUNC_GPIO &pcfg_pull_none>;
@@ -909,6 +923,20 @@
 		spi-rx-bus-width = <4>;
 		spi-tx-bus-width = <1>;
 		vcc-supply = <&vcc_1v8_s3>;
+	};
+};
+
+&spi3 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&spi3m2_csn0 &spi3m2_wo_miso &display_gpio>;
+	status = "okay";
+
+	display@0 {
+		compatible = "flipper,one-display";
+		reg = <0>;
+		active-gpios = <&gpio4 RK_PA6 GPIO_ACTIVE_LOW>;
+		spi-max-frequency = <20000000>;
+		spi-rx-bus-width = <0>;
 	};
 };
 
