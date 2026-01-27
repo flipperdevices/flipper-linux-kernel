@@ -7964,6 +7964,10 @@ F:	include/linux/aperture.h
 F:	include/linux/sysfb.h
 F:	include/video/nomodeset.h
 
+DRM DRIVER FOR THE FLIPPER ONE DISPLAY
+M:	Alexey Charkov <alchark@flipper.net>
+F:	drivers/gpu/drm/tiny/flipper-one-display.c
+
 DRM DRIVER FOR GENERIC EDP PANELS
 R:	Douglas Anderson <dianders@chromium.org>
 F:	Documentation/devicetree/bindings/display/panel/panel-edp.yaml
