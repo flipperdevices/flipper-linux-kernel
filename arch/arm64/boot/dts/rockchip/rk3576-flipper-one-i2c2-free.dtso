@@ -1,0 +1,51 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * DT-overlay to disable CPU side access to all I2C2 peripherals
+ */
+
+/dts-v1/;
+/plugin/;
+
+&gpio_expander {
+	status = "disabled";
+};
+
+&usbc0 {
+	status = "disabled";
+};
+
+&ina4_1 {
+	status = "disabled";
+};
+
+&ina4_2 {
+	status = "disabled";
+};
+
+&ina4_3 {
+	status = "disabled";
+};
+
+&ina4_4 {
+	status = "disabled";
+};
+
+&ina_sys {
+	status = "disabled";
+};
+
+&ina4_5 {
+	status = "disabled";
+};
+
+&usbmux {
+	status = "disabled";
+};
+
+&gauge {
+	status = "disabled";
+};
+
+&bq25792 {
+	status = "disabled";
+};
