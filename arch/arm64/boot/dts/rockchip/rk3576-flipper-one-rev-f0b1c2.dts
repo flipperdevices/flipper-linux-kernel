@@ -1,0 +1,146 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Copyright (c) 2026 Flipper FZCO
+ */
+
+/dts-v1/;
+
+#include "rk3576-flipper-one.dtsi"
+
+/ {
+	model = "Flipper One rev. F0B1C2";
+	compatible = "flipper,one-rev-f0b1c2", "rockchip,rk3576";
+
+	vcc3v3_usb_mux: regulator-vcc3v3-usb-mux {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		regulator-name = "vcc3v3_usb_mux";
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpios = <&gpio_expander 0xb GPIO_ACTIVE_HIGH>;
+		/*
+		 * Actually enabled by vcc5v0_device_s0 via an RC-delayed MOSFET
+		 * gate, but DT has to model them as two parallel regulators
+		 * sharing the same enable pin, so this delay spans the whole
+		 * chain: the AP62600 soft-start (5.6ms) and then the RC-delayed
+		 * MOSFET gate it feeds (6.9ms). The RC also provides the
+		 * HD3SS3220's tVDD5V_PG >= 2ms VDD5-before-VCC33 ordering, and
+		 * cuts the I2C connection from the mux until VDD5 is up
+		 */
+		startup-delay-us = <15000>;
+		vin-supply = <&vcc3v3_control>;
+	};
+
+	vcc3v3_wifi: regulator-vcc3v3-wifi {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		regulator-name = "vcc3v3_wifi";
+		regulator-always-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpios = <&gpio2 RK_PB5 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&wifi_pwr_en>;
+		pinctrl-names = "default";
+		vin-supply = <&vcc_3v3_s3>;
+	};
+
+	vusb_typec_up: regulator-vcc5v2-vusb-typec-up {
+		compatible = "regulator-fixed";
+		regulator-name = "vusb_typec_up";
+		regulator-min-microvolt = <5200000>;
+		regulator-max-microvolt = <5200000>;
+		gpios = <&gpio_expander 0x7 GPIO_ACTIVE_HIGH>;
+		vin-supply = <&vcc5v0_device_s0>;
+	};
+};
+
+&charger {
+	compatible = "ti,bq25798", "ti,bq25792";
+};
+
+&gpio_expander {
+	compatible = "nxp,pcal6416";
+};
+
+&gpio_vcc5v0 {
+	vin-supply = <&vcc8v4_sys>;
+};
+
+&gpio1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&sim_sel>;
+};
+
+&gpio2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&sim_cd>;
+};
+
+&hub_2_0 {
+	vdd3v3-supply = <&vcc_3v3_s3>;
+};
+
+&hub_3_0 {
+	vdd3v3-supply = <&vcc_3v3_s3>;
+};
+
+&ina_sys {
+	shunt-resistor = <10000>;
+};
+
+&mcu {
+	pinctrl-names = "default";
+	pinctrl-0 = <&cpu_int>;
+};
+
+&nau8822 {
+	vddspk-supply = <&vcc5v0_sys_s5>;
+};
+
+&pinctrl {
+	sim {
+		sim_cd: sim-cd {
+			rockchip,pins = <2 RK_PB2 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		sim_sel: sim-sel {
+			rockchip,pins = <1 RK_PC0 RK_FUNC_GPIO &pcfg_output_high>;
+		};
+	};
+
+	wifi {
+		wifi_pwr_en: wifi-pwr-en {
+			rockchip,pins = <2 RK_PB5 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
+
+&typec_up_con {
+	vbus-supply = <&vusb_typec_up>;
+};
+
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1m1_xfer>;
+	status = "okay";
+};
+
+&usbc0 {
+	interrupt-parent = <&gpio0>;
+	interrupts = <RK_PB5 IRQ_TYPE_LEVEL_LOW>;
+	pinctrl-0 = <&audio_headset_int>;
+	pinctrl-names = "default";
+};
+
+&usbmux {
+	interrupt-parent = <&gpio_expander>;
+	interrupts = <4 IRQ_TYPE_LEVEL_LOW>;
+	vcc33-supply = <&vcc3v3_usb_mux>;
+};
+
+&vcc5v0_device_s0 {
+	regulator-min-microvolt = <5200000>;
+	regulator-max-microvolt = <5200000>;
+	enable-active-high;
+	gpios = <&gpio_expander 0xb GPIO_ACTIVE_HIGH>;
+};
