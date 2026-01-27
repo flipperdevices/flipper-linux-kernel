@@ -1,0 +1,16 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * DT-overlay to switch the M.2 slot from PCIe mode to SATA (which shares the
+ * same pins).
+ */
+
+/dts-v1/;
+/plugin/;
+
+&sata0 {
+	status = "okay";
+};
+
+&pcie0 {
+	status = "disabled";
+};
