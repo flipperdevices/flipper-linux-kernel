@@ -299,6 +299,11 @@ properties:
           - const: firefly,rk3568-roc-pc
           - const: rockchip,rk3568
 
+      - description: Flipper One rev. F0B0C1
+        items:
+          - const: flipper,one-rev-f0b0c1
+          - const: rockchip,rk3576
+
       - description: Forlinx FET3588-C SoM
         items:
           - enum:
