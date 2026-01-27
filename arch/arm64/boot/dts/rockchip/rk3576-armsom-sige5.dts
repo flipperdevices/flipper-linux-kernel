@@ -708,6 +708,7 @@
 };
 
 &i2c2 {
+	clock-frequency = <400000>;
 	status = "okay";
 
 	usbc0: typec-portc@22 {
