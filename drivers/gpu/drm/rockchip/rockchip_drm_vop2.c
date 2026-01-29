@@ -1468,6 +1468,9 @@ static enum drm_mode_status vop2_crtc_mode_valid(struct drm_crtc *crtc,
 	if (mode->hdisplay > vp->data->max_output.width)
 		return MODE_BAD_HVALUE;
 
+	if (mode->clock > vp->data->max_clock_rate / 1000)
+		return MODE_CLOCK_HIGH;
+
 	return MODE_OK;
 }
 
