@@ -232,6 +232,7 @@ struct vop2_video_port_data {
 	u16 gamma_lut_len;
 	u16 cubic_lut_len;
 	struct vop_rect max_output;
+	u32 max_clock_rate;
 	const u8 pre_scan_max_dly[4];
 	unsigned int offset;
 	/**
