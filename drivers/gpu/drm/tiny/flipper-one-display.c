@@ -226,7 +226,7 @@ static const struct spi_device_id fo_ids[] = {
 MODULE_DEVICE_TABLE(spi, fo_ids);
 
 static const struct of_device_id fo_of_match[] = {
-	{.compatible = "flipper,flipper-one-display", &fo_display_mode},
+	{.compatible = "flipper,one-display", &fo_display_mode},
 	{},
 };
 MODULE_DEVICE_TABLE(of, fo_of_match);
