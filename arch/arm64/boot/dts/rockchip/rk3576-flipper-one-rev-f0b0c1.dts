@@ -881,6 +881,13 @@
 		interrupts = <RK_PA7 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-0 = <&expander_int>;
 		pinctrl-names = "default";
+
+		usb2-switch-hog {
+			gpios = <10 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "Main Type-C USB 2.0 pins switch to CPU";
+			gpio-hog;
+		};
 	};
 
 	usbc0: typec-portc@22 {
@@ -1270,7 +1277,7 @@
 	status = "okay";
 
 	display@0 {
-		compatible = "flipper,flipctl-display";
+		compatible = "flipper,one-display";
 		reg = <0>;
 		active-gpios = <&gpio4 RK_PA6 GPIO_ACTIVE_LOW>;
 		spi-max-frequency = <20000000>;
