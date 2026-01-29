@@ -1468,6 +1468,19 @@ static enum drm_mode_status vop2_crtc_mode_valid(struct drm_crtc *crtc,
 	if (mode->hdisplay > vp->data->max_output.width)
 		return MODE_BAD_HVALUE;
 
+	/*
+	 * TODO: Info from Andy Yan, which means the following needs to be adapted a bit:
+	 *
+	 * For all current platforms, the maximum dclk input supported by VOP is 600 MHz.
+	 * The tricky part is that when we need to display a resolution higher than 4K@60,
+	 * even though the required dclk exceeds 600 MHz, VOP internally processes 2 or 4
+	 * pixels per clock cycle to output a higher resolution using a lower dclk.
+	 * Therefore, even when outputting an 8K@60 resolution, CRU only needs to provide
+	 * VOP with a dclk of 594 MHz. This is what the rk3588_calc_cru_cfg function does.
+	 */
+	if (mode->clock > vp->data->max_clock_rate / 1000)
+		return MODE_CLOCK_HIGH;
+
 	return MODE_OK;
 }
 
