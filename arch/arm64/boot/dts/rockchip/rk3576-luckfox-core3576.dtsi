@@ -660,9 +660,9 @@
 };
 
 &mdio0 {
-	rgmii_phy0: ethernet-phy@1 {
+	rgmii_phy0: ethernet-phy@0 {
 		compatible = "ethernet-phy-id001c.c916";
-		reg = <0x1>;
+		reg = <0x0>;
 		clocks = <&cru REFCLKO25M_GMAC0_OUT>;
 		assigned-clocks = <&cru REFCLKO25M_GMAC0_OUT>;
 		assigned-clock-rates = <25000000>;
