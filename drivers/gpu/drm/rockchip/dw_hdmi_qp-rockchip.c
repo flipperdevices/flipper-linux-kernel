@@ -246,6 +246,7 @@ dw_hdmi_qp_rockchip_encoder_atomic_check(struct drm_encoder *encoder,
 		s->output_mode = ROCKCHIP_OUT_MODE_AAAA;
 		break;
 	case MEDIA_BUS_FMT_UYVY8_1X16:
+	case MEDIA_BUS_FMT_UYVY10_1X20:
 		s->output_mode = ROCKCHIP_OUT_MODE_YUV422;
 		break;
 	case MEDIA_BUS_FMT_UYYVYY8_0_5X24:
@@ -265,7 +266,14 @@ dw_hdmi_qp_rockchip_encoder_atomic_check(struct drm_encoder *encoder,
 		s->frl_enabled = false;
 		mode = PHY_HDMI_MODE_TMDS;
 		phy_cfg.hdmi.tmds_char_rate = conn_state->hdmi.tmds_char_rate;
-		phy_cfg.hdmi.bpc = conn_state->hdmi.output_bpc;
+		/*
+		 * YUV422 always transmits two 12-bit components per clock cycle,
+		 * regardless of the color depth, which from a rate perspective is
+		 * equivalent to three 8-bit RGB components.  Force 8 bpc here to
+		 * keep the PHY PLL output aligned with the TMDS character rate.
+		 */
+		phy_cfg.hdmi.bpc = (s->output_mode == ROCKCHIP_OUT_MODE_YUV422 ?
+					8 : conn_state->hdmi.output_bpc);
 	}
 
 	ret = phy_set_mode_ext(hdmi->phy, PHY_MODE_HDMI, mode);
