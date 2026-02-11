@@ -149,7 +149,10 @@
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 		regulator-max-microamp = <6000000>;
-		gpios = <&gpio_expander 14 GPIO_ACTIVE_HIGH>;
+		/*
+		 * Controlled by the GPIO expander pin 14, but we
+		 * can't let this pin to ever change state
+		 */
 		vin-supply = <&vcc8v4_sys>;
 	};
 
@@ -881,11 +884,19 @@
 		interrupts = <RK_PA7 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-0 = <&expander_int>;
 		pinctrl-names = "default";
+		vcc-supply = <&vcc3v3_control>;
 
 		usb2-switch-hog {
 			gpios = <10 GPIO_ACTIVE_HIGH>;
 			output-high;
 			line-name = "Main Type-C USB 2.0 pins switch to CPU";
+			gpio-hog;
+		};
+
+		vcc5v0-sys-s5-hog {
+			gpios = <14 GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "Main power supply to the system PMIC";
 			gpio-hog;
 		};
 	};
