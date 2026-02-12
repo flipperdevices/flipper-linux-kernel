@@ -1997,6 +1997,55 @@ static bool tcpm_cable_vdm_supported(struct tcpm_port *port)
 	       tcpm_can_communicate_sop_prime(port);
 }
 
+static void tcpm_handle_discover_mode(struct tcpm_port *port,
+				      const u32 *p, int cnt, u32 *response,
+				      enum tcpm_transmit_type rx_sop_type,
+				      enum tcpm_transmit_type *response_tx_sop_type,
+				      struct pd_mode_data *modep,
+				      struct pd_mode_data *modep_prime,
+				      int svdm_version, int *rlen,
+				      bool success)
+
+{
+	struct typec_port *typec = port->typec_port;
+
+	/* 6.4.4.3.3 */
+	if (success)
+		svdm_consume_modes(port, p, cnt, rx_sop_type);
+
+	if (rx_sop_type == TCPC_TX_SOP) {
+		modep->svid_index++;
+		if (modep->svid_index < modep->nsvids) {
+			u16 svid = modep->svids[modep->svid_index];
+			*response_tx_sop_type = TCPC_TX_SOP;
+			response[0] = VDO(svid, 1, svdm_version,
+					  CMD_DISCOVER_MODES);
+			*rlen = 1;
+		} else if (tcpm_cable_vdm_supported(port)) {
+			*response_tx_sop_type = TCPC_TX_SOP_PRIME;
+			response[0] = VDO(USB_SID_PD, 1,
+					  typec_get_cable_svdm_version(typec),
+					  CMD_DISCOVER_SVID);
+			*rlen = 1;
+		} else {
+			tcpm_register_partner_altmodes(port);
+		}
+	} else if (rx_sop_type == TCPC_TX_SOP_PRIME) {
+		modep_prime->svid_index++;
+		if (modep_prime->svid_index < modep_prime->nsvids) {
+			u16 svid = modep_prime->svids[modep_prime->svid_index];
+			*response_tx_sop_type = TCPC_TX_SOP_PRIME;
+			response[0] = VDO(svid, 1,
+					  typec_get_cable_svdm_version(typec),
+					  CMD_DISCOVER_MODES);
+			*rlen = 1;
+		} else {
+			tcpm_register_plug_altmodes(port);
+			tcpm_register_partner_altmodes(port);
+		}
+	}
+}
+
 static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 			const u32 *p, int cnt, u32 *response,
 			enum adev_actions *adev_action,
@@ -2254,41 +2303,10 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 			}
 			break;
 		case CMD_DISCOVER_MODES:
-			if (rx_sop_type == TCPC_TX_SOP) {
-				/* 6.4.4.3.3 */
-				svdm_consume_modes(port, p, cnt, rx_sop_type);
-				modep->svid_index++;
-				if (modep->svid_index < modep->nsvids) {
-					u16 svid = modep->svids[modep->svid_index];
-					*response_tx_sop_type = TCPC_TX_SOP;
-					response[0] = VDO(svid, 1, svdm_version,
-							  CMD_DISCOVER_MODES);
-					rlen = 1;
-				} else if (tcpm_cable_vdm_supported(port)) {
-					*response_tx_sop_type = TCPC_TX_SOP_PRIME;
-					response[0] = VDO(USB_SID_PD, 1,
-							  typec_get_cable_svdm_version(typec),
-							  CMD_DISCOVER_SVID);
-					rlen = 1;
-				} else {
-					tcpm_register_partner_altmodes(port);
-				}
-			} else if (rx_sop_type == TCPC_TX_SOP_PRIME) {
-				/* 6.4.4.3.3 */
-				svdm_consume_modes(port, p, cnt, rx_sop_type);
-				modep_prime->svid_index++;
-				if (modep_prime->svid_index < modep_prime->nsvids) {
-					u16 svid = modep_prime->svids[modep_prime->svid_index];
-					*response_tx_sop_type = TCPC_TX_SOP_PRIME;
-					response[0] = VDO(svid, 1,
-							  typec_get_cable_svdm_version(typec),
-							  CMD_DISCOVER_MODES);
-					rlen = 1;
-				} else {
-					tcpm_register_plug_altmodes(port);
-					tcpm_register_partner_altmodes(port);
-				}
-			}
+			tcpm_handle_discover_mode(port, p, cnt, response,
+						  rx_sop_type, response_tx_sop_type,
+						  modep, modep_prime, svdm_version,
+						  &rlen, true);
 			break;
 		case CMD_ENTER_MODE:
 			*response_tx_sop_type = rx_sop_type;
@@ -2331,8 +2349,14 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 		switch (cmd) {
 		case CMD_DISCOVER_IDENT:
 		case CMD_DISCOVER_SVID:
-		case CMD_DISCOVER_MODES:
 		case VDO_CMD_VENDOR(0) ... VDO_CMD_VENDOR(15):
+			break;
+		case CMD_DISCOVER_MODES:
+			tcpm_log(port, "Skip SVID 0x%04x (failed to discover mode)", PD_VDO_SVID_SVID0(p[0]));
+			tcpm_handle_discover_mode(port, p, cnt, response,
+						  rx_sop_type, response_tx_sop_type,
+						  modep, modep_prime, svdm_version,
+						  &rlen, false);
 			break;
 		case CMD_ENTER_MODE:
 			/* Back to USB Operation */
