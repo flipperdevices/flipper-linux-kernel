@@ -63,7 +63,6 @@
 		regulator-boot-on;
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		regulator-max-microamp = <4000000>;
 		vin-supply = <&vcc8v4_sys>;
 	};
 
@@ -72,7 +71,6 @@
 		regulator-name = "gpio_vcc3v3";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		regulator-max-microamp = <2040000>;
 		gpios = <&gpio_expander 16 GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc3v3_control>;
 	};
@@ -82,7 +80,6 @@
 		regulator-name = "vcc3v3_m2";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		regulator-max-microamp = <4000000>;
 		enable-active-high;
 		gpios = <&gpio0 RK_PB1 GPIO_ACTIVE_HIGH>;
 		pinctrl-0 = <&m2_pwr_en>;
@@ -106,7 +103,6 @@
 		regulator-name = "vcc5v0_device";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		regulator-max-microamp = <6000000>;
 		gpios = <&gpio_expander 13 GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc8v4_sys>;
 	};
@@ -116,7 +112,6 @@
 		regulator-name = "gpio_vcc5v0";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		regulator-max-microamp = <2040000>;
 		gpios = <&gpio_expander 15 GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc5v0_device_s0>;
 	};
@@ -126,7 +121,6 @@
 		regulator-name = "vusb_typec_up";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		regulator-max-microamp = <3300000>;
 		/* USB MUX: MUX_ID */
 		vin-supply = <&vcc5v0_device_s0>;
 	};
@@ -136,7 +130,6 @@
 		regulator-name = "vusb_typea_up";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		regulator-max-microamp = <3300000>;
 		gpios = <&gpio_expander 12 GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc5v0_device_s0>;
 	};
@@ -148,7 +141,6 @@
 		regulator-boot-on;
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		regulator-max-microamp = <6000000>;
 		/*
 		 * Controlled by the GPIO expander pin 14, but we
 		 * can't let this pin to ever change state
@@ -163,7 +155,6 @@
 		regulator-always-on;
 		regulator-min-microvolt = <2000000>;
 		regulator-max-microvolt = <2000000>;
-		regulator-max-microamp = <2000000>;
 		/* PMIC_EXT_EN_OUT */
 		vin-supply = <&vcc5v0_sys_s5>;
 	};
@@ -175,7 +166,6 @@
 		regulator-always-on;
 		regulator-min-microvolt = <1100000>;
 		regulator-max-microvolt = <1100000>;
-		regulator-max-microamp = <2000000>;
 		/* PMIC_EXT_EN_OUT */
 		vin-supply = <&vcc5v0_sys_s5>;
 	};
@@ -187,7 +177,6 @@
 		regulator-always-on;
 		regulator-min-microvolt = <900000>;
 		regulator-max-microvolt = <900000>;
-		regulator-max-microamp = <2000000>;
 		/* VCC_3V3_S3 */
 		vin-supply = <&vcc5v0_sys_s5>;
 	};
@@ -197,7 +186,6 @@
 		regulator-name = "vdd1v1_hub";
 		regulator-min-microvolt = <1100000>;
 		regulator-max-microvolt = <1100000>;
-		regulator-max-microamp = <2000000>;
 		gpios = <&gpio_expander 11 GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc5v0_sys_s5>;
 	};
@@ -209,7 +197,6 @@
 		regulator-always-on;
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		regulator-max-microamp = <2200000>;
 		/* VCCA_1V8_S0 */
 		vin-supply = <&vcc_3v3_s3>;
 	};
@@ -221,7 +208,6 @@
 		regulator-always-on;
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
-		regulator-max-microamp = <2500000>;
 		/* VCCA_1V8_S0 */
 		vin-supply = <&vcc_1v8_s3>;
 	};
@@ -233,7 +219,6 @@
 		regulator-always-on;
 		regulator-min-microvolt = <1800000>;
 		regulator-max-microvolt = <1800000>;
-		regulator-max-microamp = <2500000>;
 		/* VCCA_1V8_S0 */
 		vin-supply = <&vcc_1v8_s3>;
 	};
@@ -593,7 +578,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <550000>;
 				regulator-max-microvolt = <950000>;
-				regulator-max-microamp = <6500000>;
 				regulator-ramp-delay = <12500>;
 				regulator-name = "vdd_cpu_big_s0";
 				regulator-enable-ramp-delay = <400>;
@@ -607,7 +591,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <550000>;
 				regulator-max-microvolt = <950000>;
-				regulator-max-microamp = <5000000>;
 				regulator-ramp-delay = <12500>;
 				regulator-name = "vdd_npu_s0";
 				regulator-enable-ramp-delay = <400>;
@@ -622,7 +605,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <550000>;
 				regulator-max-microvolt = <950000>;
-				regulator-max-microamp = <5000000>;
 				regulator-ramp-delay = <12500>;
 				regulator-name = "vdd_cpu_lit_s0";
 
@@ -637,7 +619,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
-				regulator-max-microamp = <5000000>;
 				regulator-name = "vcc_3v3_s3";
 
 				regulator-state-mem {
@@ -650,7 +631,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <550000>;
 				regulator-max-microvolt = <900000>;
-				regulator-max-microamp = <3000000>;
 				regulator-ramp-delay = <12500>;
 				regulator-name = "vdd_gpu_s0";
 				regulator-enable-ramp-delay = <400>;
@@ -664,7 +644,6 @@
 			vddq_ddr_s0: dcdc-reg6 {
 				regulator-always-on;
 				regulator-boot-on;
-				regulator-max-microamp = <3000000>;
 				regulator-name = "vddq_ddr_s0";
 
 				regulator-state-mem {
@@ -677,7 +656,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <550000>;
 				regulator-max-microvolt = <800000>;
-				regulator-max-microamp = <3000000>;
 				regulator-name = "vdd_logic_s0";
 
 				regulator-state-mem {
@@ -690,7 +668,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
-				regulator-max-microamp = <3000000>;
 				regulator-name = "vcc_1v8_s3";
 
 				regulator-state-mem {
@@ -702,7 +679,6 @@
 			vdd2_ddr_s3: dcdc-reg9 {
 				regulator-always-on;
 				regulator-boot-on;
-				regulator-max-microamp = <3000000>;
 				regulator-name = "vdd2_ddr_s3";
 
 				regulator-state-mem {
@@ -715,7 +691,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <550000>;
 				regulator-max-microvolt = <1200000>;
-				regulator-max-microamp = <3000000>;
 				regulator-name = "vdd_ddr_s0";
 
 				regulator-state-mem {
@@ -728,7 +703,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
-				regulator-max-microamp = <500000>;
 				regulator-name = "vcca_1v8_s0";
 
 				regulator-state-mem {
@@ -741,7 +715,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
-				regulator-max-microamp = <300000>;
 				regulator-name = "vcca1v8_pldo2_s0";
 
 				regulator-state-mem {
@@ -754,7 +727,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <1200000>;
 				regulator-max-microvolt = <1200000>;
-				regulator-max-microamp = <300000>;
 				regulator-name = "vdda_1v2_s0";
 
 				regulator-state-mem {
@@ -767,7 +739,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
-				regulator-max-microamp = <500000>;
 				regulator-name = "vcca_3v3_s0";
 
 				regulator-state-mem {
@@ -780,7 +751,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <3300000>;
-				regulator-max-microamp = <300000>;
 				regulator-name = "vccio_3v3_sd_s0";
 
 				regulator-state-mem {
@@ -793,7 +763,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <1800000>;
 				regulator-max-microvolt = <1800000>;
-				regulator-max-microamp = <300000>;
 				regulator-name = "vcca1v8_pldo6_s3";
 
 				regulator-state-mem {
@@ -807,7 +776,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <550000>;
 				regulator-max-microvolt = <750000>;
-				regulator-max-microamp = <300000>;
 				regulator-name = "vdd_0v75_s3";
 
 				regulator-state-mem {
@@ -821,7 +789,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <850000>;
 				regulator-max-microvolt = <850000>;
-				regulator-max-microamp = <300000>;
 				regulator-name = "vdda_ddr_pll_s0";
 
 				regulator-state-mem {
@@ -833,7 +800,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <837500>;
 				regulator-max-microvolt = <837500>;
-				regulator-max-microamp = <500000>;
 				regulator-name = "vdda0v75_hdmi_s0";
 
 				regulator-state-mem {
@@ -846,7 +812,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <850000>;
 				regulator-max-microvolt = <850000>;
-				regulator-max-microamp = <500000>;
 				regulator-name = "vdda_0v85_s0";
 
 				regulator-state-mem {
@@ -859,7 +824,6 @@
 				regulator-boot-on;
 				regulator-min-microvolt = <750000>;
 				regulator-max-microvolt = <750000>;
-				regulator-max-microamp = <300000>;
 				regulator-name = "vdda_0v75_s0";
 
 				regulator-state-mem {
