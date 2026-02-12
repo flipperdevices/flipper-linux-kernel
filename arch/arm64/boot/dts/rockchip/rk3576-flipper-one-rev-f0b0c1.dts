@@ -1201,11 +1201,6 @@
 };
 
 &sai2 {
-	pinctrl-names = "default";
-	pinctrl-0 = <&sai2m1_lrck
-		     &sai2m1_sclk
-		     &sai2m1_sdi
-		     &sai2m1_sdo>;
 	status = "okay";
 };
 
