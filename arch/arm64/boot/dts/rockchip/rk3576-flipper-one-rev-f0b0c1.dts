@@ -68,6 +68,7 @@
 
 	gpio_vcc3v3: regulator-vcc3v3-extgpio {
 		compatible = "regulator-fixed";
+		enable-active-high;
 		regulator-name = "gpio_vcc3v3";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
@@ -100,6 +101,7 @@
 
 	vcc5v0_device_s0: regulator-vcc5v0-device-s0 {
 		compatible = "regulator-fixed";
+		enable-active-high;
 		regulator-name = "vcc5v0_device";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
@@ -109,6 +111,7 @@
 
 	gpio_vcc5v0: regulator-vcc5v0-extgpio {
 		compatible = "regulator-fixed";
+		enable-active-high;
 		regulator-name = "gpio_vcc5v0";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
@@ -127,6 +130,7 @@
 
 	vusb_typea_up: regulator-vcc5v0-vusb-typea-up {
 		compatible = "regulator-fixed";
+		enable-active-high;
 		regulator-name = "vusb_typea_up";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
@@ -183,6 +187,7 @@
 
 	vdd1v1_hub: regulator-vdd-1v1-hub {
 		compatible = "regulator-fixed";
+		enable-active-high;
 		regulator-name = "vdd1v1_hub";
 		regulator-min-microvolt = <1100000>;
 		regulator-max-microvolt = <1100000>;
