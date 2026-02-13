@@ -72,7 +72,7 @@
 		regulator-name = "gpio_vcc3v3";
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		gpios = <&gpio_expander 16 GPIO_ACTIVE_HIGH>;
+		gpios = <&gpio_expander 0xe GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc3v3_control>;
 	};
 
@@ -105,7 +105,7 @@
 		regulator-name = "vcc5v0_device";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		gpios = <&gpio_expander 13 GPIO_ACTIVE_HIGH>;
+		gpios = <&gpio_expander 0xb GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc8v4_sys>;
 	};
 
@@ -115,7 +115,7 @@
 		regulator-name = "gpio_vcc5v0";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		gpios = <&gpio_expander 15 GPIO_ACTIVE_HIGH>;
+		gpios = <&gpio_expander 0xd GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc5v0_device_s0>;
 	};
 
@@ -134,7 +134,7 @@
 		regulator-name = "vusb_typea_up";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		gpios = <&gpio_expander 12 GPIO_ACTIVE_HIGH>;
+		gpios = <&gpio_expander 0xa GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc5v0_device_s0>;
 	};
 
@@ -191,7 +191,7 @@
 		regulator-name = "vdd1v1_hub";
 		regulator-min-microvolt = <1100000>;
 		regulator-max-microvolt = <1100000>;
-		gpios = <&gpio_expander 11 GPIO_ACTIVE_HIGH>;
+		gpios = <&gpio_expander 0x9 GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc5v0_sys_s5>;
 	};
 
