@@ -1011,7 +1011,7 @@
 		assigned-clock-rates = <12288000>;
 		clocks = <&cru CLK_SAI2_MCLKOUT_TO_IO>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&sai2m1_mclk>;
+		pinctrl-0 = <&sai2m0_mclk>;
 		#sound-dai-cells = <0>;
 	};
 };
