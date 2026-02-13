@@ -850,7 +850,7 @@
 		#interrupt-cells = <2>;
 		interrupt-controller;
 		interrupt-parent = <&gpio2>;
-		interrupts = <RK_PA7 IRQ_TYPE_LEVEL_LOW>;
+		interrupts = <RK_PA7 IRQ_TYPE_EDGE_FALLING>;
 		pinctrl-0 = <&expander_int>;
 		pinctrl-names = "default";
 		vcc-supply = <&vcc3v3_control>;
