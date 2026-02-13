@@ -242,7 +242,7 @@
 		label = "Onboard WiFi+BT";
 		pinctrl-0 = <&wifi_pmu_en>;
 		pinctrl-names = "default";
-		shutdown-gpios = <&gpio1 RK_PD5 GPIO_ACTIVE_LOW>;
+		shutdown-gpios = <&gpio1 RK_PD5 GPIO_ACTIVE_HIGH>;
 	};
 
 	rfkill-m2-wdisable1 {
@@ -1182,7 +1182,7 @@
 
 	wifibt {
 		wifi_pmu_en: wifi-pmu-en {
-			rockchip,pins = <1 RK_PD5 RK_FUNC_GPIO &pcfg_pull_up>;
+			rockchip,pins = <1 RK_PD5 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 
 		wifi_wgpio0: bt-wake-host {
@@ -1364,9 +1364,6 @@
 		compatible = "usb3431,6241";
 		reg = <1>;
 		peer-hub = <&hub_3_0>;
-		pinctrl-0 = <&hub_reset>;
-		pinctrl-names = "default";
-		reset-gpios = <&gpio0 RK_PC4 GPIO_ACTIVE_LOW>;
 		vdd1v1-supply = <&vdd1v1_hub>;
 
 		ports {
