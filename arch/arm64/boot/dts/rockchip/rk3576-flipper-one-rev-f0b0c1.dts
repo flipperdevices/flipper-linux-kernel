@@ -1167,11 +1167,11 @@
 		};
 
 		usbc0_sbu1: usbc0-sbu1 {
-			rockchip,pins = <2 RK_PA6 RK_FUNC_GPIO &pcfg_pull_down>;
+			rockchip,pins = <4 RK_PC4 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
 
 		usbc0_sbu2: usbc0-sbu2 {
-			rockchip,pins = <2 RK_PA7 RK_FUNC_GPIO &pcfg_pull_down>;
+			rockchip,pins = <4 RK_PC5 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
 	};
 
@@ -1280,8 +1280,8 @@
 	orientation-switch;
 	pinctrl-names = "default";
 	pinctrl-0 = <&usbc0_sbu1 &usbc0_sbu2>;
-	sbu1-dc-gpios = <&gpio2 RK_PA6 GPIO_ACTIVE_HIGH>;
-	sbu2-dc-gpios = <&gpio2 RK_PA7 GPIO_ACTIVE_HIGH>;
+	sbu1-dc-gpios = <&gpio4 RK_PC4 GPIO_ACTIVE_HIGH>;
+	sbu2-dc-gpios = <&gpio4 RK_PC5 GPIO_ACTIVE_HIGH>;
 	status = "okay";
 
 	ports {
