@@ -105,7 +105,11 @@
 		regulator-name = "vcc5v0_device";
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		gpios = <&gpio_expander 0xb GPIO_ACTIVE_HIGH>;
+		/*
+		 * Controlled by the GPIO expander pin P13, but turning it off
+		 * makes the expander I2C bus stuck and unrecoverable due to
+		 * the USB MUX misbehavior on the same bus
+		 */
 		vin-supply = <&vcc8v4_sys>;
 	};
 
@@ -146,8 +150,9 @@
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 		/*
-		 * Controlled by the GPIO expander pin 14, but we
-		 * can't let this pin to ever change state
+		 * Controlled by the GPIO expander pin P14, but we
+		 * can't let this pin to ever change state, as it makes
+		 * the system lose power
 		 */
 		vin-supply = <&vcc8v4_sys>;
 	};
@@ -856,14 +861,21 @@
 		vcc-supply = <&vcc3v3_control>;
 
 		usb2-switch-hog {
-			gpios = <10 GPIO_ACTIVE_HIGH>;
+			gpios = <8 GPIO_ACTIVE_HIGH>;
 			output-high;
 			line-name = "Main Type-C USB 2.0 pins switch to CPU";
 			gpio-hog;
 		};
 
+		vcc5v0-device-s0-hog {
+			gpios = <0xb GPIO_ACTIVE_HIGH>;
+			output-high;
+			line-name = "Peripheral power supply";
+			gpio-hog;
+		};
+
 		vcc5v0-sys-s5-hog {
-			gpios = <14 GPIO_ACTIVE_HIGH>;
+			gpios = <0xc GPIO_ACTIVE_HIGH>;
 			output-high;
 			line-name = "Main power supply to the system PMIC";
 			gpio-hog;
