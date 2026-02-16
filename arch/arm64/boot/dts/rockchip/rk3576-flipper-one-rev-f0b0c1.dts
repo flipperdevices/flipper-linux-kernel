@@ -54,6 +54,7 @@
 		regulator-boot-on;
 		regulator-min-microvolt = <8400000>;
 		regulator-max-microvolt = <8400000>;
+		/* Powered by the charger's SYS output */
 	};
 
 	vcc3v3_control: regulator-vcc3v3-control {
@@ -96,13 +97,14 @@
 		regulator-always-on;
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		vin-supply = <&vcc8v4_sys>;
+		/* Powered by the system battery */
 	};
 
 	vcc5v0_device_s0: regulator-vcc5v0-device-s0 {
 		compatible = "regulator-fixed";
-		enable-active-high;
 		regulator-name = "vcc5v0_device";
+		regulator-boot-on;
+		regulator-always-on;
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 		/*
@@ -389,8 +391,9 @@
 
 &gmac0 {
 	clock_in_out = "output";
-	phy-mode = "rgmii-id";
 	phy-handle = <&rgmii_phy0>;
+	phy-mode = "rgmii-id";
+	phy-supply = <&vccio_1v8_s0>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&eth0m0_miim
 		     &eth0m0_tx_bus2
@@ -405,6 +408,7 @@
 	clock_in_out = "output";
 	phy-handle = <&rgmii_phy1>;
 	phy-mode = "rgmii-id";
+	phy-supply = <&vccio_1v8_s0>;
 	pinctrl-names = "default";
 	pinctrl-0 = <&eth1m0_miim
 		     &eth1m0_tx_bus2
