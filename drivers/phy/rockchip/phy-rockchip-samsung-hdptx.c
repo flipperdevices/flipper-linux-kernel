@@ -1039,6 +1039,8 @@ static void rk_hdptx_phy_disable(struct rk_hdptx_phy *hdptx)
 {
 	u32 val;
 
+	dev_dbg(hdptx->dev, "PHY disable\n");
+
 	reset_control_assert(hdptx->rsts[RST_APB].rstc);
 	usleep_range(20, 30);
 	reset_control_deassert(hdptx->rsts[RST_APB].rstc);
@@ -1772,6 +1774,8 @@ static int rk_hdptx_phy_power_off(struct phy *phy)
 {
 	struct rk_hdptx_phy *hdptx = phy_get_drvdata(phy);
 
+	dev_dbg(hdptx->dev, "power_off\n");
+
 	return rk_hdptx_phy_consumer_put(hdptx, false);
 }
 
@@ -2218,12 +2222,16 @@ static int rk_hdptx_phy_clk_prepare(struct clk_hw *hw)
 {
 	struct rk_hdptx_phy *hdptx = to_rk_hdptx_phy(hw);
 
+	dev_dbg(hdptx->dev, "clk_prepare\n");
+
 	return rk_hdptx_phy_consumer_get(hdptx);
 }
 
 static void rk_hdptx_phy_clk_unprepare(struct clk_hw *hw)
 {
 	struct rk_hdptx_phy *hdptx = to_rk_hdptx_phy(hw);
+
+	dev_dbg(hdptx->dev, "clk_unprepare\n");
 
 	rk_hdptx_phy_consumer_put(hdptx, true);
 }
@@ -2391,13 +2399,20 @@ static unsigned long rk_hdptx_phy_clk_recalc_rate(struct clk_hw *hw,
 {
 	struct rk_hdptx_phy *hdptx = to_rk_hdptx_phy(hw);
 	u32 status;
+	u64 rate;
 	int ret;
 
 	ret = regmap_read(hdptx->grf, GRF_HDPTX_CON0, &status);
-	if (ret || !(status & HDPTX_I_PLL_EN))
+	if (ret || !(status & HDPTX_I_PLL_EN)) {
+		dev_dbg(hdptx->dev, "%s ret=%d status=%x\n", __func__, ret, status);
 		return 0;
+	}
 
-	return rk_hdptx_phy_clk_calc_rate_from_pll_cfg(hdptx);
+	rate = rk_hdptx_phy_clk_calc_rate_from_pll_cfg(hdptx);
+
+	dev_dbg(hdptx->dev, "%s from_pll=%llu\n", __func__, rate);
+
+	return rate;
 }
 
 static int rk_hdptx_phy_clk_determine_rate(struct clk_hw *hw,
@@ -2405,6 +2420,8 @@ static int rk_hdptx_phy_clk_determine_rate(struct clk_hw *hw,
 {
 	struct rk_hdptx_phy *hdptx = to_rk_hdptx_phy(hw);
 
+	dev_dbg(hdptx->dev, "%s req=%lu par=%lu cfg=%llu dirty=%d\n", __func__,
+		req->rate, req->best_parent_rate, hdptx->hdmi_cfg.rate, hdptx->pll_config_dirty);
 	/*
 	 * For uncommitted PLL configuration, invalidate the current clock rate
 	 * to ensure rk_hdptx_phy_clk_set_rate() will be always invoked.
@@ -2428,6 +2445,8 @@ static int rk_hdptx_phy_clk_set_rate(struct clk_hw *hw, unsigned long rate,
 {
 	struct rk_hdptx_phy *hdptx = to_rk_hdptx_phy(hw);
 
+	dev_dbg(hdptx->dev, "%s req=%lu par=%lu cfg=%llu dirty=%d\n", __func__,
+		rate, parent_rate, hdptx->hdmi_cfg.rate, hdptx->pll_config_dirty);
 	/*
 	 * The link rate would be normally programmed in HW during
 	 * phy_ops.power_on() or clk_ops.prepare() callbacks, but it might
@@ -2479,6 +2498,8 @@ static int rk_hdptx_phy_runtime_suspend(struct device *dev)
 {
 	struct rk_hdptx_phy *hdptx = dev_get_drvdata(dev);
 
+	dev_dbg(hdptx->dev, "suspend\n");
+
 	clk_bulk_disable_unprepare(hdptx->nr_clks, hdptx->clks);
 
 	return 0;
@@ -2488,6 +2509,8 @@ static int rk_hdptx_phy_runtime_resume(struct device *dev)
 {
 	struct rk_hdptx_phy *hdptx = dev_get_drvdata(dev);
 	int ret;
+
+	dev_dbg(hdptx->dev, "resume\n");
 
 	ret = clk_bulk_prepare_enable(hdptx->nr_clks, hdptx->clks);
 	if (ret)
