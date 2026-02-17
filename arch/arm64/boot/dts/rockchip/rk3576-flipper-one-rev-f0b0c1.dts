@@ -305,7 +305,34 @@
 		};
 	};
 
-	typec_up_con: typec-up-con {
+	typea_up_con: usb-a-connector {
+		compatible = "usb-a-connector";
+		data-role = "host";
+		label = "USB-A (up)";
+		power-role = "source";
+		vbus-supply = <&vusb_typea_up>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				reg = <0>;
+				typea_up_con_hs: endpoint {
+					remote-endpoint = <&hub_2_0_ds2>;
+				};
+			};
+
+			port@1 {
+				reg = <1>;
+				typea_up_con_ss: endpoint {
+					remote-endpoint = <&hub_3_0_ds2>;
+				};
+			};
+		};
+	};
+
+	typec_up_con: usb-c-connector {
 		compatible = "usb-c-connector";
 		data-role = "host";
 		label = "USB-C (up)";
@@ -1393,7 +1420,9 @@
 
 			port@2 {
 				reg = <2>;
-				/* Type-A UP port */
+				hub_2_0_ds2: endpoint {
+					remote-endpoint = <&typea_up_con_hs>;
+				};
 			};
 
 			port@3 {
@@ -1457,7 +1486,9 @@
 
 			port@2 {
 				reg = <2>;
-				/* Type-A UP port */
+				hub_3_0_ds2: endpoint {
+					remote-endpoint = <&typea_up_con_ss>;
+				};
 			};
 
 			port@3 {
