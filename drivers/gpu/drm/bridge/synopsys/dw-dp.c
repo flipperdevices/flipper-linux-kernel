@@ -1489,6 +1489,8 @@ static ssize_t dw_dp_aux_transfer(struct drm_dp_aux *aux,
 	if (WARN_ON(msg->size > 16))
 		return -E2BIG;
 
+	ACQUIRE(pm_runtime_active_auto, pm)(dp->dev);
+
 	switch (msg->request & ~DP_AUX_I2C_MOT) {
 	case DP_AUX_NATIVE_WRITE:
 	case DP_AUX_I2C_WRITE:
@@ -1679,6 +1681,8 @@ static void dw_dp_bridge_atomic_enable(struct drm_bridge *bridge,
 	struct drm_connector_state *conn_state;
 	int ret;
 
+	pm_runtime_get_sync(dp->dev);
+
 	connector = drm_atomic_get_new_connector_for_encoder(state, bridge->encoder);
 	if (!connector) {
 		dev_err(dp->dev, "failed to get connector\n");
@@ -1733,6 +1737,7 @@ static void dw_dp_bridge_atomic_disable(struct drm_bridge *bridge,
 	dw_dp_link_disable(dp);
 	bitmap_zero(dp->sdp_reg_bank, SDP_REG_BANK_SIZE);
 	dw_dp_reset(dp);
+	pm_runtime_put_autosuspend(dp->dev);
 }
 
 static bool dw_dp_hpd_detect_link(struct dw_dp *dp, struct drm_connector *connector)
@@ -1752,6 +1757,8 @@ static enum drm_connector_status dw_dp_bridge_detect(struct drm_bridge *bridge,
 						     struct drm_connector *connector)
 {
 	struct dw_dp *dp = bridge_to_dp(bridge);
+
+	ACQUIRE(pm_runtime_active_auto, pm)(dp->dev);
 
 	if (!dw_dp_hpd_detect(dp))
 		return connector_status_disconnected;
@@ -1888,6 +1895,8 @@ static int dw_dp_audio_prepare(struct drm_bridge *bridge,
 	u32 cfg1;
 	int ret;
 
+	pm_runtime_get_sync(dp->dev);
+
 	dp->audio_channels = params->cea.channels;
 	switch (params->cea.channels) {
 	case 1:
@@ -1991,6 +2000,8 @@ static void dw_dp_audio_shutdown(struct drm_bridge *bridge,
 		clk_disable_unprepare(dp->i2s_clk);
 
 	dp->audio_interface = DW_DP_AUDIO_UNUSED;
+
+	pm_runtime_put_autosuspend(dp->dev);
 }
 
 static int dw_dp_audio_mute_stream(struct drm_bridge *bridge,
@@ -2333,6 +2344,14 @@ struct dw_dp *dw_dp_bind(struct device *dev, struct drm_encoder *encoder,
 		goto unregister_aux;
 	}
 
+	pm_runtime_use_autosuspend(dev);
+	pm_runtime_set_autosuspend_delay(dev, 500);
+	ret = devm_pm_runtime_enable(dev);
+	if (ret) {
+		dev_err_probe(dev, ret, "failed to enable runtime PM\n");
+		goto unregister_aux;
+	}
+
 	return dp;
 
 unregister_aux:
@@ -2340,6 +2359,26 @@ unregister_aux:
 	return ERR_PTR(ret);
 }
 EXPORT_SYMBOL_GPL(dw_dp_bind);
+
+int dw_dp_runtime_suspend(struct dw_dp *dp)
+{
+	clk_disable_unprepare(dp->aux_clk);
+	clk_disable_unprepare(dp->apb_clk);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(dw_dp_runtime_suspend);
+
+int dw_dp_runtime_resume(struct dw_dp *dp)
+{
+	clk_prepare_enable(dp->apb_clk);
+	clk_prepare_enable(dp->aux_clk);
+
+	dw_dp_init_hw(dp);
+
+	return 0;
+}
+EXPORT_SYMBOL_GPL(dw_dp_runtime_resume);
 
 MODULE_AUTHOR("Andy Yan <andyshrk@163.com>");
 MODULE_DESCRIPTION("DW DP Core Library");
