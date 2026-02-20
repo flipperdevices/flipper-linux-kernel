@@ -1,0 +1,82 @@
+.. SPDX-License-Identifier: GPL-2.0-only
+
+Kernel driver ina4230
+=====================
+
+Supported chips:
+
+  * Texas Instruments INA4230
+
+    Prefix: 'ina4230'
+
+    Addresses: I2C 0x40 - 0x4f
+
+    Datasheet: Publicly available at the Texas Instruments website
+
+	       https://www.ti.com/product/INA4230
+
+Author: Alexey Charkov <alchark@flipper.net>
+
+Description
+-----------
+
+The Texas Instruments INA4230 monitors shunt voltage and bus voltage on up to
+four channels. It calculates current, power and accumulated energy for each
+channel in hardware, scaled by a per-channel calibration value.
+
+The driver derives the calibration from the shunt resistance and the maximum
+expected current of each channel, as described in
+Documentation/devicetree/bindings/hwmon/ti,ina4230.yaml. The current LSB is
+the maximum expected current divided by 2^15, and the 4x shunt gain is enabled
+on channels where that current drops no more than 20.48 mV across the shunt.
+
+By default, all connected channels are enabled, with 4 samples averaged and a
+1.1 ms conversion time for both bus and shunt voltage.
+
+Alert functions are not supported.
+
+Sysfs entries
+-------------
+
+======================= =======================================================
+in[0-3]_label           Voltage channel labels
+in[0-3]_enable          Voltage channel enable controls
+in[0-3]_input           Bus voltage (mV) channels
+in[4-7]_input           Shunt voltage (mV) for channels 1 to 4 respectively
+curr[1-4]_input         Current (mA) measurement channels
+power[1-4]_input        Power (uW) measurement channels
+energy[1-4]_input       Energy (uJ) accumulated by the chip since its last
+                        reset. Overflow of the 32-bit hardware accumulator is
+                        not handled.
+samples                 Number of samples used in the averaging mode.
+
+                        Supports the list of number of samples:
+
+                          1, 4, 16, 64, 128, 256, 512, 1024
+
+update_interval         Data conversion time in millisecond, following:
+
+                          update_interval = C x S x (BC + SC)
+
+                          * C:	number of enabled channels
+                          * S:	number of samples
+                          * BC:	bus-voltage conversion time in millisecond
+                          * SC:	shunt-voltage conversion time in millisecond
+
+                        Affects both Bus- and Shunt-voltage conversion time.
+                        Note that setting update_interval to 0ms sets both BC
+                        and SC to 140 us (minimum conversion time).
+======================= =======================================================
+
+Chip reset
+----------
+
+The chip returns to its power-up defaults after an externally triggered reset,
+such as an I2C general call, or a voltage glitch. When a current, power or
+energy reading comes back zero, the driver checks whether the chip has lost its
+calibration and, if so, restores its configuration. The read then waits up to
+100 ms for a fresh conversion and fails with -EAGAIN if none arrives, as with
+long averaging settings. The energy accumulators restart from zero after such
+a reset. A reset goes unnoticed while only voltages are being read, and until
+it is noticed, shunt voltages on channels using the 4x gain read four times
+too low.
