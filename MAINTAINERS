@@ -12514,6 +12514,7 @@ M:	Alexey Charkov <alchark@flipper.net>
 L:	linux-hwmon@vger.kernel.org
 S:	Maintained
 F:	Documentation/devicetree/bindings/hwmon/ti,ina4230.yaml
+F:	drivers/hwmon/ina4230.c
 
 INDEX OF FURTHER KERNEL DOCUMENTATION
 M:	Carlos Bilbao <carlos.bilbao@kernel.org>

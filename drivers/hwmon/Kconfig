@@ -2306,6 +2306,17 @@ config SENSORS_INA3221
 	  This driver can also be built as a module. If so, the module
 	  will be called ina3221.
 
+config SENSORS_INA4230
+	tristate "Texas Instruments INA4230 Quad Current/Voltage Monitor"
+	depends on I2C
+	select REGMAP_I2C
+	help
+	  If you say yes here you get support for the TI INA4230 Quad
+	  Current/Voltage Monitor.
+
+	  This driver can also be built as a module. If so, the module
+	  will be called ina4230.
+
 config SENSORS_SPD5118
 	tristate "SPD5118 Compliant Temperature Sensors"
 	depends on I2C
