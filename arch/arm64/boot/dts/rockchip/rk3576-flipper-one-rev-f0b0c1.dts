@@ -47,6 +47,12 @@
 		};
 	};
 
+	sdio_pwrseq: sdio-pwrseq {
+		compatible = "mmc-pwrseq-simple";
+		clocks = <&hym8563>;
+		clock-names = "ext_clock";
+	};
+
 	vcc8v4_sys: regulator-vcc8v4-sys {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc8v4_sys";
@@ -1445,6 +1451,23 @@
 };
 
 &sai6 {
+	status = "okay";
+};
+
+&sdio {
+	#address-cells = <1>;
+	#size-cells = <0>;
+	bus-width = <4>;
+	cap-sd-highspeed;
+	cap-sdio-irq;
+	disable-wp;
+	keep-power-in-suspend;
+	mmc-pwrseq = <&sdio_pwrseq>;
+	no-mmc;
+	no-sd;
+	non-removable;
+	sd-uhs-sdr104;
+	wakeup-source;
 	status = "okay";
 };
 
