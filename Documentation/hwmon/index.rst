@@ -104,6 +104,7 @@ Hardware Monitoring Kernel Drivers
    ina233
    ina238
    ina3221
+   ina4230
    inspur-ipsps1
    intel-m10-bmc-hwmon
    ir35221
