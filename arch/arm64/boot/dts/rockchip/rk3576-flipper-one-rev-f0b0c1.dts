@@ -842,6 +842,7 @@
 			};
 
 			vdda0v75_hdmi_s0: nldo-reg3 {
+				regulator-always-on;
 				regulator-boot-on;
 				regulator-min-microvolt = <837500>;
 				regulator-max-microvolt = <837500>;
