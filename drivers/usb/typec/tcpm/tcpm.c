@@ -5253,20 +5253,25 @@ static void run_state_machine(struct tcpm_port *port)
 			tcpm_set_state(port, SNK_READY, 0);
 			break;
 		}
+
 		/*
+		 * For non self-powered devices, first of all try explicitly
+		 * requesting the source capabilities for better support of
+		 * of non-compliant PD sources (a comment with more details is
+		 * in the SNK_WAIT_CAPABILITIES_TIMEOUT state).
+		 *
 		 * If VBUS has never been low, and we time out waiting
 		 * for source cap, try a soft reset first, in case we
 		 * were already in a stable contract before this boot.
 		 * Do this only once.
 		 */
-		if (port->vbus_never_low) {
+		if (!port->self_powered) {
+			upcoming_state = SNK_WAIT_CAPABILITIES_TIMEOUT;
+		} else if (port->vbus_never_low) {
 			port->vbus_never_low = false;
 			upcoming_state = SNK_SOFT_RESET;
 		} else {
-			if (!port->self_powered)
-				upcoming_state = SNK_WAIT_CAPABILITIES_TIMEOUT;
-			else
-				upcoming_state = hard_reset_state(port);
+			upcoming_state = hard_reset_state(port);
 		}
 
 		tcpm_set_state(port, upcoming_state,
@@ -5288,10 +5293,17 @@ static void run_state_machine(struct tcpm_port *port)
 		 * and handled by all USB PD source and dual role devices
 		 * according to the specification.
 		 */
+		if (port->vbus_never_low) {
+			port->vbus_never_low = false;
+			upcoming_state = SNK_SOFT_RESET;
+		} else {
+			upcoming_state = hard_reset_state(port);
+		}
+
 		if (tcpm_pd_send_control(port, PD_CTRL_GET_SOURCE_CAP, TCPC_TX_SOP))
-			tcpm_set_state_cond(port, hard_reset_state(port), 0);
+			tcpm_set_state_cond(port, upcoming_state, 0);
 		else
-			tcpm_set_state(port, hard_reset_state(port),
+			tcpm_set_state(port, upcoming_state,
 				       port->timings.sink_wait_cap_time);
 		break;
 	case SNK_NEGOTIATE_CAPABILITIES:
