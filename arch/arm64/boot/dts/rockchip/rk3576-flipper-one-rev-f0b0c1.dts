@@ -129,15 +129,6 @@
 		vin-supply = <&vcc5v0_device_s0>;
 	};
 
-	vusb_typec_up: regulator-vcc5v0-vusb-typec-up {
-		compatible = "regulator-fixed";
-		regulator-name = "vusb_typec_up";
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		/* USB MUX: MUX_ID */
-		vin-supply = <&vcc5v0_device_s0>;
-	};
-
 	vusb_typea_up: regulator-vcc5v0-vusb-typea-up {
 		compatible = "regulator-fixed";
 		enable-active-high;
@@ -341,7 +332,6 @@
 		data-role = "host";
 		label = "USB-C (up)";
 		power-role = "source";
-		vbus-supply = <&vusb_typec_up>;
 
 		ports {
 			#address-cells = <1>;
