@@ -333,10 +333,10 @@ static int hym8563_clkout_control(struct clk_hw *hw, bool enable)
 	if (ret < 0)
 		return ret;
 
-	if (enable)
+	//if (enable)
 		ret |= HYM8563_CLKOUT_ENABLE;
-	else
-		ret &= ~HYM8563_CLKOUT_ENABLE;
+	//else
+	//	ret &= ~HYM8563_CLKOUT_ENABLE;
 
 	return i2c_smbus_write_byte_data(client, HYM8563_CLKOUT, ret);
 }
