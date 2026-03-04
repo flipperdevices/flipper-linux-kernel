@@ -48,6 +48,8 @@
 	};
 
 	sdio_pwrseq: sdio-pwrseq {
+		assigned-clocks = <&hym8563>;
+		assigned-clock-rates = <32768>;
 		compatible = "mmc-pwrseq-simple";
 		clocks = <&hym8563>;
 		clock-names = "ext_clock";
