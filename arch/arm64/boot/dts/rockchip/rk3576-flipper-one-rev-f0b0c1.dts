@@ -1262,7 +1262,7 @@
 		interrupt-parent = <&gpio0>;
 		interrupts = <RK_PA0 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&rtc_int>;
+		pinctrl-0 = <&rtc_int &rtc_clkout>;
 		wakeup-source;
 		#clock-cells = <0>;
 	};
@@ -1352,6 +1352,10 @@
 	hym8563 {
 		rtc_int: rtc-int {
 			rockchip,pins = <0 RK_PA0 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+
+		rtc_clkout: rtc-clkout {
+			rockchip,pins = <0 RK_PA2 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 
