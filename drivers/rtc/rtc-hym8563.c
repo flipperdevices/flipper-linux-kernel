@@ -401,6 +401,7 @@ static struct clk *hym8563_clkout_register_clk(struct hym8563 *hym8563)
 	if (!IS_ERR(clk))
 		of_clk_add_provider(node, of_clk_src_simple_get, clk);
 
+	hym8563_clkout_prepare(&hym8563->clkout_hw);
 	return clk;
 }
 #endif
