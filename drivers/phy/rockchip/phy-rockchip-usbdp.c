@@ -6,6 +6,7 @@
  * Copyright (C) 2024 Collabora Ltd
  */
 
+#include <drm/bridge/aux-bridge.h>
 #include <dt-bindings/phy/phy.h>
 #include <linux/bitfield.h>
 #include <linux/bits.h>
@@ -1491,6 +1492,10 @@ static int rk_udphy_probe(struct platform_device *pdev)
 		if (ret)
 			return ret;
 	}
+
+	ret = drm_aux_bridge_register(dev);
+	if (ret)
+		return ret;
 
 	udphy->phy_u3 = devm_phy_create(dev, dev->of_node, &rk_udphy_usb3_phy_ops);
 	if (IS_ERR(udphy->phy_u3)) {
