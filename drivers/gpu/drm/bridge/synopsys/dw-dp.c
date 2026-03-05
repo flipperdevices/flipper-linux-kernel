@@ -330,6 +330,8 @@ struct dw_dp {
 	struct dw_dp_plat_data plat_data;
 	u8 pixel_mode;
 
+	struct drm_bridge *next_bridge;
+
 	DECLARE_BITMAP(sdp_reg_bank, SDP_REG_BANK_SIZE);
 };
 
@@ -2049,13 +2051,31 @@ int dw_dp_bind(struct dw_dp *dp, struct drm_encoder *encoder)
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to attach bridge\n");
 
+	dp->next_bridge = of_drm_get_bridge_by_endpoint(dev->of_node, 1, 0);
+	if (IS_ERR(dp->next_bridge)) {
+		ret = PTR_ERR(dp->next_bridge);
+		return dev_err_probe(dev, ret, "failed to get follow-up bridge.\n");
+	}
+
+	ret = drm_bridge_attach(encoder, dp->next_bridge, bridge,
+				DRM_BRIDGE_ATTACH_NO_CONNECTOR);
+	if (ret) {
+		dev_err_probe(dev, ret, "Failed to attach next bridge\n");
+		goto put_next_bridge;
+	}
+
 	return 0;
+
+put_next_bridge:
+	drm_bridge_put(dp->next_bridge);
+
+	return ret;
 }
 EXPORT_SYMBOL_GPL(dw_dp_bind);
 
 void dw_dp_unbind(struct dw_dp *dp)
 {
-	/* nothing to do */
+	drm_bridge_put(dp->next_bridge);
 }
 EXPORT_SYMBOL_GPL(dw_dp_unbind);
 
