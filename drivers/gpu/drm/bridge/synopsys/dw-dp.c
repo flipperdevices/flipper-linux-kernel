@@ -328,6 +328,7 @@ struct dw_dp {
 
 	struct dw_dp_link link;
 	struct dw_dp_plat_data plat_data;
+	struct drm_bridge *next_bridge;
 	u8 pixel_mode;
 
 	DECLARE_BITMAP(sdp_reg_bank, SDP_REG_BANK_SIZE);
@@ -1894,7 +1895,22 @@ static int dw_dp_bridge_attach(struct drm_bridge *bridge,
 
 	enable_irq(dp->irq);
 
+	ret = drm_bridge_attach(encoder, dp->next_bridge, bridge,
+				DRM_BRIDGE_ATTACH_NO_CONNECTOR);
+	if (ret) {
+		dev_err(dev, "Failed to attach next bridge: %d\n", ret);
+		goto err_disable_irq;
+	}
+
 	return 0;
+
+err_disable_irq:
+	disable_irq(dp->irq);
+	cancel_work_sync(&dp->hpd_work);
+
+	drm_dp_aux_unregister(&dp->aux);
+
+	return ret;
 }
 
 static void dw_dp_bridge_detach(struct drm_bridge *bridge)
@@ -2060,6 +2076,13 @@ void dw_dp_unbind(struct dw_dp *dp)
 }
 EXPORT_SYMBOL_GPL(dw_dp_unbind);
 
+static void dw_dp_put_next_bridge(void *data)
+{
+	struct dw_dp *dp = data;
+
+	drm_bridge_put(dp->next_bridge);
+}
+
 static void dw_dp_phy_exit(void *data)
 {
 	struct dw_dp *dp = data;
@@ -2152,6 +2175,16 @@ struct dw_dp *dw_dp_probe(struct platform_device *pdev, const struct dw_dp_plat_
 
 	ret = devm_request_threaded_irq(dev, dp->irq, NULL, dw_dp_irq,
 					IRQF_ONESHOT | IRQF_NO_AUTOEN, dev_name(dev), dp);
+	if (ret)
+		return ERR_PTR(ret);
+
+	dp->next_bridge = of_drm_get_bridge_by_endpoint(dev->of_node, 1, 0);
+	if (IS_ERR(dp->next_bridge)) {
+		dev_err_probe(dev, PTR_ERR(dp->next_bridge), "failed to get follow-up bridge\n");
+		return ERR_CAST(dp->next_bridge);
+	}
+
+	ret = devm_add_action_or_reset(dev, dw_dp_put_next_bridge, dp);
 	if (ret)
 		return ERR_PTR(ret);
 
