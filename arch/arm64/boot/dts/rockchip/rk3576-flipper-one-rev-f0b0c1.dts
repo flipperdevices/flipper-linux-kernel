@@ -272,7 +272,8 @@
 		simple-audio-card,format = "i2s";
 		simple-audio-card,frame-master = <&masterdai>;
 		simple-audio-card,mclk-fs = <256>;
-		simple-audio-card,pin-switches = "Headphones", "Speaker";
+		simple-audio-card,pin-switches = "Headphones", "Speaker",
+			"Headset Microphone", "Internal Microphone";
 		simple-audio-card,routing =
 			"Headphones", "LHP",
 			"Headphones", "RHP",
