@@ -26,7 +26,7 @@
 		compatible = "simple-battery";
 		charge-full-design-microamp-hours = <3100000>;
 		constant-charge-current-max-microamp = <3100000>;
-		constant-charge-voltage-max-microvolt = <8900000>;
+		constant-charge-voltage-max-microvolt = <8400000>;
 		device-chemistry = "lithium-ion-polymer";
 		operating-range-celsius = <0 60>;
 		voltage-min-design-microvolt = <6000000>;
