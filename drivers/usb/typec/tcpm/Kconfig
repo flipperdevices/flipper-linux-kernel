@@ -13,7 +13,9 @@ if TYPEC_TCPM
 
 config TYPEC_TCPCI
 	tristate "Type-C Port Controller Interface driver"
+	depends on DRM || DRM=n
 	depends on I2C
+	select DRM_AUX_HPD_BRIDGE if DRM_BRIDGE && OF
 	select REGMAP_I2C
 	help
 	  Type-C Port Controller driver for TCPCI-compliant controller.
