@@ -5,6 +5,7 @@
  * USB Type-C Port Controller Interface.
  */
 
+#include <drm/bridge/aux-bridge.h>
 #include <linux/bitfield.h>
 #include <linux/delay.h>
 #include <linux/kernel.h>
@@ -831,6 +832,7 @@ static int tcpci_parse_config(struct tcpci *tcpci)
 
 struct tcpci *tcpci_register_port(struct device *dev, struct tcpci_data *data)
 {
+	struct auxiliary_device *bridge_dev;
 	struct tcpci *tcpci;
 	int err;
 
@@ -883,10 +885,21 @@ struct tcpci *tcpci_register_port(struct device *dev, struct tcpci_data *data)
 	if (err < 0)
 		return ERR_PTR(err);
 
+	bridge_dev = devm_drm_dp_hpd_bridge_alloc(tcpci->dev, to_of_node(tcpci->tcpc.fwnode));
+	if (IS_ERR(bridge_dev))
+		return ERR_CAST(bridge_dev);
+
 	tcpci->port = tcpm_register_port(tcpci->dev, &tcpci->tcpc);
 	if (IS_ERR(tcpci->port)) {
 		fwnode_handle_put(tcpci->tcpc.fwnode);
 		return ERR_CAST(tcpci->port);
+	}
+
+	err = devm_drm_dp_hpd_bridge_add(tcpci->dev, bridge_dev);
+	if (err < 0) {
+		tcpm_unregister_port(tcpci->port);
+		fwnode_handle_put(tcpci->tcpc.fwnode);
+		return ERR_PTR(err);
 	}
 
 	return tcpci;
