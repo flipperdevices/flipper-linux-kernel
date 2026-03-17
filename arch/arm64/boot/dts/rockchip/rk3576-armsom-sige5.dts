@@ -929,6 +929,7 @@
 	no-sdio;
 	no-sd;
 	non-removable;
+	/delete-property/ supports-cqe;
 	status = "okay";
 };
 
