@@ -103,9 +103,6 @@ static const struct dw_hdmi_audio_tmds_n {
 	/* For 297 MHz+ HDMI spec have some other rule for setting N */
 	{ .tmds = 297000000, .n_32k = 3073,  .n_44k1 = 4704,  .n_48k = 5120, },
 	{ .tmds = 594000000, .n_32k = 3073,  .n_44k1 = 9408,  .n_48k = 10240,},
-
-	/* End of table */
-	{ .tmds = 0,         .n_32k = 0,     .n_44k1 = 0,     .n_48k = 0,    },
 };
 
 /*
@@ -124,9 +121,6 @@ static const struct dw_hdmi_audio_tmds_cts {
 	{ .tmds = 54000000,  .cts_32k = 54000,  .cts_44k1 = 60000,  .cts_48k = 54000,  },
 	{ .tmds = 74250000,  .cts_32k = 74250,  .cts_44k1 = 82500,  .cts_48k = 74250,  },
 	{ .tmds = 148500000, .cts_32k = 148500, .cts_44k1 = 165000, .cts_48k = 148500, },
-
-	/* End of table */
-	{ .tmds = 0,         .cts_32k = 0,      .cts_44k1 = 0,      .cts_48k = 0,      },
 };
 
 struct dw_hdmi_qp_i2c {
@@ -232,7 +226,7 @@ static int dw_hdmi_qp_match_tmds_n_table(struct dw_hdmi_qp *hdmi,
 	const struct dw_hdmi_audio_tmds_n *tmds_n = NULL;
 	int i;
 
-	for (i = 0; common_tmds_n_table[i].tmds != 0; i++) {
+	for (i = 0; i < ARRAY_SIZE(common_tmds_n_table); i++) {
 		if (pixel_clk == common_tmds_n_table[i].tmds) {
 			tmds_n = &common_tmds_n_table[i];
 			break;
@@ -323,7 +317,7 @@ static unsigned int dw_hdmi_qp_find_cts(struct dw_hdmi_qp *hdmi, unsigned long p
 	const struct dw_hdmi_audio_tmds_cts *tmds_cts = NULL;
 	int i;
 
-	for (i = 0; common_tmds_cts_table[i].tmds != 0; i++) {
+	for (i = 0; i < ARRAY_SIZE(common_tmds_cts_table); i++) {
 		if (pixel_clk == common_tmds_cts_table[i].tmds) {
 			tmds_cts = &common_tmds_cts_table[i];
 			break;
