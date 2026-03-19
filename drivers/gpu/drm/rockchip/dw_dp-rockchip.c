@@ -194,7 +194,7 @@ static int dw_dp_rockchip_probe(struct platform_device *pdev)
 	struct device *dev = &pdev->dev;
 	struct rockchip_dw_dp *dp;
 	struct resource *res;
-	int id;
+	int id, ret;
 
 	plat_data_const = device_get_match_data(dev);
 	if (!plat_data_const)
@@ -237,9 +237,13 @@ static int dw_dp_rockchip_probe(struct platform_device *pdev)
 	plat_data->hpd_sw_cfg = dw_dp_rockchip_hpd_sw_cfg;
 	plat_data->data = dp;
 
-	dp->base = dw_dp_probe(pdev, plat_data);
+	dp->base = dw_dp_alloc(pdev, plat_data);
 	if (IS_ERR(dp->base))
 		return PTR_ERR(dp->base);
+
+	ret = dw_dp_probe(dp->base);
+	if (ret)
+		return ret;
 
 	return component_add(&pdev->dev, &dw_dp_rockchip_component_ops);
 }
