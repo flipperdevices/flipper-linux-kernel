@@ -18,6 +18,7 @@ enum {
 };
 
 struct dw_dp_plat_data {
+	int autosuspend_delay;
 	u32 max_link_rate;
 	u8 pixel_mode;
 	void *data;
@@ -28,5 +29,9 @@ struct dw_dp_plat_data {
 int dw_dp_bind(struct dw_dp *dp, struct drm_encoder *encoder);
 void dw_dp_unbind(struct dw_dp *dp);
 
-struct dw_dp *dw_dp_probe(struct platform_device *pdev, const struct dw_dp_plat_data *plat_data);
+struct dw_dp *dw_dp_alloc(struct platform_device *pdev, const struct dw_dp_plat_data *plat_data);
+int dw_dp_probe(struct dw_dp *dp);
+
+int dw_dp_runtime_suspend(struct dw_dp *dp);
+int dw_dp_runtime_resume(struct dw_dp *dp);
 #endif /* __DW_DP__ */
