@@ -1344,6 +1344,28 @@ struct drm_connector_hdmi_funcs {
 				unsigned long long tmds_rate);
 
 	/**
+	 * @frl_rate_valid:
+	 *
+	 * This callback is invoked at atomic_check time to figure out
+	 * whether a particular FRL data rate (given in bps) is supported
+	 * by the driver by using a FRL link rate that doesn't exceed the
+	 * maximum advertised by the sink (also expressed in bps).
+	 *
+	 * The @frl_rate_valid callback is only mandatory when drivers
+	 * need to advertise FRL support.
+	 *
+	 * Returns:
+	 *
+	 * Either &drm_mode_status.MODE_OK or one of the failure reasons
+	 * in &enum drm_mode_status.
+	 */
+	enum drm_mode_status
+	(*frl_rate_valid)(const struct drm_connector *connector,
+			  const struct drm_display_mode *mode,
+			  unsigned long long frl_data_rate,
+			  unsigned long long frl_max_link_rate);
+
+	/**
 	 * @read_edid:
 	 *
 	 * This callback is used by the framework as a replacement for reading
