@@ -985,7 +985,7 @@
 		};
 	};
 
-	power-sensor@40 {
+	ina4_1: power-sensor@40 {
 		compatible = "ti,ina4230";
 		reg = <0x40>;
 		vs-supply = <&vcc3v3_control>;
@@ -1021,7 +1021,7 @@
 		};
 	};
 
-	power-sensor@41 {
+	ina4_2: power-sensor@41 {
 		compatible = "ti,ina4230";
 		reg = <0x41>;
 		vs-supply = <&vcc3v3_control>;
@@ -1057,7 +1057,7 @@
 		};
 	};
 
-	power-sensor@43 {
+	ina4_3: power-sensor@43 {
 		compatible = "ti,ina4230";
 		reg = <0x43>;
 		vs-supply = <&vcc3v3_control>;
@@ -1093,7 +1093,7 @@
 		};
 	};
 
-	power-sensor@44 {
+	ina4_4: power-sensor@44 {
 		compatible = "ti,ina4230";
 		reg = <0x44>;
 		vs-supply = <&vcc3v3_control>;
@@ -1129,7 +1129,7 @@
 		};
 	};
 
-	power-sensor@45 {
+	ina_sys: power-sensor@45 {
 		compatible = "ti,ina219";
 		reg = <0x45>;
 		#io-channel-cells = <1>;
@@ -1138,7 +1138,7 @@
 		vs-supply = <&vcc3v3_control>;
 	};
 
-	power-sensor@46 {
+	ina4_5: power-sensor@46 {
 		compatible = "ti,ina4230";
 		reg = <0x46>;
 		vs-supply = <&vcc3v3_control>;
@@ -1174,7 +1174,7 @@
 		};
 	};
 
-	usb-mux@47 {
+	usbmux: usb-mux@47 {
 		compatible = "ti,hd3ss3220";
 		reg = <0x47>;
 		interrupt-parent = <&gpio1>;
@@ -1202,7 +1202,7 @@
 		};
 	};
 
-	fuel-gauge@55 {
+	gauge: fuel-gauge@55 {
 		compatible = "ti,bq28z610"; /* really bq28z620: tbc if we need a new compatible */
 		reg = <0x55>;
 		monitored-battery = <&battery>;
