@@ -3214,6 +3214,7 @@ static void tcpm_pd_data_request(struct tcpm_port *port,
 	int ret;
 
 	if (tcpm_vdm_ams(port) && type != PD_DATA_VENDOR_DEF) {
+		tcpm_log(port, "Stopping VDM state machine after receiving data message with type %#x", type);
 		port->vdm_state = VDM_STATE_ERR_BUSY;
 		tcpm_ams_finish(port);
 		mod_vdm_delayed_work(port, 0);
@@ -3414,6 +3415,7 @@ static void tcpm_pd_ctrl_request(struct tcpm_port *port,
 	 * VDM AMS if waiting for VDM responses and will be handled later.
 	 */
 	if (tcpm_vdm_ams(port) && type != PD_CTRL_NOT_SUPP && type != PD_CTRL_GOOD_CRC) {
+		tcpm_log(port, "Stopping VDM state machine after receiving ctrl message with type %#x", type);
 		port->vdm_state = VDM_STATE_ERR_BUSY;
 		tcpm_ams_finish(port);
 		mod_vdm_delayed_work(port, 0);
@@ -3701,6 +3703,7 @@ static void tcpm_pd_ext_msg_request(struct tcpm_port *port,
 
 	/* stopping VDM state machine if interrupted by other Messages */
 	if (tcpm_vdm_ams(port)) {
+		tcpm_log(port, "Stopping VDM state machine after receiving ext message with type %#x", type);
 		port->vdm_state = VDM_STATE_ERR_BUSY;
 		tcpm_ams_finish(port);
 		mod_vdm_delayed_work(port, 0);
