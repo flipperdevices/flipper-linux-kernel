@@ -710,6 +710,29 @@ struct drm_bridge_funcs {
 				     unsigned long long tmds_rate);
 
 	/**
+	 * @hdmi_frl_rate_valid:
+	 *
+	 * Check whether a particular FRL data rate (given in bps) is
+	 * supported by the driver by using a FRL link rate that doesn't
+	 * exceed the maximum advertised by the sink (also given in bps).
+	 *
+	 * This callback is optional and should only be implemented by the
+	 * bridges that take part in the HDMI connector implementation and
+	 * need to advertise FRL support.  Bridges that implement it shall
+	 * set the DRM_BRIDGE_OP_HDMI flag in their &drm_bridge->ops.
+	 *
+	 * Returns:
+	 *
+	 * Either &drm_mode_status.MODE_OK or one of the failure reasons
+	 * in &enum drm_mode_status.
+	 */
+	enum drm_mode_status
+	(*hdmi_frl_rate_valid)(const struct drm_bridge *bridge,
+			       const struct drm_display_mode *mode,
+			       unsigned long long frl_data_rate,
+			       unsigned long long frl_max_link_rate);
+
+	/**
 	 * @hdmi_clear_avi_infoframe:
 	 *
 	 * This callback clears the infoframes in the hardware during commit.
