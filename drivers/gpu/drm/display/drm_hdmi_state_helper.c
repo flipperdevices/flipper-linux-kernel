@@ -555,17 +555,38 @@ sink_supports_format_bpc(const struct drm_connector *connector,
 static enum drm_mode_status
 hdmi_clock_valid(const struct drm_connector *connector,
 		 const struct drm_display_mode *mode,
-		 unsigned long long clock)
+		 unsigned long long clock,
+		 unsigned int *frl_gbps_out)
 {
-	const struct drm_connector_hdmi_funcs *funcs = connector->hdmi.funcs;
 	const struct drm_display_info *info = &connector->display_info;
+	const struct drm_connector_hdmi *hdmi = &connector->hdmi;
+	const struct drm_connector_hdmi_funcs *funcs = hdmi->funcs;
+	int ret;
 
-	if (info->max_tmds_clock && clock > info->max_tmds_clock * 1000)
-		return MODE_CLOCK_HIGH;
+	if (clock > HDMI_2_0_TMDS_CHAR_RATE_MAX_HZ ||
+	    (hdmi->max_tmds_char_rate && clock > hdmi->max_tmds_char_rate) ||
+	    (info->max_tmds_clock && clock > info->max_tmds_clock * 1000)) {
+		unsigned int min_frl_gbps, max_frl_gbps;
 
-	if (connector->hdmi.max_tmds_char_rate &&
-	    clock > connector->hdmi.max_tmds_char_rate)
-		return MODE_CLOCK_HIGH;
+		/* FRL supported by the Source & Sink? */
+		if (!drm_connector_hdmi_frl_supported(connector) ||
+		    !hdmi_is_valid_frl_config(info->hdmi.max_frl_rate_per_lane,
+					      info->hdmi.max_lanes))
+			return MODE_CLOCK_HIGH;
+
+		ret = hdmi_frl_bandwidth_range_from_clock(clock,
+				hdmi->min_frl_rate_per_lane * hdmi->min_frl_lanes,
+				hdmi->max_frl_rate_per_lane * hdmi->max_frl_lanes,
+				info->hdmi.max_frl_rate_per_lane * info->hdmi.max_lanes,
+				&min_frl_gbps, &max_frl_gbps);
+		if (ret)
+			return MODE_CLOCK_HIGH;
+
+		if (frl_gbps_out)
+			*frl_gbps_out = max_frl_gbps;
+
+		return MODE_OK;
+	}
 
 	if (funcs && funcs->tmds_char_rate_valid) {
 		enum drm_mode_status status;
@@ -574,6 +595,9 @@ hdmi_clock_valid(const struct drm_connector *connector,
 		if (status != MODE_OK)
 			return status;
 	}
+
+	if (frl_gbps_out)
+		*frl_gbps_out = 0;
 
 	return MODE_OK;
 }
@@ -586,21 +610,32 @@ hdmi_compute_clock(const struct drm_connector *connector,
 {
 	enum drm_mode_status status;
 	unsigned long long clock;
+	unsigned int frl_rate_needed;
 
 	clock = drm_hdmi_compute_mode_clock(mode, bpc, fmt);
 	if (!clock)
 		return -EINVAL;
 
-	status = hdmi_clock_valid(connector, mode, clock);
+	status = hdmi_clock_valid(connector, mode, clock, &frl_rate_needed);
 	if (status != MODE_OK)
 		return -EINVAL;
 
 	conn_state->hdmi.tmds_char_rate = clock;
 
-	/* TODO: also check drm_display_info.hdmi.scdc.scrambling.low_rates */
-	conn_state->hdmi.scrambler_needed = (clock > HDMI_1_3_TMDS_CHAR_RATE_MAX_HZ);
+	if (!frl_rate_needed) {
+		/* TODO: also check drm_display_info.hdmi.scdc.scrambling.low_rates */
+		conn_state->hdmi.scrambler_needed = (clock > HDMI_1_3_TMDS_CHAR_RATE_MAX_HZ);
 
-	return 0;
+		conn_state->hdmi.frl_rate_per_lane = 0;
+		conn_state->hdmi.frl_lanes = 0;
+		return 0;
+	}
+
+	conn_state->hdmi.scrambler_needed = false;
+
+	return hdmi_frl_config_from_bandwidth(frl_rate_needed,
+					      &conn_state->hdmi.frl_rate_per_lane,
+					      &conn_state->hdmi.frl_lanes);
 }
 
 static bool
@@ -971,7 +1006,7 @@ drm_hdmi_connector_mode_valid(struct drm_connector *connector,
 	if (!clock)
 		return MODE_ERROR;
 
-	return hdmi_clock_valid(connector, mode, clock);
+	return hdmi_clock_valid(connector, mode, clock, NULL);
 }
 EXPORT_SYMBOL(drm_hdmi_connector_mode_valid);
 
