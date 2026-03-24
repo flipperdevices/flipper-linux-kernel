@@ -1498,6 +1498,35 @@ struct drm_connector_hdmi_funcs {
 				unsigned long long tmds_rate);
 
 	/**
+	 * @frl_rate_valid:
+	 *
+	 * This callback is invoked at atomic_check time to let the driver
+	 * apply additional constraints on top of the FRL rate range
+	 * already deemed valid for @mode by the Source and the Sink.
+	 *
+	 * @min_frl_rate and @max_frl_rate give the inclusive range of
+	 * supported FRL rates, in Gbps. The driver may optionally write a
+	 * preferred rate into @pref_frl_rate, which must fall within that
+	 * range; the core clamps it regardless, but drivers should not
+	 * rely on that. @pref_frl_rate is 0 on entry, and is left
+	 * untouched if the driver has no preference, in which case the
+	 * core defaults to @max_frl_rate.
+	 *
+	 * The @frl_rate_valid callback is optional.
+	 *
+	 * Returns:
+	 *
+	 * Either &drm_mode_status.MODE_OK or one of the failure reasons
+	 * in &enum drm_mode_status.
+	 */
+	enum drm_mode_status
+	(*frl_rate_valid)(const struct drm_connector *connector,
+			  const struct drm_display_mode *mode,
+			  unsigned int min_frl_rate,
+			  unsigned int max_frl_rate,
+			  unsigned int *pref_frl_rate);
+
+	/**
 	 * @read_edid:
 	 *
 	 * This callback is used by the framework as a replacement for reading

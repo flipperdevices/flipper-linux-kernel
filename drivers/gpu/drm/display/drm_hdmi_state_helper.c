@@ -561,12 +561,13 @@ hdmi_clock_valid(const struct drm_connector *connector,
 	const struct drm_display_info *info = &connector->display_info;
 	const struct drm_connector_hdmi *hdmi = &connector->hdmi;
 	const struct drm_connector_hdmi_funcs *funcs = hdmi->funcs;
+	enum drm_mode_status status;
 	int ret;
 
 	if (clock > HDMI_2_0_TMDS_CHAR_RATE_MAX_HZ ||
 	    (hdmi->max_tmds_char_rate && clock > hdmi->max_tmds_char_rate) ||
 	    (info->max_tmds_clock && clock > info->max_tmds_clock * 1000)) {
-		unsigned int min_frl_gbps, max_frl_gbps;
+		unsigned int min_frl_gbps, max_frl_gbps, pref_frl_gbps = 0;
 
 		/* FRL supported by the Source & Sink? */
 		if (!drm_connector_hdmi_frl_supported(connector) ||
@@ -582,15 +583,26 @@ hdmi_clock_valid(const struct drm_connector *connector,
 		if (ret)
 			return MODE_CLOCK_HIGH;
 
+		if (funcs && funcs->frl_rate_valid) {
+			status = funcs->frl_rate_valid(connector, mode, min_frl_gbps,
+						       max_frl_gbps, &pref_frl_gbps);
+			if (status != MODE_OK)
+				return status;
+		}
+
+		/*
+		 * Clamp driver's preferred rate to the range that was offered:
+		 * anything below cannot carry the mode, anything above exceeds
+		 * what the source or the sink supports.
+		 */
 		if (frl_gbps_out)
-			*frl_gbps_out = max_frl_gbps;
+			*frl_gbps_out = clamp(min_not_zero(pref_frl_gbps, max_frl_gbps),
+					      min_frl_gbps, max_frl_gbps);
 
 		return MODE_OK;
 	}
 
 	if (funcs && funcs->tmds_char_rate_valid) {
-		enum drm_mode_status status;
-
 		status = funcs->tmds_char_rate_valid(connector, mode, clock);
 		if (status != MODE_OK)
 			return status;
