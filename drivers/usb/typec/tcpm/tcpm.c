@@ -1673,6 +1673,15 @@ static bool tcpm_ams_interruptible(struct tcpm_port *port)
 	return true;
 }
 
+static void tcpm_vdm_handle_ams_interruption(struct tcpm_port *port)
+{
+	tcpm_log(port, "VDM AMS state machine got interrupted");
+
+	port->vdm_state = VDM_STATE_ERR_BUSY;
+	tcpm_ams_finish(port);
+	mod_vdm_delayed_work(port, 0);
+}
+
 static int tcpm_ams_start(struct tcpm_port *port, enum tcpm_ams ams)
 {
 	int ret = 0;
@@ -3367,11 +3376,8 @@ static void tcpm_pd_data_request(struct tcpm_port *port,
 	bool frs_enable;
 	int ret;
 
-	if (tcpm_vdm_ams(port) && type != PD_DATA_VENDOR_DEF) {
-		port->vdm_state = VDM_STATE_ERR_BUSY;
-		tcpm_ams_finish(port);
-		mod_vdm_delayed_work(port, 0);
-	}
+	if (tcpm_vdm_ams(port) && type != PD_DATA_VENDOR_DEF)
+		tcpm_vdm_handle_ams_interruption(port);
 
 	switch (type) {
 	case PD_DATA_SOURCE_CAP:
@@ -3568,11 +3574,8 @@ static void tcpm_pd_ctrl_request(struct tcpm_port *port,
 	 * Stop VDM state machine if interrupted by other Messages while NOT_SUPP is allowed in
 	 * VDM AMS if waiting for VDM responses and will be handled later.
 	 */
-	if (tcpm_vdm_ams(port) && type != PD_CTRL_NOT_SUPP && type != PD_CTRL_GOOD_CRC) {
-		port->vdm_state = VDM_STATE_ERR_BUSY;
-		tcpm_ams_finish(port);
-		mod_vdm_delayed_work(port, 0);
-	}
+	if (tcpm_vdm_ams(port) && type != PD_CTRL_NOT_SUPP && type != PD_CTRL_GOOD_CRC)
+		tcpm_vdm_handle_ams_interruption(port);
 
 	switch (type) {
 	case PD_CTRL_GOOD_CRC:
@@ -3890,11 +3893,8 @@ static void tcpm_pd_ext_msg_request(struct tcpm_port *port,
 	unsigned int data_size = pd_ext_header_data_size_le(msg->ext_msg.header);
 
 	/* stopping VDM state machine if interrupted by other Messages */
-	if (tcpm_vdm_ams(port)) {
-		port->vdm_state = VDM_STATE_ERR_BUSY;
-		tcpm_ams_finish(port);
-		mod_vdm_delayed_work(port, 0);
-	}
+	if (tcpm_vdm_ams(port))
+		tcpm_vdm_handle_ams_interruption(port);
 
 	if (!(le16_to_cpu(msg->ext_msg.header) & PD_EXT_HDR_CHUNKED)) {
 		tcpm_pd_handle_msg(port, PD_MSG_CTRL_NOT_SUPP, NONE_AMS);
