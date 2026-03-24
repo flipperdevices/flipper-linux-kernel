@@ -455,6 +455,28 @@ drm_bridge_connector_tmds_char_rate_valid(const struct drm_connector *connector,
 		return MODE_OK;
 }
 
+static enum drm_mode_status
+drm_bridge_connector_frl_rate_valid(const struct drm_connector *connector,
+				    const struct drm_display_mode *mode,
+				    unsigned int min_frl_rate,
+				    unsigned int max_frl_rate,
+				    unsigned int *pref_frl_rate)
+{
+	struct drm_bridge_connector *bridge_connector =
+		to_drm_bridge_connector(connector);
+	struct drm_bridge *bridge;
+
+	bridge = bridge_connector->bridge_hdmi;
+	if (!bridge)
+		return MODE_ERROR;
+
+	if (bridge->funcs->hdmi_frl_rate_valid)
+		return bridge->funcs->hdmi_frl_rate_valid(bridge, mode, min_frl_rate,
+							  max_frl_rate, pref_frl_rate);
+	else
+		return MODE_OK;
+}
+
 static int drm_bridge_connector_clear_avi_infoframe(struct drm_connector *connector)
 {
 	struct drm_bridge_connector *bridge_connector =
@@ -701,6 +723,7 @@ static const struct drm_connector_hdmi_funcs drm_bridge_connector_hdmi_funcs = {
 	.supported_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
 	.max_bpc = 8,
 	.tmds_char_rate_valid = drm_bridge_connector_tmds_char_rate_valid,
+	.frl_rate_valid = drm_bridge_connector_frl_rate_valid,
 	.read_edid = drm_bridge_connector_read_edid,
 	.avi = {
 		.clear_infoframe = drm_bridge_connector_clear_avi_infoframe,
