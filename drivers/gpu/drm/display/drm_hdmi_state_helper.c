@@ -555,8 +555,30 @@ hdmi_clock_valid(const struct drm_connector *connector,
 	const struct drm_connector_hdmi_funcs *funcs = connector->hdmi.funcs;
 	const struct drm_display_info *info = &connector->display_info;
 
-	if (info->max_tmds_clock && clock > info->max_tmds_clock * 1000)
-		return MODE_CLOCK_HIGH;
+	if (info->max_tmds_clock && clock > info->max_tmds_clock * 1000) {
+		unsigned long long req_frl_bw, max_frl_bw;
+
+		/* Check if FRL is supported by the sink */
+		if (!info->hdmi.max_frl_rate_per_lane || !info->hdmi.max_lanes)
+			return MODE_CLOCK_HIGH;
+
+		/* Mandate further (i.e. driver) FRL checks */
+		if (!funcs || !funcs->frl_rate_valid)
+			return MODE_CLOCK_HIGH;
+
+		/*
+		 * Check required FRL bandwidth assuming 16b/18b encoding:
+		 * bw (bps) = clock (Hz) * 3 (channels) * 8 (bit) * 18 / 16
+		 */
+		req_frl_bw = clock * 27;
+		max_frl_bw = info->hdmi.max_frl_rate_per_lane *
+			     info->hdmi.max_lanes * 1000000000ULL;
+
+		if (req_frl_bw > max_frl_bw)
+			return MODE_CLOCK_HIGH;
+
+		return funcs->frl_rate_valid(connector, mode, req_frl_bw, max_frl_bw);
+	}
 
 	if (funcs && funcs->tmds_char_rate_valid) {
 		enum drm_mode_status status;
