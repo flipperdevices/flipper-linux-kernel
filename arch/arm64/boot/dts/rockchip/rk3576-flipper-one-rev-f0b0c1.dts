@@ -1257,6 +1257,7 @@
 		pinctrl-names = "default";
 		pinctrl-0 = <&sai2m0_mclk>;
 		#sound-dai-cells = <0>;
+		nuvoton,spk-btl;
 	};
 };
 
