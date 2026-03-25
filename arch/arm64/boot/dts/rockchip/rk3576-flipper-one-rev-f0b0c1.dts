@@ -519,7 +519,7 @@
 		compatible = "rockchip,rk806";
 		reg = <0x23>;
 		interrupt-parent = <&gpio0>;
-		interrupts = <6 IRQ_TYPE_LEVEL_LOW>;
+		interrupts = <RK_PA6 IRQ_TYPE_LEVEL_LOW>;
 		gpio-controller;
 		#gpio-cells = <2>;
 		pinctrl-names = "default";
