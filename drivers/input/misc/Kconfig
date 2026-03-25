@@ -178,6 +178,17 @@ config INPUT_E3X0_BUTTON
 	  To compile this driver as a module, choose M here: the
 	  module will be called e3x0_button.
 
+config INPUT_FLIPPER_ONE
+	tristate "Flipper One input support"
+	depends on MFD_FLIPPER_ONE
+	help
+	  Say Y here to enable support for human-machine interfacing
+	  functions on the Flipper One networking multitool, including its
+	  builtin buttons, touchpad, haptic feedback and headset inputs.
+
+	  To compile this driver as a module, choose M here: the
+	  module will be called flipper-one-input.
+
 config INPUT_PCSPKR
 	tristate "PC Speaker support"
 	depends on PCSPKR_PLATFORM
