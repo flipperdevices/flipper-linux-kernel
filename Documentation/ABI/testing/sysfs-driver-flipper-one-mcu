@@ -1,0 +1,33 @@
+What:		/sys/bus/i2c/devices/<mcu_device>/cpustate
+Date:		July 2026
+KernelVersion:	7.1
+Contact:	Alexey Charkov <alchark@flipper.net>
+Description:	(RW) Reports the CPU/system power state to the Flipper One MCU
+		so it can present meaningful on-device feedback to the user.
+
+		Reading returns the last logical state name known to the driver.
+
+		Writing lets userspace announce transitions that the kernel
+		cannot observe on its own. Only the following values are
+		accepted; any other value returns -EINVAL:
+
+		 - ``online``: boot is complete and userspace is up. This is a
+		   sticky state and is restored automatically after resuming
+		   from suspend.
+		 - ``suspend-request``: userspace is preparing to suspend (for
+		   example, running its pre-suspend hooks). Announced before the
+		   kernel actually enters suspend.
+		 - ``reboot-request``: userspace has begun a reboot and is
+		   stopping services. Announced before the kernel starts its
+		   own shutdown sequence.
+		 - ``poweroff-request``: userspace has begun a power-off and is
+		   stopping services. Announced before the kernel starts its
+		   own shutdown sequence.
+
+		The ``*-request`` states are transient announcements and are not
+		restored after resume.
+
+		Other states (bootloader, kernel-init, suspend, shutting-down,
+		powered-off) are managed by the kernel and cannot be written.
+
+		Format: %s.
