@@ -10141,6 +10141,18 @@ S:	Maintained
 F:	Documentation/devicetree/bindings/counter/fsl,ftm-quaddec.yaml
 F:	drivers/counter/ftm-quaddec.c
 
+FLIPPER ONE SUPPORT
+M:	Alexey Charkov <alchark@flipper.net>
+S:	Maintained
+F:	Documentation/ABI/testing/sysfs-driver-flipper-one-mcu
+F:	drivers/gpu/drm/tiny/flipper-one-display.c
+F:	drivers/input/misc/flipper-one-haptic.c
+F:	drivers/input/misc/flipper-one-input.c
+F:	drivers/leds/rgb/leds-flipper-one.c
+F:	drivers/mfd/flipper-one-mcu.c
+F:	drivers/usb/typec/ucsi/ucsi_flipper_one.c
+F:	include/linux/mfd/flipper-one-mcu.h
+
 FLOPPY DRIVER
 M:	Denis Efremov <efremov@linux.com>
 L:	linux-block@vger.kernel.org
