@@ -258,17 +258,6 @@ static inline u32 ina4230_reg_to_interval_us(u16 config)
 	return channels * (vbus_ct + vsh_ct);
 }
 
-static inline int ina4230_wait_for_data(struct ina4230_data *ina)
-{
-	u32 wait, cvrf;
-
-	wait = ina4230_reg_to_interval_us(ina->reg_config1);
-
-	/* Polling the CVRF bit to make sure read data is ready */
-	return regmap_field_read_poll_timeout(ina->fields[F_CVRF],
-					      cvrf, cvrf, wait, wait * 2);
-}
-
 static const u8 ina4230_calibration_reg[] = {
 	INA4230_CALIBRATION_CH1,
 	INA4230_CALIBRATION_CH2,
