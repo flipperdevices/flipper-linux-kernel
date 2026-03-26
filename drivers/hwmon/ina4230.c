@@ -205,7 +205,6 @@ struct ina4230_input {
  * @inputs: Array of channel input source specific structures
  * @reg_config1: cached value of CONFIG1 register
  * @reg_config2: cached value of CONFIG2 register
- * @single_shot: flag indicating single-shot measurement mode
  * @alert_active_high: flag indicating alert polarity is active high
  */
 struct ina4230_data {
@@ -215,14 +214,14 @@ struct ina4230_data {
 	struct ina4230_input inputs[INA4230_NUM_CHANNELS];
 	unsigned int reg_config1;
 	unsigned int reg_config2;
-	bool single_shot;
 	bool alert_active_high;
 };
 
 static inline bool ina4230_is_enabled(struct ina4230_data *ina, int channel)
 {
 	return pm_runtime_active(ina->pm_dev) &&
-		!ina->inputs[channel].disconnected;
+		!ina->inputs[channel].disconnected &&
+		ina->reg_config1 & INA4230_CONFIG_CHx_EN(channel);
 }
 
 /* Lookup table for Bus and Shunt conversion times in usec */
@@ -377,18 +376,6 @@ static int ina4230_read_in(struct device *dev, u32 attr, int channel, long *val)
 		if (!ina4230_is_enabled(ina, channel))
 			return -ENODATA;
 
-		/* Write CONFIG register to trigger a single-shot measurement */
-		if (ina->single_shot) {
-			ret = regmap_write(ina->regmap, INA4230_CONFIG1,
-				     ina->reg_config1);
-			if (ret)
-				return ret;
-
-			ret = ina4230_wait_for_data(ina);
-			if (ret)
-				return ret;
-		}
-
 		ret = regmap_read(ina->regmap, reg, &regval);
 		if (ret)
 			return ret;
@@ -473,18 +460,6 @@ static int ina4230_read_curr(struct device *dev, u32 attr,
 	case hwmon_curr_input:
 		if (!ina4230_is_enabled(ina, channel))
 			return -ENODATA;
-
-		/* Write CONFIG1 register to trigger a single-shot measurement */
-		if (ina->single_shot) {
-			ret = regmap_write(ina->regmap, INA4230_CONFIG1,
-				       ina->reg_config1);
-			if (ret)
-				return ret;
-
-			ret = ina4230_wait_for_data(ina);
-			if (ret)
-				return ret;
-		}
 
 		ret = regmap_read(ina->regmap, reg, &regval);
 		if (ret)
@@ -874,7 +849,6 @@ static int ina4230_probe_from_dt(struct device *dev, struct ina4230_data *ina)
 	if (!np)
 		return 0;
 
-	ina->single_shot = of_property_read_bool(np, "ti,single-shot");
 	ina->alert_active_high = of_property_read_bool(np, "ti,alert-polarity-active-high");
 
 	for_each_child_of_node_scoped(np, child) {
@@ -882,6 +856,10 @@ static int ina4230_probe_from_dt(struct device *dev, struct ina4230_data *ina)
 		if (ret)
 			return ret;
 	}
+
+	ret = devm_regulator_get_enable_optional(dev, "vs");
+	if (ret && ret != -ENODEV)
+		return dev_err_probe(dev, ret, "Failed to get regulator\n");
 
 	return 0;
 }
@@ -922,9 +900,8 @@ static int ina4230_probe(struct i2c_client *client)
 	ina->reg_config1 = INA4230_CONFIG_DEFAULT;
 	ina->reg_config2 = 0;
 
-	if (ina->single_shot)
-		FIELD_MODIFY(INA4230_CONFIG1_MODE_MASK, &ina->reg_config1,
-			     INA4230_MODE_BUS_SHUNT_SINGLE);
+	if (ina->alert_active_high)
+		FIELD_MODIFY(INA4230_CONFIG2_ALERT_POL, &ina->reg_config2, 1);
 
 	/* Disable channels if their inputs are disconnected */
 	for (i = 0; i < INA4230_NUM_CHANNELS; i++) {
