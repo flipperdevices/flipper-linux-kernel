@@ -109,14 +109,28 @@ static int dw_dp_rockchip_bind(struct device *dev, struct device *master, void *
 
 	connector = drm_bridge_connector_init(drm_dev, encoder);
 	if (IS_ERR(connector))
-		return dev_err_probe(dev, PTR_ERR(connector),
-				     "Failed to init bridge connector");
+		ret = dev_err_probe(dev, PTR_ERR(connector),
+				    "Failed to init bridge connector");
+	else
+		ret = drm_connector_attach_encoder(connector, encoder);
 
-	return drm_connector_attach_encoder(connector, encoder);
+	if (ret)
+		dw_dp_unbind(dp->base);
+
+	return ret;
+}
+
+static void dw_dp_rockchip_unbind(struct device *dev, struct device *master,
+				  void *data)
+{
+	struct rockchip_dw_dp *dp = dev_get_drvdata(dev);
+
+	dw_dp_unbind(dp->base);
 }
 
 static const struct component_ops dw_dp_rockchip_component_ops = {
 	.bind = dw_dp_rockchip_bind,
+	.unbind = dw_dp_rockchip_unbind,
 };
 
 static int dw_dp_probe(struct platform_device *pdev)
