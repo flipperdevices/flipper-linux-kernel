@@ -77,4 +77,10 @@ bool drm_scdc_get_scrambling_status(struct drm_connector *connector);
 bool drm_scdc_set_scrambling(struct drm_connector *connector, bool enable);
 bool drm_scdc_set_high_tmds_clock_ratio(struct drm_connector *connector, bool set);
 
+bool drm_scdc_set_frl(struct drm_connector *connector,
+		      u8 rate_per_lane, u8 lanes, u8 max_ffe_level);
+bool drm_scdc_calc_lower_frl(u8 in_rate_per_lane, u8 in_lanes,
+			     u8 *out_rate_per_lane, u8 *out_lanes);
+bool drm_scdc_get_frl_ltp_request(struct drm_connector *connector,
+				  u8 *ln0, u8 *ln1, u8 *ln2, u8 *ln3);
 #endif
