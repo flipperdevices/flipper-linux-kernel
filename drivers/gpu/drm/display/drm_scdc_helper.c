@@ -21,6 +21,7 @@
  * DEALINGS IN THE SOFTWARE.
  */
 
+#include <linux/bitfield.h>
 #include <linux/export.h>
 #include <linux/i2c.h>
 #include <linux/slab.h>
@@ -276,3 +277,188 @@ bool drm_scdc_set_high_tmds_clock_ratio(struct drm_connector *connector,
 	return true;
 }
 EXPORT_SYMBOL(drm_scdc_set_high_tmds_clock_ratio);
+
+static int drm_scdc_frl_config_to_rate(u8 config, u8 *rate_per_lane, u8 *lanes)
+{
+	switch (config) {
+	case SCDC_FRL_RATE_12GBPS_4LANE:
+		*rate_per_lane = 12;
+		*lanes = 4;
+		return 0;
+	case SCDC_FRL_RATE_10GBPS_4LANE:
+		*rate_per_lane = 10;
+		*lanes = 4;
+		return 0;
+	case SCDC_FRL_RATE_8GBPS_4LANE:
+		*rate_per_lane = 8;
+		*lanes = 4;
+		return 0;
+	case SCDC_FRL_RATE_6GBPS_4LANE:
+		*rate_per_lane = 6;
+		*lanes = 4;
+		return 0;
+	case SCDC_FRL_RATE_6GBPS_3LANE:
+		*rate_per_lane = 6;
+		*lanes = 3;
+		return 0;
+	case SCDC_FRL_RATE_3GBPS_3LANE:
+		*rate_per_lane = 3;
+		*lanes = 3;
+		return 0;
+	case SCDC_FRL_RATE_DISABLE:
+		*rate_per_lane = 0;
+		*lanes = 0;
+		return 0;
+	default:
+		return -EINVAL;
+	}
+}
+
+static int drm_scdc_frl_rate_to_config(u8 rate_per_lane, u8 lanes)
+{
+	if (lanes != 0 && lanes != 3 && lanes != 4)
+		return -EINVAL;
+
+	switch (rate_per_lane * lanes) {
+	case 48:
+		return SCDC_FRL_RATE_12GBPS_4LANE;
+	case 40:
+		return SCDC_FRL_RATE_10GBPS_4LANE;
+	case 32:
+		return SCDC_FRL_RATE_8GBPS_4LANE;
+	case 24:
+		return SCDC_FRL_RATE_6GBPS_4LANE;
+	case 18:
+		return SCDC_FRL_RATE_6GBPS_3LANE;
+	case 9:
+		return SCDC_FRL_RATE_3GBPS_3LANE;
+	case 0:
+		return SCDC_FRL_RATE_DISABLE;
+	default:
+		return -EINVAL;
+	}
+}
+
+/**
+ * drm_scdc_set_frl - set FRL rate and FFE
+ * @connector: connector
+ * @rate_per_lane: FRL rate for a single lane (Gbps)
+ * @lanes: FRL lane count (3 or 4)
+ * @max_ffe_level: max TxFFE level for indicated FRL Rate (0..3)
+ *
+ * Writes over SCDC the FRL config register over SCDC channel, and sets
+ * FRL_Rate according to rate_per_lane x lanes, as well as FFE_levels
+ * according to max_ffe_level.
+ *
+ * Returns:
+ * True if write is successful, false otherwise.
+ */
+bool drm_scdc_set_frl(struct drm_connector *connector,
+		      u8 rate_per_lane, u8 lanes, u8 max_ffe_level)
+{
+	u8 config;
+	int ret;
+
+	ret = drm_scdc_frl_rate_to_config(rate_per_lane, lanes);
+	if (ret < 0 || max_ffe_level > 3) {
+		drm_dbg_kms(connector->dev,
+			    "[CONNECTOR:%d:%s] Invalid FRL config: rate=%ux%u ffe=%u\n",
+			    connector->base.id, connector->name, rate_per_lane,
+			    lanes, max_ffe_level);
+		return false;
+	}
+
+	config = FIELD_PREP(SCDC_FRL_RATE_MASK, ret) |
+		 FIELD_PREP(SCDC_FFE_LEVELS_MASK, max_ffe_level);
+
+	ret = drm_scdc_writeb(connector->ddc, SCDC_CONFIG_1, config);
+	if (ret < 0) {
+		drm_dbg_kms(connector->dev,
+			    "[CONNECTOR:%d:%s] Failed to set FRL: %d\n",
+			    connector->base.id, connector->name, ret);
+		return false;
+	}
+
+	return true;
+}
+EXPORT_SYMBOL(drm_scdc_set_frl);
+
+/**
+ * drm_scdc_calc_lower_frl - compute a reduced bandwidth FRL rate
+ * @in_rate_per_lane: input FRL rate for a single lane (Gbps)
+ * @in_lanes: input FRL lane count (3 or 4)
+ * @out_rate_per_lane: output FRL rate for a single lane (Gbps)
+ * @out_lanes: output FRL lane count (3 or 4)
+ *
+ * Determinates the FRL rate configuration with the highest bandwidth that is
+ * still lower than the bandwidth corresponding to the given input configuration.
+ * The resulting configuration is stored in out_rate_per_lane and out_lanes.
+ *
+ * Returns:
+ * True if computation was successful, false otherwise.
+ */
+bool drm_scdc_calc_lower_frl(u8 in_rate_per_lane, u8 in_lanes,
+			     u8 *out_rate_per_lane, u8 *out_lanes)
+{
+	int ret;
+
+	ret = drm_scdc_frl_rate_to_config(in_rate_per_lane, in_lanes);
+	if (ret < 0)
+		return false;
+
+	ret--;
+
+	if (ret <= SCDC_FRL_RATE_DISABLE)
+		return false;
+
+	ret = drm_scdc_frl_config_to_rate(ret, out_rate_per_lane, out_lanes);
+
+	return ret == 0;
+}
+EXPORT_SYMBOL(drm_scdc_calc_lower_frl);
+
+/**
+ * drm_scdc_get_frl_ltp_request - read LTP requested by the Sink for FRL lanes
+ * @connector: connector
+ * @ln0: output LTP request for FRL lane 0
+ * @ln1: output LTP request for FRL lane 1
+ * @ln2: output LTP request for FRL lane 2
+ * @ln3: output LTP request for FRL lane 3
+ *
+ * Reads over SCDC the Link Training Pattern (LTP) requested by the Sink for
+ * each of the four FRL lanes and stores the values in ln0..3.
+ *
+ * Returns:
+ * True on success, false otherwise.
+ */
+bool drm_scdc_get_frl_ltp_request(struct drm_connector *connector,
+				  u8 *ln0, u8 *ln1, u8 *ln2, u8 *ln3)
+{
+	u8 status;
+	int ret;
+
+	ret = drm_scdc_readb(connector->ddc, SCDC_STATUS_FLAGS_1, &status);
+	if (ret < 0) {
+		drm_dbg_kms(connector->dev,
+			    "[CONNECTOR:%d:%s] Failed to read LTP{0,1}: %d\n",
+			    connector->base.id, connector->name, ret);
+		return false;
+	}
+
+	*ln0 = FIELD_GET(SCDC_FRL_LN0_LTP_REQ_MASK, status);
+	*ln1 = FIELD_GET(SCDC_FRL_LN1_LTP_REQ_MASK, status);
+
+	ret = drm_scdc_readb(connector->ddc, SCDC_STATUS_FLAGS_2, &status);
+	if (ret < 0) {
+		drm_dbg_kms(connector->dev,
+			    "[CONNECTOR:%d:%s] Failed to read LTP{2,3}: %d\n",
+			    connector->base.id, connector->name, ret);
+		return false;
+	}
+
+	*ln2 = FIELD_GET(SCDC_FRL_LN2_LTP_REQ_MASK, status);
+	*ln3 = FIELD_GET(SCDC_FRL_LN3_LTP_REQ_MASK, status);
+
+	return true;
+}
+EXPORT_SYMBOL(drm_scdc_get_frl_ltp_request);
