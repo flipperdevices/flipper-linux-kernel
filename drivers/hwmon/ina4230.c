@@ -6,6 +6,7 @@
  * Adapted for INA4230 by Alexey Charkov <alchark@flipper.net>
  */
 
+#include <asm/div64.h>
 #include <linux/bitfield.h>
 #include <linux/byteorder/generic.h>
 #include <linux/hwmon.h>
@@ -235,11 +236,17 @@ static const int ina4230_avg_samples[] = {
 };
 
 /* Converting update_interval in msec to conversion time in usec */
-static inline u32 ina4230_interval_ms_to_conv_time(u16 config, int interval)
+static inline u32 ina4230_interval_ms_to_conv_time(u16 config, long interval)
 {
 	u32 channels = hweight16(config & INA4230_CONFIG1_ACTIVE_CHANNEL_MASK);
 	u32 samples_idx = FIELD_GET(INA4230_CONFIG1_AVG_MASK, config);
 	u32 samples = ina4230_avg_samples[samples_idx];
+
+	if (!channels)
+		return U32_MAX;
+
+	/* Maximum supported interval is 8244 * 4 * 2 * 1024 = 67947776 usec */
+	interval = clamp_val(interval, 0, 67948);
 
 	/* Bisect the result to Bus and Shunt conversion times */
 	return DIV_ROUND_CLOSEST(interval * 1000 / 2, channels * samples);
@@ -251,11 +258,18 @@ static inline u32 ina4230_reg_to_interval_us(u16 config)
 	u32 channels = hweight16(config & INA4230_CONFIG1_ACTIVE_CHANNEL_MASK);
 	u32 vbus_ct_idx = FIELD_GET(INA4230_CONFIG1_VBUSCT_MASK, config);
 	u32 vsh_ct_idx = FIELD_GET(INA4230_CONFIG1_VSHCT_MASK, config);
+	u32 samples_idx = FIELD_GET(INA4230_CONFIG1_AVG_MASK, config);
+	u32 samples = ina4230_avg_samples[samples_idx];
 	u32 vbus_ct = ina4230_conv_time[vbus_ct_idx];
 	u32 vsh_ct = ina4230_conv_time[vsh_ct_idx];
 
-	/* Calculate total conversion time */
-	return channels * (vbus_ct + vsh_ct);
+	/*
+	 * Calculate total conversion time including the time to obtain
+	 * the first averaged sample after starting conversion.
+	 * Subsequent conversions will actually be available after
+	 * channels * (vbus_ct + vsh_ct) usec
+	 */
+	return channels * (vbus_ct + vsh_ct) * samples;
 }
 
 static const u8 ina4230_calibration_reg[] = {
@@ -269,13 +283,12 @@ static int ina4230_set_calibration(struct ina4230_data *ina, int channel)
 {
 	struct ina4230_input *input = &ina->inputs[channel];
 	u8 reg = ina4230_calibration_reg[channel];
-	int shunt_range_uV, ret;
+	u64 n, d, shunt_range_uV;
 	u32 calibration;
-	u64 n, d;
+	int ret;
 
-	shunt_range_uV = mult_frac(input->max_expected_current,
-				   input->shunt_resistor,
-				   1000000);
+	shunt_range_uV = (u64)input->max_expected_current * input->shunt_resistor;
+	do_div(shunt_range_uV, 1000000);
 	input->shunt_gain = shunt_range_uV > 20480 ? 1 : 4;
 	ina->reg_config2 &= ~INA4230_CONFIG2_RANGE_CH(channel);
 	if (input->shunt_gain == 4)
@@ -406,8 +419,7 @@ static int ina4230_read_power(struct device *dev, u32 attr, int channel, long *v
 		if (ret)
 			return ret;
 
-		*val = (int16_t)regval *
-			(long)ina->inputs[channel].current_lsb_uA * 32;
+		*val = (long)regval * ina->inputs[channel].current_lsb_uA * 32;
 		return 0;
 	default:
 		return -EOPNOTSUPP;
@@ -426,6 +438,13 @@ static int ina4230_read_energy(struct device *dev, u32 attr, int channel, long *
 		if (!ina4230_is_enabled(ina, channel))
 			return -ENODATA;
 
+		/*
+		 * Read four bytes without incrementing the register address,
+		 * which the device returns in its endianness format (BE32).
+		 * Note that this internally produces a single 4-byte I2C read
+		 * transaction and not two consecutive 16-bit register reads,
+		 * so the result is in fact a four-byte big-endian number
+		 */
 		ret = regmap_noinc_read(ina->regmap, reg, &regval, sizeof(regval));
 		if (ret)
 			return ret;
@@ -664,10 +683,10 @@ static const struct hwmon_channel_info * const ina4230_info[] = {
 			   /* 0: dummy, skipped in is_visible */
 			   HWMON_I_INPUT,
 			   /* 1-4: input voltage Channels */
-			   HWMON_I_INPUT | HWMON_I_LABEL,
-			   HWMON_I_INPUT | HWMON_I_LABEL,
-			   HWMON_I_INPUT | HWMON_I_LABEL,
-			   HWMON_I_INPUT | HWMON_I_LABEL,
+			   HWMON_I_INPUT | HWMON_I_ENABLE | HWMON_I_LABEL,
+			   HWMON_I_INPUT | HWMON_I_ENABLE | HWMON_I_LABEL,
+			   HWMON_I_INPUT | HWMON_I_ENABLE | HWMON_I_LABEL,
+			   HWMON_I_INPUT | HWMON_I_ENABLE | HWMON_I_LABEL,
 			   /* 5-8: shunt voltage Channels */
 			   HWMON_I_INPUT,
 			   HWMON_I_INPUT,
@@ -706,63 +725,12 @@ static const struct hwmon_chip_info ina4230_chip_info = {
 	.info = ina4230_info,
 };
 
-/* Extra attribute groups */
-static ssize_t ina4230_shunt_show(struct device *dev,
-				  struct device_attribute *attr, char *buf)
-{
-	struct sensor_device_attribute *sd_attr = to_sensor_dev_attr(attr);
-	struct ina4230_data *ina = dev_get_drvdata(dev);
-	unsigned int channel = sd_attr->index;
-	struct ina4230_input *input = &ina->inputs[channel];
-
-	return sysfs_emit(buf, "%d\n", input->shunt_resistor);
-}
-
-static ssize_t ina4230_shunt_store(struct device *dev,
-				   struct device_attribute *attr,
-				   const char *buf, size_t count)
-{
-	struct sensor_device_attribute *sd_attr = to_sensor_dev_attr(attr);
-	struct ina4230_data *ina = dev_get_drvdata(dev);
-	unsigned int channel = sd_attr->index;
-	struct ina4230_input *input = &ina->inputs[channel];
-	int val;
-	int ret;
-
-	ret = kstrtoint(buf, 0, &val);
-	if (ret)
-		return ret;
-
-	val = clamp_val(val, 1, INT_MAX);
-
-	input->shunt_resistor = val;
-	ret = ina4230_set_calibration(ina, channel);
-	if (ret)
-		return ret;
-
-	return count;
-}
-
-/* shunt resistance */
-static SENSOR_DEVICE_ATTR_RW(shunt1_resistor, ina4230_shunt, INA4230_CHANNEL1);
-static SENSOR_DEVICE_ATTR_RW(shunt2_resistor, ina4230_shunt, INA4230_CHANNEL2);
-static SENSOR_DEVICE_ATTR_RW(shunt3_resistor, ina4230_shunt, INA4230_CHANNEL3);
-static SENSOR_DEVICE_ATTR_RW(shunt4_resistor, ina4230_shunt, INA4230_CHANNEL4);
-
-static struct attribute *ina4230_attrs[] = {
-	&sensor_dev_attr_shunt1_resistor.dev_attr.attr,
-	&sensor_dev_attr_shunt2_resistor.dev_attr.attr,
-	&sensor_dev_attr_shunt3_resistor.dev_attr.attr,
-	&sensor_dev_attr_shunt4_resistor.dev_attr.attr,
-	NULL,
-};
-ATTRIBUTE_GROUPS(ina4230);
-
 static const struct regmap_range ina4230_vol_ranges[] = {
 	regmap_reg_range(INA4230_SHUNT_VOLTAGE_CH1, INA4230_ENERGY_CH1),
 	regmap_reg_range(INA4230_SHUNT_VOLTAGE_CH2, INA4230_ENERGY_CH2),
 	regmap_reg_range(INA4230_SHUNT_VOLTAGE_CH3, INA4230_ENERGY_CH3),
 	regmap_reg_range(INA4230_SHUNT_VOLTAGE_CH4, INA4230_ENERGY_CH4),
+	regmap_reg_range(INA4230_CONFIG2, INA4230_CONFIG2),
 	regmap_reg_range(INA4230_FLAGS, INA4230_FLAGS),
 };
 
@@ -926,7 +894,7 @@ static int ina4230_probe(struct i2c_client *client)
 
 	hwmon_dev = devm_hwmon_device_register_with_info(dev, client->name, ina,
 							 &ina4230_chip_info,
-							 ina4230_groups);
+							 NULL);
 	if (IS_ERR(hwmon_dev)) {
 		ret = dev_err_probe(dev, PTR_ERR(hwmon_dev),
 			"Unable to register hwmon device\n");
@@ -940,7 +908,8 @@ fail:
 	pm_runtime_set_suspended(ina->pm_dev);
 	/* pm_runtime_put_noidle() for connected channels to balance get_sync */
 	for (i = 0; i < INA4230_NUM_CHANNELS; i++) {
-		if (!ina->inputs[i].disconnected)
+		if (!ina->inputs[i].disconnected &&
+		    ina->reg_config1 & INA4230_CONFIG_CHx_EN(i))
 			pm_runtime_put_noidle(ina->pm_dev);
 	}
 
@@ -957,7 +926,8 @@ static void ina4230_remove(struct i2c_client *client)
 
 	/* pm_runtime_put_noidle() for connected channels to balance get_sync */
 	for (i = 0; i < INA4230_NUM_CHANNELS; i++) {
-		if (!ina->inputs[i].disconnected)
+		if (!ina->inputs[i].disconnected &&
+		    ina->reg_config1 & INA4230_CONFIG_CHx_EN(i))
 			pm_runtime_put_noidle(ina->pm_dev);
 	}
 }
