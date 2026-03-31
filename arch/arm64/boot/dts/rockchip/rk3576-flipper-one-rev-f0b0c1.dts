@@ -1449,7 +1449,7 @@
 
 	wifibt {
 		wifi_pmu_en: wifi-pmu-en {
-			rockchip,pins = <1 RK_PD5 RK_FUNC_GPIO &pcfg_pull_none>;
+			rockchip,pins = <1 RK_PD5 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
 
 		wifi_wgpio0: bt-wake-host {
