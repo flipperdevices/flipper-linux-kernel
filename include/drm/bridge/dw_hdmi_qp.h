@@ -12,11 +12,17 @@ struct drm_encoder;
 struct dw_hdmi_qp;
 struct platform_device;
 
+struct dw_hdmi_qp_link_cfg {
+	unsigned long long tmds_char_rate;
+	unsigned int bpc;
+};
+
 struct dw_hdmi_qp_phy_ops {
 	int (*init)(struct dw_hdmi_qp *hdmi, void *data);
 	void (*disable)(struct dw_hdmi_qp *hdmi, void *data);
 	enum drm_connector_status (*read_hpd)(struct dw_hdmi_qp *hdmi, void *data);
 	void (*setup_hpd)(struct dw_hdmi_qp *hdmi, void *data);
+	const struct dw_hdmi_qp_link_cfg *(*get_link_cfg)(struct dw_hdmi_qp *hdmi, void *data);
 };
 
 struct dw_hdmi_qp_plat_data {
