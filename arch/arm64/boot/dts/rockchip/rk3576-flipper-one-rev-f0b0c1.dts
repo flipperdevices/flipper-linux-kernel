@@ -242,6 +242,7 @@
 
 	rfkill-onboard-wifi {
 		compatible = "rfkill-gpio";
+		default-blocked;
 		radio-type = "wlan";
 		label = "Onboard WiFi+BT";
 		pinctrl-0 = <&wifi_pmu_en>;
