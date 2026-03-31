@@ -242,6 +242,7 @@
 
 	rfkill-onboard-wifi {
 		compatible = "rfkill-gpio";
+		default-blocked;
 		radio-type = "wlan";
 		label = "Onboard WiFi+BT";
 		pinctrl-0 = <&wifi_pmu_en>;
@@ -1449,7 +1450,7 @@
 
 	wifibt {
 		wifi_pmu_en: wifi-pmu-en {
-			rockchip,pins = <1 RK_PD5 RK_FUNC_GPIO &pcfg_pull_none>;
+			rockchip,pins = <1 RK_PD5 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
 
 		wifi_wgpio0: bt-wake-host {
