@@ -28,9 +28,17 @@
 #define FO_BTN_UP		BIT(11)
 #define FO_BTN_PTT		BIT(12)
 
+#define FO_HS_HPPRESENT		BIT(0)
+#define FO_HS_MICPRESENT	BIT(1)
+#define FO_HS_BTN_A		BIT(2)
+#define FO_HS_BTN_B		BIT(3)
+#define FO_HS_BTN_C		BIT(4)
+#define FO_HS_BTN_D		BIT(5)
+
 struct fo_input {
 	struct input_dev *idev_btn;
 	struct input_dev *idev_touch;
+	struct input_dev *idev_headset;
 	struct fomcu_device *fomcu;
 };
 
@@ -45,28 +53,28 @@ static irqreturn_t fo_input_btn_handler(int irq, void *data)
 	struct regmap *regmap = input->fomcu->regmap;
 	struct input_dev *idev = input->idev_btn;
 	struct device *parent = idev->dev.parent;
-	unsigned int btns;
+	unsigned int reg;
 	int err;
 
-	err = regmap_read(regmap, FOMCU_REG_INPUT_BTNS, &btns);
+	err = regmap_read(regmap, FOMCU_REG_INPUT_BTNS, &reg);
 	if (err) {
 		dev_err(parent, "Failed to read button states: %d\n", err);
 		return IRQ_NONE;
 	}
 
-	input_report_key(idev, KEY_K, FO_BTN_CENTER & btns);
-	input_report_key(idev, KEY_I, FO_BTN_UP & btns);
-	input_report_key(idev, KEY_M, FO_BTN_DOWN & btns);
-	input_report_key(idev, KEY_J, FO_BTN_LEFT & btns);
-	input_report_key(idev, KEY_L, FO_BTN_RIGHT & btns);
-	input_report_key(idev, KEY_H, FO_BTN_APPSELECT & btns);
-	input_report_key(idev, KEY_N, FO_BTN_BACK & btns);
-	input_report_key(idev, KEY_A, FO_BTN_PTT & btns);
-	input_report_key(idev, KEY_Z, FO_BTN_ESCAPE & btns);
-	input_report_key(idev, KEY_X, FO_BTN_VIEW & btns);
-	input_report_key(idev, KEY_C, FO_BTN_POWER & btns);
-	input_report_key(idev, KEY_V, FO_BTN_EDIT & btns);
-	input_report_key(idev, KEY_B, FO_BTN_RUN & btns);
+	input_report_key(idev, KEY_K, FO_BTN_CENTER & reg);
+	input_report_key(idev, KEY_I, FO_BTN_UP & reg);
+	input_report_key(idev, KEY_M, FO_BTN_DOWN & reg);
+	input_report_key(idev, KEY_J, FO_BTN_LEFT & reg);
+	input_report_key(idev, KEY_L, FO_BTN_RIGHT & reg);
+	input_report_key(idev, KEY_H, FO_BTN_APPSELECT & reg);
+	input_report_key(idev, KEY_N, FO_BTN_BACK & reg);
+	input_report_key(idev, KEY_A, FO_BTN_PTT & reg);
+	input_report_key(idev, KEY_Z, FO_BTN_ESCAPE & reg);
+	input_report_key(idev, KEY_X, FO_BTN_VIEW & reg);
+	input_report_key(idev, KEY_C, FO_BTN_POWER & reg);
+	input_report_key(idev, KEY_V, FO_BTN_EDIT & reg);
+	input_report_key(idev, KEY_B, FO_BTN_RUN & reg);
 	input_sync(idev);
 
 	return IRQ_HANDLED;
@@ -97,9 +105,36 @@ static irqreturn_t fo_input_touch_handler(int irq, void *data)
 	return IRQ_HANDLED;
 }
 
+static irqreturn_t fo_input_headset_handler(int irq, void *data)
+{
+	struct fo_input *input = data;
+	struct regmap *regmap = input->fomcu->regmap;
+	struct input_dev *idev = input->idev_headset;
+	struct device *parent = idev->dev.parent;
+	unsigned int reg;
+	int err;
+
+	err = regmap_read(regmap, FOMCU_REG_INPUT_HEADSET, &reg);
+	if (err) {
+		dev_err(parent, "Failed to read headset states: %d\n", err);
+		return IRQ_NONE;
+	}
+
+	input_report_switch(idev, SW_HEADPHONE_INSERT, reg & FO_HS_HPPRESENT);
+	input_report_switch(idev, SW_MICROPHONE_INSERT, reg & FO_HS_MICPRESENT);
+	input_report_key(idev, KEY_PLAYPAUSE, reg & FO_HS_BTN_A);
+	input_report_key(idev, KEY_VOLUMEUP, reg & FO_HS_BTN_B);
+	input_report_key(idev, KEY_VOLUMEDOWN, reg & FO_HS_BTN_C);
+	input_report_key(idev, KEY_VOICECOMMAND, reg & FO_HS_BTN_D);
+	input_sync(idev);
+
+	return IRQ_HANDLED;
+}
+
 static const struct fo_irq fo_irqs[] = {
 	{ .name = "flipper-one-input-btn", .handler = fo_input_btn_handler },
 	{ .name = "flipper-one-input-touch", .handler = fo_input_touch_handler },
+	{ .name = "flipper-one-input-headset", .handler = fo_input_headset_handler },
 };
 
 static int fo_input_probe(struct platform_device *pdev)
@@ -107,7 +142,7 @@ static int fo_input_probe(struct platform_device *pdev)
 	struct fomcu_device *fomcu = dev_get_drvdata(pdev->dev.parent);
 	struct device *dev = &pdev->dev;
 	struct fo_input *input;
-	struct input_dev *idev_btn, *idev_touch;
+	struct input_dev *idev_btn, *idev_touch, *idev_headset;
 	int irq, err, i;
 
 	input = devm_kzalloc(dev, sizeof(*input), GFP_KERNEL);
@@ -138,6 +173,17 @@ static int fo_input_probe(struct platform_device *pdev)
 	idev_touch->phys = "flipper-one-input/input1";
 	idev_touch->id.bustype = BUS_I2C;
 
+	idev_headset = devm_input_allocate_device(dev);
+	if (!idev_headset) {
+		dev_err(dev, "Failed to allocate headset input device\n");
+		return -ENOMEM;
+	}
+	input->idev_headset = idev_headset;
+
+	idev_headset->name = "Flipper One Headset";
+	idev_headset->phys = "flipper-one-input/input2";
+	idev_headset->id.bustype = BUS_I2C;
+
 	/* Buttons */
 	input_set_capability(idev_btn, EV_KEY, KEY_K);	/* D-pad center */
 	input_set_capability(idev_btn, EV_KEY, KEY_I);	/* D-pad up */
@@ -159,8 +205,15 @@ static int fo_input_probe(struct platform_device *pdev)
 	input_set_abs_params(idev_touch, ABS_X, 0, 1024, 0, 0);
 	input_set_abs_params(idev_touch, ABS_Y, 0, 800, 0, 0);
 	input_set_abs_params(idev_touch, ABS_PRESSURE, 0, 12288, 0, 0);
-
 	__set_bit(INPUT_PROP_POINTER, idev_touch->propbit);
+
+	/* Headset */
+	input_set_capability(idev_headset, EV_SW, SW_HEADPHONE_INSERT);
+	input_set_capability(idev_headset, EV_SW, SW_MICROPHONE_INSERT);
+	input_set_capability(idev_headset, EV_KEY, KEY_PLAYPAUSE);
+	input_set_capability(idev_headset, EV_KEY, KEY_VOLUMEUP);
+	input_set_capability(idev_headset, EV_KEY, KEY_VOLUMEDOWN);
+	input_set_capability(idev_headset, EV_KEY, KEY_VOICECOMMAND);
 
 	device_set_wakeup_capable(dev, true);
 	device_wakeup_enable(dev);
@@ -186,6 +239,10 @@ static int fo_input_probe(struct platform_device *pdev)
 	err = input_register_device(idev_touch);
 	if (err)
 		return dev_err_probe(dev, err, "Failed to register touch input device\n");
+
+	err = input_register_device(idev_headset);
+	if (err)
+		return dev_err_probe(dev, err, "Failed to register headset input device\n");
 
 	return 0;
 }
