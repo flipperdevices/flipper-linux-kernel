@@ -13,6 +13,7 @@
 enum fomcu_interrupts {
 	FOMCU_INT_INPUT_BTN,
 	FOMCU_INT_INPUT_TOUCH,
+	FOMCU_INT_INPUT_HEADSET,
 };
 
 #define FOMCU_REG_INTSTS		0x0000
@@ -23,6 +24,7 @@ enum fomcu_interrupts {
 #define FOMCU_INTOFF_INPUT		0x0
 #define FOMCU_INTSTS_INPUT_BTN		BIT(0)
 #define FOMCU_INTSTS_INPUT_TOUCH	BIT(1)
+#define FOMCU_INTSTS_INPUT_HEADSET	BIT(2)
 
 #define FOMCU_REG_INTMSK_INPUT		0x0180
 
@@ -30,8 +32,9 @@ enum fomcu_interrupts {
 #define FOMCU_REG_INPUT_TOUCH_X		0x0202
 #define FOMCU_REG_INPUT_TOUCH_Y		0x0204
 #define FOMCU_REG_INPUT_TOUCH_Z		0x0206
+#define FOMCU_REG_INPUT_HEADSET		0x0208
 
-#define FOMCU_REG_MAX			(FOMCU_REG_INPUT_TOUCH_Z + 1)
+#define FOMCU_REG_MAX			(FOMCU_REG_INPUT_HEADSET + 1)
 
 struct fomcu_device {
 	struct i2c_client *client;

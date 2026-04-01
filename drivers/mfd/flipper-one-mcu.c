@@ -64,6 +64,7 @@ static const struct regmap_config fomcu_regmap_config = {
 static const struct regmap_irq fomcu_irqs[] = {
 	FOMCU_IRQ_REG(INPUT, BTN),
 	FOMCU_IRQ_REG(INPUT, TOUCH),
+	FOMCU_IRQ_REG(INPUT, HEADSET),
 };
 
 static unsigned int irq_input_offsets[] = { FOMCU_INTOFF_INPUT };
@@ -87,6 +88,7 @@ static const struct regmap_irq_chip fomcu_irq_chip = {
 static const struct resource fo_input_irqs[] = {
 	DEFINE_RES_IRQ_NAMED(FOMCU_INT_INPUT_BTN, "flipper-one-input-btn"),
 	DEFINE_RES_IRQ_NAMED(FOMCU_INT_INPUT_TOUCH, "flipper-one-input-touch"),
+	DEFINE_RES_IRQ_NAMED(FOMCU_INT_INPUT_HEADSET, "flipper-one-input-headset"),
 };
 
 static const struct mfd_cell cells[] = {
