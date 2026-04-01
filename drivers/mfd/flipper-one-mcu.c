@@ -43,6 +43,7 @@ static const struct regmap_access_table fomcu_precious_regs = {
 };
 
 static const struct regmap_config fomcu_regmap_config = {
+	.name = "flipper-one-mcu",
 	.reg_bits = 16,
 	.reg_stride = 2,
 	.val_bits = 16,
