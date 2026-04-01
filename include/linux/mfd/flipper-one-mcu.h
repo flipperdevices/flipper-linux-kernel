@@ -31,7 +31,7 @@ enum fomcu_interrupts {
 #define FOMCU_REG_INPUT_TOUCH_Y		0x0204
 #define FOMCU_REG_INPUT_TOUCH_Z		0x0206
 
-#define FOMCU_REG_MAX			0xffff
+#define FOMCU_REG_MAX			(FOMCU_REG_INPUT_TOUCH_Z + 1)
 
 struct fomcu_device {
 	struct i2c_client *client;
