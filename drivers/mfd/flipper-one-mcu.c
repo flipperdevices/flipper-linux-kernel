@@ -22,13 +22,14 @@ static const struct regmap_access_table fomcu_writeable_regs = {
 	.n_yes_ranges = ARRAY_SIZE(fomcu_writeable_reg_ranges),
 };
 
-static const struct regmap_range fomcu_volatile_reg_ranges[] = {
-	regmap_reg_range(FOMCU_REG_INTSTS, FOMCU_REG_MAX),
+static const struct regmap_range fomcu_nonvolatile_reg_ranges[] = {
+	regmap_reg_range(FOMCU_REG_VERSION, FOMCU_REG_VERSION + 1),
+	regmap_reg_range(FOMCU_REG_INTMSK_INPUT, FOMCU_REG_INTMSK_INPUT + 0x7f),
 };
 
 static const struct regmap_access_table fomcu_volatile_regs = {
-	.yes_ranges = fomcu_volatile_reg_ranges,
-	.n_yes_ranges = ARRAY_SIZE(fomcu_volatile_reg_ranges),
+	.no_ranges = fomcu_nonvolatile_reg_ranges,
+	.n_no_ranges = ARRAY_SIZE(fomcu_nonvolatile_reg_ranges),
 };
 
 static const struct regmap_config fomcu_regmap_config = {
@@ -65,6 +66,7 @@ static const struct regmap_irq_chip fomcu_irq_chip = {
 	.num_irqs = ARRAY_SIZE(fomcu_irqs),
 	.main_status = FOMCU_REG_INTSTS,
 	.status_base = FOMCU_REG_INTSTS_INPUT,
+	.mask_base = FOMCU_REG_INTMSK_INPUT,
 	.sub_reg_offsets = &fomcu_sub_irqs[0],
 	.num_main_regs = 1,
 	.num_regs = ARRAY_SIZE(fomcu_sub_irqs),
