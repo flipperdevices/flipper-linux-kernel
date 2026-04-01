@@ -24,12 +24,22 @@ static const struct regmap_access_table fomcu_writeable_regs = {
 
 static const struct regmap_range fomcu_nonvolatile_reg_ranges[] = {
 	regmap_reg_range(FOMCU_REG_VERSION, FOMCU_REG_VERSION + 1),
-	regmap_reg_range(FOMCU_REG_INTMSK_INPUT, FOMCU_REG_INTMSK_INPUT + 0x7f),
+	regmap_reg_range(FOMCU_REG_INTMSK_INPUT, FOMCU_REG_INPUT_BTNS - 1),
 };
 
 static const struct regmap_access_table fomcu_volatile_regs = {
 	.no_ranges = fomcu_nonvolatile_reg_ranges,
 	.n_no_ranges = ARRAY_SIZE(fomcu_nonvolatile_reg_ranges),
+};
+
+static const struct regmap_range fomcu_precious_reg_ranges[] = {
+	regmap_reg_range(FOMCU_REG_INTSTS_INPUT,
+			 FOMCU_REG_INTMSK_INPUT - 1),
+};
+
+static const struct regmap_access_table fomcu_precious_regs = {
+	.yes_ranges = fomcu_precious_reg_ranges,
+	.n_yes_ranges = ARRAY_SIZE(fomcu_precious_reg_ranges),
 };
 
 static const struct regmap_config fomcu_regmap_config = {
@@ -40,6 +50,7 @@ static const struct regmap_config fomcu_regmap_config = {
 	.max_register = FOMCU_REG_MAX,
 	.wr_table = &fomcu_writeable_regs,
 	.volatile_table = &fomcu_volatile_regs,
+	.precious_table = &fomcu_precious_regs,
 };
 
 #define CAT(a, b) CAT_I(a, b)
