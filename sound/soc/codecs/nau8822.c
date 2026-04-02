@@ -1153,7 +1153,8 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 {
 	struct device *dev = &i2c->dev;
 	struct nau8822 *nau8822 = dev_get_platdata(dev);
-	int ret;
+	const char *regulators[] = { "vdda", "vddb", "vddc", "vddspk" };
+	int ret, i;
 
 	if (!nau8822) {
 		nau8822 = devm_kzalloc(dev, sizeof(*nau8822), GFP_KERNEL);
@@ -1166,6 +1167,14 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 	if (IS_ERR(nau8822->mclk))
 		return dev_err_probe(&i2c->dev, PTR_ERR(nau8822->mclk),
 			"Error getting mclk\n");
+
+	for (i = 0; i < ARRAY_SIZE(regulators); i++) {
+		ret = devm_regulator_get_enable_optional(dev, regulators[i]);
+		if (ret && ret != -ENODEV)
+			return dev_err_probe(dev, ret,
+					     "Failed to get regulator %s\n",
+					     regulators[i]);
+	}
 
 	nau8822->regmap = devm_regmap_init_i2c(i2c, &nau8822_regmap_config);
 	if (IS_ERR(nau8822->regmap)) {
