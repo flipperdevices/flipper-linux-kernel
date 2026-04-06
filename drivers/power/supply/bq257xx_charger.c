@@ -801,6 +801,13 @@ static int bq25792_hw_init(struct bq257xx_chg *pdata)
 	if (ret)
 		return ret;
 
+	/* Enable the Input Current Optimizer (the rest is at POR value) */
+	regmap_write(regmap, BQ25792_REG0F_CHARGER_CONTROL_0,
+		     BQ25792_REG0F_EN_AUTO_IBATDIS |
+		     BQ25792_REG0F_EN_CHG |
+		     BQ25792_REG0F_EN_ICO |
+		     BQ25792_REG0F_EN_TERM);
+
 	/* Enable the ADC. */
 	regmap_write(regmap, BQ25792_REG2E_ADC_CONTROL, BQ25792_REG2E_ADC_EN);
 
