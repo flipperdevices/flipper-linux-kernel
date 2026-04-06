@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright (c) 2021-2022 Rockchip Electronics Co., Ltd.
- * Copyright (c) 2024 Collabora Ltd.
+ * Copyright (c) 2024-2026 Collabora Ltd.
  */
 
 #ifndef __DW_HDMI_QP__
 #define __DW_HDMI_QP__
+
+#include <linux/types.h>
 
 struct device;
 struct drm_encoder;
@@ -14,6 +16,13 @@ struct platform_device;
 
 struct dw_hdmi_qp_link_cfg {
 	unsigned long long tmds_char_rate;
+	bool frl_enabled;
+	u8 frl_rate_per_lane;
+	u8 frl_lanes;
+	u8 max_frl_rate_per_lane;
+	u8 max_frl_lanes;
+	u8 min_frl_rate_per_lane;
+	u8 min_frl_lanes;
 	unsigned int bpc;
 };
 
@@ -23,6 +32,7 @@ struct dw_hdmi_qp_phy_ops {
 	enum drm_connector_status (*read_hpd)(struct dw_hdmi_qp *hdmi, void *data);
 	void (*setup_hpd)(struct dw_hdmi_qp *hdmi, void *data);
 	const struct dw_hdmi_qp_link_cfg *(*get_link_cfg)(struct dw_hdmi_qp *hdmi, void *data);
+	int (*set_frl_rate)(struct dw_hdmi_qp *hdmi, void *data, u8 rate_per_lane, u8 lanes);
 };
 
 struct dw_hdmi_qp_plat_data {
