@@ -9,6 +9,7 @@
 
 #include <linux/clk.h>
 #include <linux/gpio/consumer.h>
+#include <linux/hdmi.h>
 #include <linux/hw_bitfield.h>
 #include <linux/mfd/syscon.h>
 #include <linux/media-bus-format.h>
@@ -391,6 +392,23 @@ static int dw_hdmi_qp_rk3588_set_frl_rate(struct dw_hdmi_qp *dw_hdmi, void *data
 	return ret;
 }
 
+static int dw_hdmi_qp_rk3588_set_ffe_level(struct dw_hdmi_qp *dw_hdmi, void *data,
+					   u8 ffe_level)
+{
+	struct rockchip_hdmi_qp *hdmi = (struct rockchip_hdmi_qp *)data;
+	union phy_configure_opts phy_cfg = {};
+	int ret;
+
+	phy_cfg.hdmi.frl.ffe_level = ffe_level;
+	phy_cfg.hdmi.frl.set_ffe_level = true;
+
+	ret = phy_configure(hdmi->phy, &phy_cfg);
+	if (ret)
+		dev_err(hdmi->dev, "Failed to set PHY FFE level: %d\n", ret);
+
+	return ret;
+}
+
 static const struct dw_hdmi_qp_phy_ops rk3588_hdmi_phy_ops = {
 	.init		= dw_hdmi_qp_rk3588_phy_init,
 	.disable	= dw_hdmi_qp_rk3588_phy_disable,
@@ -398,6 +416,7 @@ static const struct dw_hdmi_qp_phy_ops rk3588_hdmi_phy_ops = {
 	.enable_hpd	= dw_hdmi_qp_rk3588_enable_hpd,
 	.disable_hpd	= dw_hdmi_qp_rk3588_disable_hpd,
 	.set_frl_rate	= dw_hdmi_qp_rk3588_set_frl_rate,
+	.set_ffe_level	= dw_hdmi_qp_rk3588_set_ffe_level,
 };
 
 static enum drm_connector_status
@@ -456,6 +475,7 @@ static const struct dw_hdmi_qp_phy_ops rk3576_hdmi_phy_ops = {
 	.enable_hpd	= dw_hdmi_qp_rk3576_enable_hpd,
 	.disable_hpd	= dw_hdmi_qp_rk3576_disable_hpd,
 	.set_frl_rate	= dw_hdmi_qp_rk3588_set_frl_rate,
+	.set_ffe_level	= dw_hdmi_qp_rk3588_set_ffe_level,
 };
 
 static void dw_hdmi_qp_rk3588_hpd_work(struct work_struct *work)
@@ -721,6 +741,7 @@ static int dw_hdmi_qp_rockchip_bind(struct device *dev, struct device *master,
 	plat_data.min_frl_lanes = cfg->min_frl_lanes;
 	plat_data.max_frl_rate_per_lane = cfg->max_frl_rate_per_lane;
 	plat_data.max_frl_lanes = cfg->max_frl_lanes;
+	plat_data.max_ffe_level = HDMI_2_1_FRL_FFE_LEVEL_MAX;
 
 	plat_data.supported_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444) |
 				      BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR444) |
