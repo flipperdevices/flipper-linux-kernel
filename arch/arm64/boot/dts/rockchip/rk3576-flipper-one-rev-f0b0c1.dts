@@ -529,7 +529,7 @@
 		interrupt-parent = <&gpio2>;
 		interrupts = <RK_PA6 IRQ_TYPE_LEVEL_LOW>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&audio_headset_int &cpu_int>;
+		pinctrl-0 = <&cpu_int>;
 		wakeup-source;
 	};
 };
@@ -952,8 +952,10 @@
 	usbc0: typec-portc@22 {
 		compatible = "fcs,fusb302";
 		reg = <0x22>;
-		interrupt-parent = <&gpio_expander>;
-		interrupts = <3 IRQ_TYPE_LEVEL_LOW>;
+		interrupt-parent = <&gpio0>;
+		interrupts = <RK_PB5 IRQ_TYPE_LEVEL_LOW>;
+		pinctrl-0 = <&audio_headset_int>;
+		pinctrl-names = "default";
 		vbus-supply = <&vusb_typec>;
 
 		connector {
