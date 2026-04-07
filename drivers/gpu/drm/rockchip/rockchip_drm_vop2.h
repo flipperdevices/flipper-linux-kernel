@@ -333,6 +333,7 @@ struct vop2 {
 	 * we need a ref counter here.
 	 */
 	unsigned int enable_count;
+	unsigned int frl_vp_count;
 	struct clk *hclk;
 	struct clk *aclk;
 	struct clk *pclk;
