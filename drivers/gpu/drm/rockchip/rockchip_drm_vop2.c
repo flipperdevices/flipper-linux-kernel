@@ -104,6 +104,8 @@ enum vop2_afbc_format {
 };
 
 #define VOP2_MAX_DCLK_RATE		600000000UL
+#define VOP2_ACLK_RATE_DEFAULT		500000000UL
+#define VOP2_ACLK_RATE_FRL		750000000UL
 
 /*
  * bus-format types.
@@ -965,6 +967,17 @@ static void vop2_crtc_atomic_disable(struct drm_crtc *crtc,
 
 	clk_disable_unprepare(vp->dclk);
 
+	if (vop2->version == VOP_VERSION_RK3588) {
+		struct rockchip_crtc_state *vcstate = to_rockchip_crtc_state(old_crtc_state);
+
+		if (vcstate->frl_enabled) {
+			vop2->frl_vp_count--;
+
+			if (!vop2->frl_vp_count)
+				clk_set_rate(vop2->aclk, VOP2_ACLK_RATE_DEFAULT);
+		}
+	}
+
 	vop2->enable_count--;
 
 	if (!vop2->enable_count)
@@ -1693,6 +1706,13 @@ static void vop2_crtc_atomic_enable(struct drm_crtc *crtc,
 		vop2_enable(vop2);
 
 	vop2->enable_count++;
+
+	if (vop2->version == VOP_VERSION_RK3588 && vcstate->frl_enabled) {
+		if (!vop2->frl_vp_count)
+			clk_set_rate(vop2->aclk, VOP2_ACLK_RATE_FRL);
+
+		vop2->frl_vp_count++;
+	}
 
 	vcstate->yuv_overlay = is_yuv_output(vcstate->bus_format);
 
