@@ -23,6 +23,7 @@ struct dw_hdmi_qp_link_cfg {
 	u8 max_frl_lanes;
 	u8 min_frl_rate_per_lane;
 	u8 min_frl_lanes;
+	u8 max_ffe_level;
 	unsigned int bpc;
 };
 
@@ -33,6 +34,7 @@ struct dw_hdmi_qp_phy_ops {
 	void (*setup_hpd)(struct dw_hdmi_qp *hdmi, void *data);
 	const struct dw_hdmi_qp_link_cfg *(*get_link_cfg)(struct dw_hdmi_qp *hdmi, void *data);
 	int (*set_frl_rate)(struct dw_hdmi_qp *hdmi, void *data, u8 rate_per_lane, u8 lanes);
+	int (*set_ffe_level)(struct dw_hdmi_qp *hdmi, void *data, u8 ffe_level);
 };
 
 struct dw_hdmi_qp_plat_data {

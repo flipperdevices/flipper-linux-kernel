@@ -899,12 +899,13 @@ static int dw_hdmi_qp_frl_lts2(struct dw_hdmi_qp *hdmi)
 
 		if (val & SCDC_FLT_READY) {
 			link_cfg = hdmi->phy.ops->get_link_cfg(hdmi, hdmi->phy.data);
+			val = hdmi->phy.ops->set_ffe_level ? link_cfg->max_ffe_level : 0;
 
-			dev_dbg(hdmi->dev, "lts2: set rate=%ux%u\n",
-				link_cfg->frl_rate_per_lane, link_cfg->frl_lanes);
+			dev_dbg(hdmi->dev, "lts2: set rate=%ux%u maxffe=%u\n",
+				link_cfg->frl_rate_per_lane, link_cfg->frl_lanes, val);
 
 			ret = drm_scdc_set_frl(hdmi->curr_conn, link_cfg->frl_rate_per_lane,
-					       link_cfg->frl_lanes, 0);
+					       link_cfg->frl_lanes, val);
 			if (ret)
 				ret = drm_scdc_writeb(hdmi->bridge.ddc, SCDC_CONFIG_0, 0);
 			else
@@ -930,7 +931,7 @@ static int dw_hdmi_qp_frl_lts2(struct dw_hdmi_qp *hdmi)
  */
 static int dw_hdmi_qp_frl_lts3(struct dw_hdmi_qp *hdmi)
 {
-	u8 val;
+	u8 val, ffe_lv = 0;
 	int i, ret;
 
 	/* Set 2s timeout */
@@ -1003,8 +1004,22 @@ static int dw_hdmi_qp_frl_lts3(struct dw_hdmi_qp *hdmi)
 			}
 
 			if (ln0 == 0xe || ln1 == 0xe || ln2 == 0xe || ln3 == 0xe) {
-				dev_err(hdmi->dev, "lts3: ffe level update not expected\n");
-				return LTSL;
+				if (!hdmi->phy.ops->set_ffe_level) {
+					dev_err(hdmi->dev, "lts3: ffe level update not expected\n");
+					return LTSL;
+				}
+
+				if (ffe_lv >= 3) {
+					dev_err(hdmi->dev, "lts3: ffe level limit reached\n");
+					return LTSL;
+				}
+
+				ffe_lv++;
+				dev_dbg(hdmi->dev, "lts3: ffe level up %d\n", ffe_lv);
+
+				ret = hdmi->phy.ops->set_ffe_level(hdmi, hdmi->phy.data, ffe_lv);
+				if (ret)
+					return LTSL;
 			} else {
 				flt_cfg = (ln3 << 16) | (ln2 << 12) | (ln1 << 8) |
 					  (ln0 << 4) | 0xf;
@@ -1036,7 +1051,7 @@ static int dw_hdmi_qp_frl_lts3(struct dw_hdmi_qp *hdmi)
 static int dw_hdmi_qp_frl_lts4(struct dw_hdmi_qp *hdmi)
 {
 	const struct dw_hdmi_qp_link_cfg *link_cfg;
-	u8 try_rate_per_lane, try_lanes;
+	u8 try_rate_per_lane, try_lanes, max_ffe_level;
 	int ret;
 
 	link_cfg = hdmi->phy.ops->get_link_cfg(hdmi, hdmi->phy.data);
@@ -1077,8 +1092,11 @@ static int dw_hdmi_qp_frl_lts4(struct dw_hdmi_qp *hdmi)
 	/* Enable phy */
 	hdmi->phy.ops->init(hdmi, hdmi->phy.data);
 
+	max_ffe_level = hdmi->phy.ops->set_ffe_level ? link_cfg->max_ffe_level : 0;
+
 	/* Set new rate */
-	ret = drm_scdc_set_frl(hdmi->curr_conn, try_rate_per_lane, try_lanes, 0);
+	ret = drm_scdc_set_frl(hdmi->curr_conn, try_rate_per_lane, try_lanes,
+			       max_ffe_level);
 	if (ret)
 		ret = drm_scdc_writeb(hdmi->bridge.ddc, SCDC_UPDATE_0,
 				      SCDC_FLT_UPDATE);
