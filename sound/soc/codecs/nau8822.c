@@ -10,6 +10,7 @@
 //
 // Based on WM8974.c
 
+#include "linux/regulator/consumer.h"
 #include <linux/module.h>
 #include <linux/moduleparam.h>
 #include <linux/kernel.h>
@@ -1168,7 +1169,7 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 {
 	struct device *dev = &i2c->dev;
 	struct nau8822 *nau8822 = dev_get_platdata(dev);
-	int ret, i;
+	int ret, i, vddspk;
 
 	if (!nau8822) {
 		nau8822 = devm_kzalloc(dev, sizeof(*nau8822), GFP_KERNEL);
@@ -1189,6 +1190,11 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to get regulators\n");
 
+	vddspk = regulator_get_voltage(nau8822->supplies[SUPPLY_VDDSPK].consumer);
+	if (vddspk < 0 && vddspk != -ENODEV)
+		return dev_err_probe(dev, vddspk,
+				     "Failed to get VDDSPK voltage\n");
+
 	nau8822->regmap = devm_regmap_init_i2c(i2c, &nau8822_regmap_config);
 	if (IS_ERR(nau8822->regmap)) {
 		ret = PTR_ERR(nau8822->regmap);
@@ -1208,6 +1214,17 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 	if (ret != 0) {
 		dev_err(&i2c->dev, "Failed to issue reset: %d\n", ret);
 		goto err_reg;
+	}
+
+	if (vddspk > 3600000) {
+		ret = regmap_update_bits(nau8822->regmap,
+					 NAU8822_REG_OUTPUT_CONTROL,
+					 NAU8822_SPKBST |
+					 NAU8822_AUX2BST |
+					 NAU8822_AUX1BST, 0x7);
+		if (ret != 0)
+			return dev_err_probe(dev, ret,
+				"Failed to update gain boost control\n");
 	}
 
 	ret = devm_snd_soc_register_component(dev, &soc_component_dev_nau8822,
