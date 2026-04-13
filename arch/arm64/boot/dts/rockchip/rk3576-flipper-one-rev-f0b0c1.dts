@@ -916,6 +916,7 @@
 };
 
 &i2c2 {
+	clock-frequency = <400000>;
 	pinctrl-0 = <&i2c2m0_xfer_dr5>;
 	pinctrl-names = "default";
 	status = "okay";
@@ -1235,6 +1236,8 @@
 		compatible = "ti,bq28z610"; /* really bq28z620: tbc if we need a new compatible */
 		reg = <0x55>;
 		monitored-battery = <&battery>;
+		/* Doesn't work at 400 kHz */
+		status = "disabled";
 	};
 
 	bq25792: charger@6b {
