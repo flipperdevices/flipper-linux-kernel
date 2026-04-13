@@ -916,6 +916,7 @@
 };
 
 &i2c2 {
+	clock-frequency = <400000>;
 	pinctrl-0 = <&i2c2m0_xfer_dr5>;
 	pinctrl-names = "default";
 	status = "okay";
