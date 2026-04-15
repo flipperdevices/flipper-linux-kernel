@@ -1379,6 +1379,8 @@
 				      "dclk_vp1",
 				      "dclk_vp2",
 				      "pll_hdmiphy0";
+			assigned-clocks = <&cru DCLK_VP0_SRC>, <&cru DCLK_VP1_SRC>;
+			assigned-clock-parents = <&cru PLL_VPLL>, <&cru PLL_VPLL>;
 			iommus = <&vop_mmu>;
 			power-domains = <&power RK3576_PD_VOP>;
 			rockchip,grf = <&sys_grf>;
