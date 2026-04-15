@@ -66,19 +66,19 @@ static int rockchip_pll_determine_rate(struct clk_hw *hw,
 {
 	struct rockchip_clk_pll *pll = to_rockchip_clk_pll(hw);
 	const struct rockchip_pll_rate_table *rate_table = pll->rate_table;
+	unsigned long best = 0;
 	int i;
 
-	/* Assuming rate_table is in descending order */
 	for (i = 0; i < pll->rate_count; i++) {
-		if (req->rate >= rate_table[i].rate) {
-			req->rate = rate_table[i].rate;
-
-			return 0;
-		}
+		if (abs((long)req->rate - (long)rate_table[i].rate) <
+		    abs((long)req->rate - (long)best))
+			best = rate_table[i].rate;
 	}
 
-	/* return minimum supported value */
-	req->rate = rate_table[i - 1].rate;
+	if (best)
+		req->rate = best;
+	else
+		req->rate = rate_table[pll->rate_count - 1].rate;
 
 	return 0;
 }
