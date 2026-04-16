@@ -17,6 +17,7 @@
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_bridge.h>
 #include <drm/drm_bridge_connector.h>
+#include <drm/drm_connector.h>
 #include <drm/drm_managed.h>
 #include <drm/drm_of.h>
 #include <drm/drm_print.h>
@@ -231,6 +232,15 @@ static int dw_dp_rockchip_bind(struct device *dev, struct device *master, void *
 				    "Failed to init bridge connector");
 	else
 		ret = drm_connector_attach_encoder(connector, encoder);
+
+	if (!ret) {
+		/*
+		 * drm_connector_attach_max_bpc_property() requires the
+		 * connector to have a state.
+		 */
+		drm_atomic_helper_connector_reset(connector);
+		drm_connector_attach_max_bpc_property(connector, 6, 10);
+	}
 
 	if (ret)
 		dw_dp_unbind(dp->base);
