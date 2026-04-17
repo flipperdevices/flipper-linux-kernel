@@ -57,6 +57,11 @@ actions:
           - timedatectl set-ntp true
           - systemctl restart systemd-timesyncd
           - sleep 15 # wait for delayed regulator poweroff
+      # Regex checked from kernel start until the login prompt; on match LAVA
+      # aborts with "Matched job-specific failure message" instead of running
+      # into the login timeout. LAVA supports only a single failure_message.
+      # The first match is fatal.
+      failure_message: '(No init found|Initiating hard-reset|Received hard reset)'
       prompts:
         - 'user@rk3588-ci:(.*)$'
         - 'root@rk3588-ci:(.*)#'
