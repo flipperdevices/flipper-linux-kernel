@@ -57,6 +57,9 @@ actions:
           - timedatectl set-ntp true
           - systemctl restart systemd-timesyncd
           - sleep 15 # wait for delayed regulator poweroff
+      error_patterns:
+        - "typec_fusb302 4-0022: Initiating hard-reset, which might result in machine power-loss."
+        - "typec_fusb302 4-0022: Received hard reset"
       prompts:
         - 'user@rk3588-ci:(.*)$'
         - 'root@rk3588-ci:(.*)#'
