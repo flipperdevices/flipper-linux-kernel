@@ -23161,6 +23161,7 @@ L:	linux-pwm@vger.kernel.org
 S:	Maintained
 F:	Documentation/devicetree/bindings/pwm/rockchip,rk3576-pwm.yaml
 F:	drivers/mfd/rockchip-mfpwm.c
+F:	drivers/pwm/pwm-rockchip-v4.c
 F:	include/linux/mfd/rockchip-mfpwm.h
 
 ROCKCHIP RK3568 RANDOM NUMBER GENERATOR SUPPORT
