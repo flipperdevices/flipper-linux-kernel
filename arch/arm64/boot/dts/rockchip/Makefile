@@ -167,6 +167,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3568-wolfvision-pf5-io-expander.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-100ask-dshanpi-a1.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-armsom-sige5.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-armsom-sige5-v1.2-wifibt.dtbo
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-dp-4k-hdmi-2.5k.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb1-v10.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb1-v10-pcie1.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb2-v10.dtb
@@ -295,13 +296,25 @@ rk3568-wolfvision-pf5-vz-2-uhd-dtbs := rk3568-wolfvision-pf5.dtb \
 	rk3568-wolfvision-pf5-display-vz.dtbo \
 	rk3568-wolfvision-pf5-io-expander.dtbo
 
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-armsom-sige5-dp-4k-hdmi-2.5k.dtb
+rk3576-armsom-sige5-dp-4k-hdmi-2.5k-dtbs := rk3576-armsom-sige5.dtb \
+	rk3576-dp-4k-hdmi-2.5k.dtbo
+
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-armsom-sige5-v1.2-wifibt.dtb
 rk3576-armsom-sige5-v1.2-wifibt-dtbs := rk3576-armsom-sige5.dtb \
 	rk3576-armsom-sige5-v1.2-wifibt.dtbo
 
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb1-v10-dp-4k-hdmi-2.5k.dtb
+rk3576-evb1-v10-dp-4k-hdmi-2.5k-dtbs := rk3576-evb1-v10.dtb \
+	rk3576-dp-4k-hdmi-2.5k.dtbo
+
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb1-v10-pcie1.dtb
 rk3576-evb1-v10-pcie1-dtbs := rk3576-evb1-v10.dtb \
 	rk3576-evb1-v10-pcie1.dtbo
+
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-dp-4k-hdmi-2.5k.dtb
+rk3576-flipper-one-dp-4k-hdmi-2.5k-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
+	rk3576-dp-4k-hdmi-2.5k.dtbo
 
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-i2c2-free.dtb
 rk3576-flipper-one-i2c2-free-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
