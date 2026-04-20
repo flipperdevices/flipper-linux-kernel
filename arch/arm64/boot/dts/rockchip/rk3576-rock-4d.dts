@@ -46,6 +46,14 @@
 		shutdown-gpios = <&gpio2 RK_PD1 GPIO_ACTIVE_HIGH>;
 	};
 
+	fan: pwm-fan {
+		compatible = "pwm-fan";
+		cooling-levels = <0 180 205 230 255>;
+		fan-supply = <&vcc_5v0_sys>;
+		pwms = <&pwm2_8ch_5 0 60000 0>;
+		#cooling-cells = <2>;
+	};
+
 	es8388_sound: es8388-sound {
 		compatible = "simple-audio-card";
 		simple-audio-card,format = "i2s";
@@ -789,6 +797,36 @@
 	};
 };
 
+&package_thermal {
+	polling-delay = <100>;
+
+	trips {
+		package_fan0: package-fan0 {
+			temperature = <50000>;
+			hysteresis = <2000>;
+			type = "active";
+		};
+
+		package_fan1: package-fan1 {
+			temperature = <60000>;
+			hysteresis = <2000>;
+			type = "active";
+		};
+	};
+
+	cooling-maps {
+		map1 {
+			trip = <&package_fan0>;
+			cooling-device = <&fan THERMAL_NO_LIMIT 1>;
+		};
+
+		map2 {
+			trip = <&package_fan1>;
+			cooling-device = <&fan 2 THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
 &pcie0 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&pcie_reset>;
@@ -798,6 +836,13 @@
 };
 
 &pinctrl {
+	fan {
+		fan_pwm: fan-pwm {
+			rockchip,pins =
+				<4 RK_PC5 14 &pcfg_pull_down_drv_level_5>;
+		};
+	};
+
 	hym8563 {
 		hym8563_int: hym8563-int {
 			rockchip,pins = <0 RK_PA0 RK_FUNC_GPIO &pcfg_pull_up>;
@@ -846,6 +891,11 @@
 			rockchip,pins = <2 RK_PD1 RK_FUNC_GPIO &pcfg_pull_down>;
 		};
 	};
+};
+
+&pwm2_8ch_5 {
+	pinctrl-0 = <&fan_pwm>;
+	status = "okay";
 };
 
 &sai1 {
