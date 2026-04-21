@@ -1644,7 +1644,7 @@ done:
 	enable_irq(chip->gpio_int_n_irq);
 }
 
-static int init_gpio(struct fusb302_chip *chip)
+static int fusb302_init_irq(struct fusb302_chip *chip)
 {
 	struct device *dev = chip->dev;
 	int ret = 0;
@@ -1759,7 +1759,7 @@ static int fusb302_probe(struct i2c_client *client)
 	if (client->irq) {
 		chip->gpio_int_n_irq = client->irq;
 	} else {
-		ret = init_gpio(chip);
+		ret = fusb302_init_irq(chip);
 		if (ret < 0)
 			return ret;
 	}
