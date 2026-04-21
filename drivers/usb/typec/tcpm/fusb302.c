@@ -85,7 +85,6 @@ struct fusb302_chip {
 	struct work_struct irq_work;
 	bool irq_suspended;
 	bool irq_while_suspended;
-	struct gpio_desc *gpio_int_n;
 	int gpio_int_n_irq;
 	struct extcon_dev *extcon;
 
@@ -1647,19 +1646,17 @@ done:
 static int fusb302_init_irq(struct fusb302_chip *chip)
 {
 	struct device *dev = chip->dev;
+	struct gpio_desc *int_gpio;
 	int ret = 0;
 
-	chip->gpio_int_n = devm_gpiod_get(dev, "fcs,int_n", GPIOD_IN);
-	if (IS_ERR(chip->gpio_int_n)) {
-		dev_err(dev, "failed to request gpio_int_n\n");
-		return PTR_ERR(chip->gpio_int_n);
-	}
-	ret = gpiod_to_irq(chip->gpio_int_n);
-	if (ret < 0) {
-		dev_err(dev,
-			"cannot request IRQ for GPIO Int_N, ret=%d", ret);
-		return ret;
-	}
+	int_gpio = devm_gpiod_get(dev, "fcs,int_n", GPIOD_IN);
+	if (IS_ERR(int_gpio))
+		return dev_err_probe(dev, PTR_ERR(int_gpio), "failed to request interrupt GPIO\n");
+
+	ret = gpiod_to_irq(int_gpio);
+	if (ret < 0)
+		return dev_err_probe(dev, ret, "cannot request IRQ for GPIO\n");
+
 	chip->gpio_int_n_irq = ret;
 	return 0;
 }
