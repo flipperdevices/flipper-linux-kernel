@@ -1657,8 +1657,7 @@ static int fusb302_init_irq(struct fusb302_chip *chip)
 	if (ret < 0)
 		return dev_err_probe(dev, ret, "cannot request IRQ for GPIO\n");
 
-	chip->gpio_int_n_irq = ret;
-	return 0;
+	return ret;
 }
 
 #define PDO_FIXED_FLAGS \
@@ -1753,13 +1752,13 @@ static int fusb302_probe(struct i2c_client *client)
 	if (ret < 0)
 		return ret;
 
-	if (client->irq) {
+	if (client->irq)
 		chip->gpio_int_n_irq = client->irq;
-	} else {
-		ret = fusb302_init_irq(chip);
-		if (ret < 0)
-			return ret;
-	}
+	else
+		chip->gpio_int_n_irq = fusb302_init_irq(chip);
+
+	if (chip->gpio_int_n_irq < 0)
+		return chip->gpio_int_n_irq;
 
 	chip->tcpc_dev.fwnode = fusb302_fwnode_get(dev);
 	if (IS_ERR(chip->tcpc_dev.fwnode)) {
