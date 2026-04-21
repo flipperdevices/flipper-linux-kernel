@@ -8659,6 +8659,30 @@ void tcpm_unregister_port(struct tcpm_port *port)
 }
 EXPORT_SYMBOL_GPL(tcpm_unregister_port);
 
+static void devm_tcpm_unregister_port(void *data)
+{
+	struct tcpm_port *port = data;
+	tcpm_unregister_port(port);
+}
+
+struct tcpm_port *devm_tcpm_register_port(struct device *dev,
+					  struct tcpc_dev *tcpc)
+{
+	struct tcpm_port *result;
+	int ret;
+
+	result = tcpm_register_port(dev, tcpc);
+	if (IS_ERR(result))
+		return result;
+
+	ret = devm_add_action_or_reset(dev, devm_tcpm_unregister_port, result);
+	if (ret  < 0)
+		return ERR_PTR(ret);
+
+	return result;
+}
+EXPORT_SYMBOL_GPL(devm_tcpm_register_port);
+
 MODULE_AUTHOR("Guenter Roeck <groeck@chromium.org>");
 MODULE_DESCRIPTION("USB Type-C Port Manager");
 MODULE_LICENSE("GPL");
