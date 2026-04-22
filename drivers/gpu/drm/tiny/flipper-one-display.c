@@ -220,7 +220,7 @@ static const struct drm_display_mode fo_display_mode = {
 };
 
 static const struct spi_device_id fo_ids[] = {
-	{"flipper-one-display", (kernel_ulong_t)&fo_display_mode},
+	{"flipper_one_display", (kernel_ulong_t)&fo_display_mode},
 	{},
 };
 MODULE_DEVICE_TABLE(spi, fo_ids);
@@ -284,7 +284,6 @@ static int fo_probe(struct spi_device *spi)
 	struct drm_device *drm;
 
 	dev = &spi->dev;
-	spi->bits_per_word = 16;
 	spi->mode |= SPI_MODE_3;
 
 	ret = spi_setup(spi);
