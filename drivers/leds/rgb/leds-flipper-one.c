@@ -44,10 +44,10 @@ static const unsigned int foled_regs[FOLED_NUM_LEDS] = {
 };
 
 static const char * const foled_led_names[FOLED_NUM_LEDS] = {
-	"flipper-one:rgb:link1",
-	"flipper-one:rgb:link2",
-	"flipper-one:rgb:link3",
-	"flipper-one:rgb:link4",
+	"flipper-one:rgb:link",
+	"flipper-one:rgb:wifi",
+	"flipper-one:rgb:eth1",
+	"flipper-one:rgb:eth0",
 };
 
 static int foled_brightness_set(struct led_classdev *cdev,
