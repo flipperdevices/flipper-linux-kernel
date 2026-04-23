@@ -15,6 +15,8 @@
 static const struct regmap_range fomcu_writeable_reg_ranges[] = {
 	regmap_reg_range(FOMCU_REG_INTMSK_INPUT,
 			 FOMCU_REG_INPUT_BTNS - 1),
+	regmap_reg_range(FOMCU_REG_LEDS_BR_LINK,
+			 FOMCU_REG_LEDS_COLOR_LINK4),
 };
 
 static const struct regmap_access_table fomcu_writeable_regs = {

@@ -34,7 +34,17 @@ enum fomcu_interrupts {
 #define FOMCU_REG_INPUT_TOUCH_Z		0x0206
 #define FOMCU_REG_INPUT_HEADSET		0x0208
 
-#define FOMCU_REG_MAX			(FOMCU_REG_INPUT_HEADSET + 1)
+#define FOMCU_REG_LEDS_BR_LINK		0x0300
+#define FOMCU_REG_LEDS_BR_POWER		0x0302
+#define FOMCU_REG_LEDS_BR_WATT		0x0304
+
+/* RGB565 values per each LED */
+#define FOMCU_REG_LEDS_COLOR_LINK1	0x0310
+#define FOMCU_REG_LEDS_COLOR_LINK2	0x0312
+#define FOMCU_REG_LEDS_COLOR_LINK3	0x0314
+#define FOMCU_REG_LEDS_COLOR_LINK4	0x0316
+
+#define FOMCU_REG_MAX			(FOMCU_REG_LEDS_COLOR_LINK4 + 1)
 
 struct fomcu_device {
 	struct i2c_client *client;
