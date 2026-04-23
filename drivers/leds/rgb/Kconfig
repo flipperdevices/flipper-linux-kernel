@@ -14,6 +14,17 @@ config LEDS_GROUP_MULTICOLOR
 	  To compile this driver as a module, choose M here: the module
 	  will be called leds-group-multicolor.
 
+config LEDS_FLIPPER_ONE
+	tristate "LED support for Flipper One"
+	depends on MFD_FLIPPER_ONE
+	help
+	  This option enables support for the four RGB link LEDs on the
+	  Flipper One networking multitool. Each LED is driven via a packed
+	  RGB565 value written to the Flipper One MCU over I2C.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called leds-flipper-one.
+
 config LEDS_KTD202X
 	tristate "LED support for KTD202x Chips"
 	depends on I2C
