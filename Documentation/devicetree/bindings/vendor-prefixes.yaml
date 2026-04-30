@@ -1753,6 +1753,8 @@ patternProperties:
     description: Ufi Space Co., Ltd.
   "^ugoos,.*":
     description: Ugoos Industrial Co., Ltd.
+  "^ugreen,.*":
+    description: Ugreen Group Limited
   "^ultrapower,.*":
     description: Beijing Ultrapower Software Co., Ltd.
   "^uni-t,.*":
