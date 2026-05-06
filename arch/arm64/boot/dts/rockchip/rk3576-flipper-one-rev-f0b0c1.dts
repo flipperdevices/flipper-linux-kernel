@@ -1551,6 +1551,8 @@
 		compatible = "flipper,one-display";
 		reg = <0>;
 		active-gpios = <&gpio0 RK_PD1 GPIO_ACTIVE_LOW>;
+		spi-cpha;
+		spi-cpol;
 		spi-max-frequency = <20000000>;
 		spi-rx-bus-width = <0>;
 	};
