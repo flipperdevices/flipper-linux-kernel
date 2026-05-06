@@ -17,7 +17,7 @@ description:
   black and 255 white, lower two bits are discarded, and the expected frame
   size is 258x144 pixels of which the leftmost 256x144 are visible.
 
-  SPI mode 3 is used, 16 bits per word, with a maximum frequency of 24MHz.
+  The MCU expects SPI mode 3 (CPOL=1, CPHA=1), up to 24MHz frequency.
 
 allOf:
   - $ref: /schemas/spi/spi-peripheral-props.yaml#
@@ -30,13 +30,16 @@ properties:
   reg:
     maxItems: 1
 
+  spi-cpha: true
+  spi-cpol: true
+
   spi-max-frequency:
     maximum: 24000000
 
   active-gpios:
     maxItems: 1
-    description: Frame data is being transmitted when this line is low.
-      Bring it high to signal the end of frame.
+    description: Frame data is being transmitted when this line is asserted.
+      Deassert to signal the end of frame.
 
 required:
   - compatible
@@ -58,6 +61,8 @@ examples:
             reg = <0>;
             active-gpios = <&gpio4 6 GPIO_ACTIVE_LOW>;
             spi-max-frequency = <20000000>;
+            spi-cpha;
+            spi-cpol;
             spi-rx-bus-width = <0>;
         };
     };
