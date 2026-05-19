@@ -4090,6 +4090,49 @@ static int btusb_probe(struct usb_interface *intf,
 		return -ENODEV;
 	}
 
+	/*
+	 * MediaTek MT7921U (and likely related MTK combo chips), when
+	 * attached over the SuperSpeed lanes, present a HCI interface with
+	 * *two* bulk OUT endpoints: the lower-numbered one is a vendor /
+	 * diagnostic pipe that silently consumes data without ever raising
+	 * a transfer-complete event, and the higher-numbered one is the
+	 * actual ACL OUT.  usb_find_common_endpoints() returns the first
+	 * match, which sinks all outbound HCI traffic and leaves the device
+	 * able to scan but unable to complete any connection.
+	 *
+	 * Most MT7921U deployments wire the Bluetooth function to the USB
+	 * 2.0 differential pair and enumerate at High-Speed, where the
+	 * descriptor only exposes a single bulk OUT and this code path is
+	 * a no-op.
+	 */
+	if ((id->driver_info & BTUSB_MEDIATEK) &&
+	    interface_to_usbdev(intf)->speed >= USB_SPEED_SUPER) {
+		struct usb_host_interface *alt = intf->cur_altsetting;
+		struct usb_endpoint_descriptor *ep, *second_bulk_out = NULL;
+		int i, bulk_out_count = 0;
+
+		for (i = 0; i < alt->desc.bNumEndpoints; i++) {
+			ep = &alt->endpoint[i].desc;
+			if (!usb_endpoint_is_bulk_out(ep))
+				continue;
+			if (++bulk_out_count == 2)
+				second_bulk_out = ep;
+		}
+
+		if (bulk_out_count == 2 && second_bulk_out &&
+		    second_bulk_out != data->bulk_tx_ep) {
+			dev_info(&intf->dev,
+				 "btusb: MTK: SuperSpeed: using bEP 0x%02x as ACL OUT (overrides diag bEP 0x%02x)\n",
+				 second_bulk_out->bEndpointAddress,
+				 data->bulk_tx_ep->bEndpointAddress);
+			data->bulk_tx_ep = second_bulk_out;
+		} else if (bulk_out_count > 2) {
+			dev_warn(&intf->dev,
+				 "btusb: MTK: SuperSpeed: unexpected bulk OUT count %d, leaving default selection\n",
+				 bulk_out_count);
+		}
+	}
+
 	if (id->driver_info & BTUSB_AMP) {
 		data->cmdreq_type = USB_TYPE_CLASS | 0x01;
 		data->cmdreq = 0x2b;
