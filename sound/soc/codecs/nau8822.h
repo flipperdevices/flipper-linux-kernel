@@ -95,21 +95,6 @@
 #define NAU8822_PLL_ON				(0x1 << 5)
 #define NAU8822_PLL_OFF				(0x0 << 5)
 
-/* NAU8822_REG_POWER_MANAGEMENT_2 (0x02) */
-#define NAU8822_LHPEN				(0x1 << 7)
-#define NAU8822_RHPEN				(0x1 << 8)
-/* NAU8822_REG_POWER_MANAGEMENT_3 (0x03) */
-#define NAU8822_LSPKEN			(0x1 << 6)
-#define NAU8822_RSPKEN			(0x1 << 5)
-
-/* NAU8822_REG_JACK_DETECT_CONTROL_2 (0x0D) */
-#define NAU8822_JCKDOEN0			0x1
-#define NAU8822_JCKDOEN1_MASK			(0x3 << 1)
-
-/* NAU8822_REG_INPUT_CONTROL (0x2C) */
-#define NAU8822_MICBIASV_MASK			0x3
-#define NAU8822_MICBIASM			(0x1 << 4)
-
 /* NAU8822_REG_AUDIO_INTERFACE (0x4) */
 #define NAU8822_AIFMT_MASK			(0x3 << 3)
 #define NAU8822_WLEN_MASK			(0x3 << 5)
@@ -142,9 +127,6 @@
 #define NAU8822_CLKM_PLL			(0x1 << 8)
 
 /* NAU8822_REG_ADDITIONAL_CONTROL (0x07) */
-#define NAU8822_SCLKEN				(0x1 << 0)
-
-/* NAU8822_REG_ADDITIONAL_CONTROL (0x08) */
 #define NAU8822_SMPLR_SFT			1
 #define NAU8822_SMPLR_MASK			(0x7 << 1)
 #define NAU8822_SMPLR_48K			(0x0 << 1)
@@ -153,15 +135,6 @@
 #define NAU8822_SMPLR_16K			(0x3 << 1)
 #define NAU8822_SMPLR_12K			(0x4 << 1)
 #define NAU8822_SMPLR_8K			(0x5 << 1)
-
-/* NAU8822_REG_JACK_DETECT_CONTROL_1 (0x09) */
-#define NAU8822_JCKMIDEN			(0x1 << 8)
-#define NAU8822_JCKDEN0			(0x1 << 7)
-#define NAU8822_JCKDEN			(0x1 << 6)
-#define NAU8822_JCKDIO_MASK			(0x3 << 4)
-#define NAU8822_JCKDIO_GPIO1		(0x0 << 4)
-#define NAU8822_JCKDIO_GPIO2		(0x1 << 4)
-#define NAU8822_JCKDIO_GPIO3		(0x2 << 4)
 
 /* NAU8822_REG_EQ1 (0x12) */
 #define NAU8822_EQ1GC_SFT			0

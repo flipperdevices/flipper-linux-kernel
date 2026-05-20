@@ -90,7 +90,7 @@ static const struct reg_default nau8822_reg_defaults[] = {
 	{ NAU8822_REG_RSPKOUT_VOLUME, 0x0039 },
 	{ NAU8822_REG_AUX2_MIXER, 0x0001 },
 	{ NAU8822_REG_AUX1_MIXER, 0x0001 },
-	{ NAU8822_REG_POWER_MANAGEMENT_4, 0x0000 },
+	{ NAU8822_REG_POWER_MANAGEMENT_4, 0x0010 }, // Enable low noise mode for MICBIAS
 	{ NAU8822_REG_LEFT_TIME_SLOT, 0x0000 },
 	{ NAU8822_REG_MISC, 0x0020 },
 	{ NAU8822_REG_RIGHT_TIME_SLOT, 0x0000 },
@@ -281,6 +281,29 @@ static const DECLARE_TLV_DB_SCALE(pga_boost_tlv, 0, 2000, 0);
 static const DECLARE_TLV_DB_SCALE(boost_tlv, -1500, 300, 1);
 static const DECLARE_TLV_DB_SCALE(limiter_tlv, 0, 100, 0);
 
+static int nau8822_get_micbias(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
+	ucontrol->value.integer.value[0] = snd_soc_dapm_get_pin_status(dapm, "Mic Bias");
+	return 0;
+}
+
+static int nau8822_put_micbias(struct snd_kcontrol *kcontrol, struct snd_ctl_elem_value *ucontrol)
+{
+	struct snd_soc_component *component = snd_kcontrol_chip(kcontrol);
+	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
+	int enabled = snd_soc_dapm_get_pin_status(dapm, "Mic Bias");
+	if (enabled == ucontrol->value.integer.value[0])
+		return 0;
+	if (ucontrol->value.integer.value[0])
+		snd_soc_dapm_enable_pin(dapm, "Mic Bias");
+	else
+		snd_soc_dapm_disable_pin(dapm, "Mic Bias");
+	snd_soc_dapm_sync(dapm);
+	return 1;
+}
+
 static const struct snd_kcontrol_new nau8822_snd_controls[] = {
 	SOC_ENUM("ADC Companding", nau8822_companding_adc_enum),
 	SOC_ENUM("DAC Companding", nau8822_companding_dac_enum),
@@ -363,6 +386,9 @@ static const struct snd_kcontrol_new nau8822_snd_controls[] = {
 	SOC_DOUBLE_R_TLV("Speaker Volume",
 		NAU8822_REG_LSPKOUT_VOLUME,
 		NAU8822_REG_RSPKOUT_VOLUME, 0, 63, 0, spk_tlv),
+
+	SOC_SINGLE_EXT("Mic Bias Switch", 0, 0, 1, 0,
+        nau8822_get_micbias, nau8822_put_micbias),
 
 	SOC_DOUBLE_R("AUXOUT Playback Switch",
 		NAU8822_REG_AUX2_MIXER,
@@ -1012,12 +1038,6 @@ static int nau8822_set_bias_level(struct snd_soc_component *component,
 
 	switch (level) {
 	case SND_SOC_BIAS_ON:
-		snd_soc_component_update_bits(component,
-			NAU8822_REG_POWER_MANAGEMENT_4,
-			NAU8822_MICBIAS_LOW_NOISE, NAU8822_MICBIAS_LOW_NOISE);
-		snd_soc_component_update_bits(component,
-			NAU8822_REG_POWER_MANAGEMENT_1,
-			NAU8822_MICBIAS_EN, NAU8822_MICBIAS_EN);
 		regmap_read(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_1, &val);
 		dev_err(component->dev, "BIAS_ON: PM1=0x%03x MICBIAS=%d\n", val, (val >> 4) & 1);
 		break;
@@ -1060,13 +1080,6 @@ static int nau8822_set_bias_level(struct snd_soc_component *component,
 		snd_soc_component_update_bits(component,
 			NAU8822_REG_POWER_MANAGEMENT_1,
 			NAU8822_REFIMP_MASK, NAU8822_REFIMP_300K);
-
-		snd_soc_component_update_bits(component,
-			NAU8822_REG_POWER_MANAGEMENT_4,
-			NAU8822_MICBIAS_LOW_NOISE, NAU8822_MICBIAS_LOW_NOISE);
-		snd_soc_component_update_bits(component,
-			NAU8822_REG_POWER_MANAGEMENT_1,
-			NAU8822_MICBIAS_EN, NAU8822_MICBIAS_EN);
 
 		regmap_read(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_1, &val);
 		dev_err(component->dev, "BIAS_STANDBY: PM1=0x%03x MICBIAS=%d\n", val, (val >> 4) & 1);
@@ -1194,6 +1207,10 @@ static int nau8822_probe(struct snd_soc_component *component)
 					      NAU8822_REG_RIGHT_SPEAKER_CONTROL,
 					      NAU8822_RSUBBYP, NAU8822_RSUBBYP);
 
+	/* Enable Mic Bias by default */
+    snd_soc_dapm_enable_pin(snd_soc_component_to_dapm(component), "Mic Bias");
+    snd_soc_dapm_sync(snd_soc_component_to_dapm(component));
+
 	return 0;
 }
 
@@ -1287,28 +1304,6 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 		dev_err(&i2c->dev, "Failed to issue reset: %d\n", ret);
 		return ret;
 	}
-
-	// /* Enable Slow Timer Clock (required for jack detection debounce) */
-	// regmap_update_bits(nau8822->regmap,
-	// 	NAU8822_REG_ADDITIONAL_CONTROL,
-	// 	NAU8822_SCLKEN, NAU8822_SCLKEN);
-	// /* Enable jack detection with auto-MICBIAS on GPIO2 (active low) */
-	// regmap_update_bits(nau8822->regmap,
-	// 	NAU8822_REG_JACK_DETECT_CONTROL_1,
-	// 	NAU8822_JCKDEN | NAU8822_JCKDEN0 | NAU8822_JCKDIO_MASK,
-	// 	NAU8822_JCKDEN | NAU8822_JCKDEN0 | NAU8822_JCKDIO_GPIO2);
-	// nau8822_dump_regs_raw(nau8822->regmap, &i2c->dev, "before");
-
-	// /* Enable MICBIAS */
-	// regmap_update_bits(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_1,
-    // 	NAU8822_MICBIAS_EN, NAU8822_MICBIAS_EN);
-	// /* Enable Left/Right Input PGA */
-	// regmap_update_bits(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_2,
-	//     (0x1 << 2) | (0x1 << 3), (0x1 << 2) | (0x1 << 3));
-	// /* Enable Left/Right Boost Mixer */
-	// regmap_update_bits(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_2,
-	// 	(0x1 << 4) | (0x1 << 5), (0x1 << 4) | (0x1 << 5));
-	// nau8822_dump_regs_raw(nau8822->regmap, &i2c->dev, "after");
 
 	ret = devm_snd_soc_register_component(dev, &soc_component_dev_nau8822,
 						&nau8822_dai, 1);
