@@ -954,14 +954,72 @@ static int nau8822_mute(struct snd_soc_dai *dai, int mute, int direction)
 	return 0;
 }
 
+static void nau8822_dump_regs_raw(struct regmap *regmap, struct device *dev, const char *context)
+{
+	unsigned int val;
+	dev_err(dev, "=== NAU8822 Registers [%s] ===\n", context);
+	regmap_read(regmap, NAU8822_REG_POWER_MANAGEMENT_1, &val);
+	dev_err(dev,
+		"R01 PM1: 0x%03x | MICBIAS=%d ABIAS=%d IOBUF=%d PLL=%d REFIMP=%d\n",
+		val,
+		(val >> 4) & 1, (val >> 3) & 1, (val >> 2) & 1, (val >> 5) & 1, val & 3);
+	regmap_read(regmap, NAU8822_REG_POWER_MANAGEMENT_2, &val);
+	dev_err(dev,
+		"R02 PM2: 0x%03x | LHP=%d RHP=%d LBST=%d RBST=%d SLEEP=%d\n",
+		val,
+		(val >> 7) & 1, (val >> 8) & 1, (val >> 4) & 1, (val >> 5) & 1, (val >> 6) & 1);
+	regmap_read(regmap, NAU8822_REG_POWER_MANAGEMENT_3, &val);
+	dev_err(dev,
+		"R03 PM3: 0x%03x | LSPK=%d RSPK=%d AUX1=%d AUX2=%d\n",
+		val,
+		(val >> 6) & 1, (val >> 5) & 1, (val >> 8) & 1, (val >> 7) & 1);
+	regmap_read(regmap, NAU8822_REG_ADDITIONAL_CONTROL, &val);
+	dev_err(dev,
+		"R07 ADD: 0x%03x | SCLKEN=%d SMPLR=%d\n",
+		val, val & 1, (val >> 1) & 7);
+	regmap_read(regmap, NAU8822_REG_JACK_DETECT_CONTROL_1, &val);
+	dev_err(dev,
+		"R09 JCK1: 0x%03x | JCKDEN=%d JCKDEN0=%d JCKMIDEN=%d JCKDIO=%d\n",
+		val,
+		(val >> 6) & 1, (val >> 7) & 1, (val >> 8) & 1, (val >> 4) & 3);
+	regmap_read(regmap, NAU8822_REG_JACK_DETECT_CONTROL_2, &val);
+	dev_err(dev,
+		"R0D JCK2: 0x%03x | JCKDOEN0=%d JCKDOEN1=%d\n",
+		val, val & 1, (val >> 1) & 3);
+	regmap_read(regmap, NAU8822_REG_INPUT_CONTROL, &val);
+	dev_err(dev,
+		"R2C INP: 0x%03x | MICBIASV=%d MICBIASM=%d\n",
+		val, val & 3, (val >> 4) & 1);
+	regmap_read(regmap, NAU8822_REG_POWER_MANAGEMENT_4, &val);
+	dev_err(dev,
+		"R3A PM4: 0x%03x | MICBIAS_LOW_NOISE=%d LPSPKD=%d LPADC=%d LPDAC=%d\n",
+		val,
+		(val >> 4) & 1, (val >> 5) & 1, (val >> 6) & 1, (val >> 8) & 1);
+	dev_err(dev, "=== End Registers [%s] ===\n", context);
+}
+static void nau8822_dump_regs(struct snd_soc_component *component, const char *context)
+{
+	struct nau8822 *nau8822 = snd_soc_component_get_drvdata(component);
+	nau8822_dump_regs_raw(nau8822->regmap, component->dev, context);
+}
+
 static int nau8822_set_bias_level(struct snd_soc_component *component,
 				 enum snd_soc_bias_level level)
 {
 	struct nau8822 *nau8822 = snd_soc_component_get_drvdata(component);
 	struct snd_soc_dapm_context *dapm = snd_soc_component_to_dapm(component);
+	unsigned int val;
 
 	switch (level) {
 	case SND_SOC_BIAS_ON:
+		snd_soc_component_update_bits(component,
+			NAU8822_REG_POWER_MANAGEMENT_4,
+			NAU8822_MICBIAS_LOW_NOISE, NAU8822_MICBIAS_LOW_NOISE);
+		snd_soc_component_update_bits(component,
+			NAU8822_REG_POWER_MANAGEMENT_1,
+			NAU8822_MICBIAS_EN, NAU8822_MICBIAS_EN);
+		regmap_read(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_1, &val);
+		dev_err(component->dev, "BIAS_ON: PM1=0x%03x MICBIAS=%d\n", val, (val >> 4) & 1);
 		break;
 
 	case SND_SOC_BIAS_PREPARE:
@@ -979,6 +1037,8 @@ static int nau8822_set_bias_level(struct snd_soc_component *component,
 		snd_soc_component_update_bits(component,
 			NAU8822_REG_POWER_MANAGEMENT_1,
 			NAU8822_REFIMP_MASK, NAU8822_REFIMP_80K);
+		regmap_read(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_1, &val);
+		dev_err(component->dev, "BIAS_PREPARE: PM1=0x%03x MICBIAS=%d\n", val, (val >> 4) & 1);
 		break;
 
 	case SND_SOC_BIAS_STANDBY:
@@ -1000,17 +1060,35 @@ static int nau8822_set_bias_level(struct snd_soc_component *component,
 		snd_soc_component_update_bits(component,
 			NAU8822_REG_POWER_MANAGEMENT_1,
 			NAU8822_REFIMP_MASK, NAU8822_REFIMP_300K);
+
+		snd_soc_component_update_bits(component,
+			NAU8822_REG_POWER_MANAGEMENT_4,
+			NAU8822_MICBIAS_LOW_NOISE, NAU8822_MICBIAS_LOW_NOISE);
+		snd_soc_component_update_bits(component,
+			NAU8822_REG_POWER_MANAGEMENT_1,
+			NAU8822_MICBIAS_EN, NAU8822_MICBIAS_EN);
+
+		regmap_read(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_1, &val);
+		dev_err(component->dev, "BIAS_STANDBY: PM1=0x%03x MICBIAS=%d\n", val, (val >> 4) & 1);
 		break;
 
 	case SND_SOC_BIAS_OFF:
+		snd_soc_component_update_bits(component,
+			NAU8822_REG_POWER_MANAGEMENT_4,
+			NAU8822_MICBIAS_LOW_NOISE, 0);
 		snd_soc_component_write(component,
 			NAU8822_REG_POWER_MANAGEMENT_1, 0);
 		snd_soc_component_write(component,
 			NAU8822_REG_POWER_MANAGEMENT_2, 0);
 		snd_soc_component_write(component,
 			NAU8822_REG_POWER_MANAGEMENT_3, 0);
+		regmap_read(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_1, &val);
+		dev_err(component->dev, "BIAS_OFF: PM1=0x%03x MICBIAS=%d\n", val, (val >> 4) & 1);
 		break;
 	}
+
+	const char *level_names[] = { "OFF", "STANDBY", "PREPARE", "ON" };
+	nau8822_dump_regs(component, level_names[level]);
 
 	dev_dbg(component->dev, "%s: %d\n", __func__, level);
 
@@ -1157,6 +1235,8 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 	const char *regulators[] = { "vdda", "vddb", "vddc" };
 	int ret, i, vddspk;
 
+	dev_err(&i2c->dev, "NAU8822 probe started\n");
+
 	if (!nau8822) {
 		nau8822 = devm_kzalloc(dev, sizeof(*nau8822), GFP_KERNEL);
 		if (nau8822 == NULL)
@@ -1208,12 +1288,36 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 		return ret;
 	}
 
+	// /* Enable Slow Timer Clock (required for jack detection debounce) */
+	// regmap_update_bits(nau8822->regmap,
+	// 	NAU8822_REG_ADDITIONAL_CONTROL,
+	// 	NAU8822_SCLKEN, NAU8822_SCLKEN);
+	// /* Enable jack detection with auto-MICBIAS on GPIO2 (active low) */
+	// regmap_update_bits(nau8822->regmap,
+	// 	NAU8822_REG_JACK_DETECT_CONTROL_1,
+	// 	NAU8822_JCKDEN | NAU8822_JCKDEN0 | NAU8822_JCKDIO_MASK,
+	// 	NAU8822_JCKDEN | NAU8822_JCKDEN0 | NAU8822_JCKDIO_GPIO2);
+	// nau8822_dump_regs_raw(nau8822->regmap, &i2c->dev, "before");
+
+	// /* Enable MICBIAS */
+	// regmap_update_bits(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_1,
+    // 	NAU8822_MICBIAS_EN, NAU8822_MICBIAS_EN);
+	// /* Enable Left/Right Input PGA */
+	// regmap_update_bits(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_2,
+	//     (0x1 << 2) | (0x1 << 3), (0x1 << 2) | (0x1 << 3));
+	// /* Enable Left/Right Boost Mixer */
+	// regmap_update_bits(nau8822->regmap, NAU8822_REG_POWER_MANAGEMENT_2,
+	// 	(0x1 << 4) | (0x1 << 5), (0x1 << 4) | (0x1 << 5));
+	// nau8822_dump_regs_raw(nau8822->regmap, &i2c->dev, "after");
+
 	ret = devm_snd_soc_register_component(dev, &soc_component_dev_nau8822,
 						&nau8822_dai, 1);
 	if (ret != 0) {
 		dev_err(&i2c->dev, "Failed to register CODEC: %d\n", ret);
 		return ret;
 	}
+
+	dev_err(&i2c->dev, "NAU8822 probe completed\n");
 
 	return 0;
 }
