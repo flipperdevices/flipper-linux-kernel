@@ -1075,6 +1075,8 @@ static int nau8822_resume(struct snd_soc_component *component)
 		return ret;
 	}
 
+	fsleep(100);
+
 	regcache_sync(nau8822->regmap);
 
 	snd_soc_dapm_force_bias_level(dapm, SND_SOC_BIAS_STANDBY);
@@ -1190,6 +1192,8 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 	ret = regulator_bulk_enable(NAU8822_NUM_SUPPLIES, nau8822->supplies);
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to enable regulators\n");
+
+	fsleep(100);
 
 	/* Reset the codec */
 	ret = regmap_write(nau8822->regmap, NAU8822_REG_RESET, 0x00);
