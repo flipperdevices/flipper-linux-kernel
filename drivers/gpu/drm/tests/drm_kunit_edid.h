@@ -12,5 +12,6 @@ extern const unsigned char test_edid_hdmi_1080p_rgb_yuv_dc_max_200mhz[256];
 extern const unsigned char test_edid_hdmi_1080p_rgb_yuv_dc_max_340mhz[256];
 extern const unsigned char test_edid_hdmi_1080p_rgb_yuv_4k_yuv420_dc_max_200mhz[256];
 extern const unsigned char test_edid_hdmi_4k_rgb_yuv420_dc_max_340mhz[256];
+extern const unsigned char test_edid_hdmi_4k_rgb_yuv420_dc_max_600mhz[256];
 
 #endif // DRM_KUNIT_EDID_H_
