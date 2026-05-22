@@ -1417,6 +1417,104 @@ static void drm_test_connector_hdmi_init_max_tmds_rate_no_version(struct kunit *
 	KUNIT_EXPECT_LT(test, ret, 0);
 }
 
+/*
+ * Test that the registration of an HDMI connector advertising HDMI 2.0 support
+ * succeeds when the .scrambler_{enable,disable} callbacks are provided.
+ */
+static void drm_test_connector_hdmi_init_scrambler_valid(struct kunit *test)
+{
+	struct drm_connector_init_priv *priv = test->priv;
+	int ret;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &dummy_hdmi_funcs_scrambler,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+	KUNIT_EXPECT_TRUE(test, drm_connector_hdmi_scrambler_supported(&priv->connector));
+}
+
+/*
+ * Test that the registration of an HDMI connector not advertising HDMI 2.0
+ * support succeeds, and the connector is not reported as scrambling capable.
+ */
+static void drm_test_connector_hdmi_init_scrambler_unsupported(struct kunit *test)
+{
+	struct drm_connector_init_priv *priv = test->priv;
+	int ret;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &dummy_hdmi_funcs,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+	KUNIT_EXPECT_FALSE(test, drm_connector_hdmi_scrambler_supported(&priv->connector));
+}
+
+enum drm_connector_hdmi_scrambler_cb {
+	SCRAMBLER_CALLBACK_ENABLE,
+	SCRAMBLER_CALLBACK_DISABLE,
+	SCRAMBLER_CALLBACK_ALL,
+};
+
+struct drm_connector_hdmi_init_scrambler_missing_cb_case {
+	const char *desc;
+	enum drm_connector_hdmi_scrambler_cb cb;
+};
+
+/*
+ * Test that the registration of an HDMI connector advertising HDMI 2.0 support
+ * fails when any single .scrambler_* callback is missing.
+ */
+static void drm_test_connector_hdmi_init_scrambler_missing_cb(struct kunit *test)
+{
+	const struct drm_connector_hdmi_init_scrambler_missing_cb_case *params = test->param_value;
+	struct drm_connector_init_priv *priv = test->priv;
+	int ret;
+
+	priv->hdmi_funcs = dummy_hdmi_funcs_scrambler;
+
+	switch (params->cb) {
+	case SCRAMBLER_CALLBACK_ENABLE:
+		priv->hdmi_funcs.scrambler_enable = NULL;
+		break;
+	case SCRAMBLER_CALLBACK_DISABLE:
+		priv->hdmi_funcs.scrambler_disable = NULL;
+		break;
+	case SCRAMBLER_CALLBACK_ALL:
+		priv->hdmi_funcs.scrambler_enable = NULL;
+		priv->hdmi_funcs.scrambler_disable = NULL;
+		break;
+	}
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &priv->hdmi_funcs,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_LT(test, ret, 0);
+}
+
+static const struct drm_connector_hdmi_init_scrambler_missing_cb_case
+drm_connector_hdmi_init_scrambler_missing_cb_tests[] = {
+	{ "scrambler_enable",	SCRAMBLER_CALLBACK_ENABLE },
+	{ "scrambler_disable",	SCRAMBLER_CALLBACK_DISABLE },
+	{ "scrambler_*",	SCRAMBLER_CALLBACK_ALL },
+};
+
+static void
+drm_connector_hdmi_init_scrambler_missing_cb_desc(const struct drm_connector_hdmi_init_scrambler_missing_cb_case *t,
+						  char *desc)
+{
+	strscpy(desc, t->desc, KUNIT_PARAM_DESC_SIZE);
+}
+
+KUNIT_ARRAY_PARAM(drm_connector_hdmi_init_scrambler_missing_cb,
+		  drm_connector_hdmi_init_scrambler_missing_cb_tests,
+		  drm_connector_hdmi_init_scrambler_missing_cb_desc);
+
 static struct kunit_case drmm_connector_hdmi_init_tests[] = {
 	KUNIT_CASE(drm_test_connector_hdmi_init_valid),
 	KUNIT_CASE(drm_test_connector_hdmi_init_bpc_8),
@@ -1447,6 +1545,10 @@ static struct kunit_case drmm_connector_hdmi_init_tests[] = {
 	KUNIT_CASE(drm_test_connector_hdmi_init_max_tmds_rate_at_limit),
 	KUNIT_CASE(drm_test_connector_hdmi_init_max_tmds_rate_off_limit),
 	KUNIT_CASE(drm_test_connector_hdmi_init_max_tmds_rate_no_version),
+	KUNIT_CASE(drm_test_connector_hdmi_init_scrambler_valid),
+	KUNIT_CASE(drm_test_connector_hdmi_init_scrambler_unsupported),
+	KUNIT_CASE_PARAM(drm_test_connector_hdmi_init_scrambler_missing_cb,
+			 drm_connector_hdmi_init_scrambler_missing_cb_gen_params),
 	{ }
 };
 
