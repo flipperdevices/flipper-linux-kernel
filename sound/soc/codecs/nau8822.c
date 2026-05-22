@@ -109,6 +109,10 @@ static const struct reg_default nau8822_reg_defaults[] = {
 	{ NAU8822_REG_OUTPUT_TIEOFF, 0x0000 },
 };
 
+static const char * const nau8822_supply_names[NAU8822_NUM_SUPPLIES] = {
+	"vdda", "vddb", "vddc", "vddspk",
+};
+
 static bool nau8822_readable_reg(struct device *dev, unsigned int reg)
 {
 	switch (reg) {
@@ -1163,7 +1167,7 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 {
 	struct device *dev = &i2c->dev;
 	struct nau8822 *nau8822 = dev_get_platdata(dev);
-	int ret;
+	int ret, i;
 
 	if (!nau8822) {
 		nau8822 = devm_kzalloc(dev, sizeof(*nau8822), GFP_KERNEL);
@@ -1176,6 +1180,9 @@ static int nau8822_i2c_probe(struct i2c_client *i2c)
 	if (IS_ERR(nau8822->mclk))
 		return dev_err_probe(&i2c->dev, PTR_ERR(nau8822->mclk),
 			"Error getting mclk\n");
+
+	for (i = 0; i < NAU8822_NUM_SUPPLIES; i++)
+		nau8822->supplies[i].supply = nau8822_supply_names[i];
 
 	ret = devm_regulator_bulk_get(dev, NAU8822_NUM_SUPPLIES, nau8822->supplies);
 	if (ret)
