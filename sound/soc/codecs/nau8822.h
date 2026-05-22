@@ -196,15 +196,6 @@
 
 #define NAU8822_RAUXSMUT			0x01
 
-/* NAU8822_REG_OUTPUT_CONTROL (0x31) */
-#define NAU8822_AOUTIMP				(1 << 0)
-#define NAU8822_TSEN				(1 << 1)
-#define NAU8822_SPKBST				(1 << 2)
-#define NAU8822_AUX2BST				(1 << 3)
-#define NAU8822_AUX1BST				(1 << 4)
-#define NAU8822_RDACLMX				(1 << 5)
-#define NAU8822_LDACLMX				(1 << 6)
-
 /* System Clock Source */
 enum {
 	NAU8822_CLK_MCLK,
@@ -220,6 +211,8 @@ struct nau8822_pll {
 	int freq_out;
 };
 
+#define NAU8822_NUM_SUPPLIES	4
+
 /* Codec Private Data */
 struct nau8822 {
 	struct device *dev;
@@ -228,6 +221,7 @@ struct nau8822 {
 	struct nau8822_pll pll;
 	int sysclk;
 	int div_id;
+	struct regulator_bulk_data supplies[NAU8822_NUM_SUPPLIES];
 };
 
 #endif	/* __NAU8822_H__ */
