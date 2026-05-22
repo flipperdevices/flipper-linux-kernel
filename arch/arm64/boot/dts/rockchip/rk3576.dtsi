@@ -988,9 +988,20 @@
 			reg = <0x0 0x26038000 0x0 0x1000>;
 		};
 
+		mipidphy0_grf: syscon@2603a000 {
+			compatible = "rockchip,rk3576-csidphy-grf", "syscon";
+			reg = <0x0 0x2603a000 0x0 0x2000>;
+			clocks = <&cru PCLK_PMUPHY_ROOT>;
+		};
+
 		ioc_grf: syscon@26040000 {
 			compatible = "rockchip,rk3576-ioc-grf", "syscon", "simple-mfd";
 			reg = <0x0 0x26040000 0x0 0xc000>;
+		};
+
+		mipidphy1_grf: syscon@2604c000 {
+			compatible = "rockchip,rk3576-csidphy-grf", "syscon";
+			reg = <0x0 0x2604c000 0x0 0x2000>;
 		};
 
 		cru: clock-controller@27200000 {
@@ -1353,6 +1364,235 @@
 			power-domains = <&power RK3576_PD_VDEC>;
 			rockchip,disable-mmu-reset;
 			#iommu-cells = <0>;
+		};
+
+		vicap: video-capture@27c10000 {
+			compatible = "rockchip,rk3576-vicap";
+			reg = <0x0 0x27c10000 0x0 0x800>;
+			interrupts = <GIC_SPI 318 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&cru ACLK_VICAP>, <&cru HCLK_VICAP>,
+				 <&cru DCLK_VICAP>, <&cru ICLK_CSIHOST0>,
+				 <&cru ICLK_CSIHOST01>;
+			clock-names = "aclk", "hclk", "dclk", "iclk_host0", "iclk_host1";
+			iommus = <&vicap_mmu>;
+			power-domains = <&power RK3576_PD_VI>;
+			resets = <&cru SRST_A_VICAP>, <&cru SRST_H_VICAP>,
+				 <&cru SRST_D_VICAP>, <&cru SRST_VICAP_I0CLK>,
+				 <&cru SRST_VICAP_I1CLK>, <&cru SRST_VICAP_I2CLK>,
+				 <&cru SRST_VICAP_I3CLK>, <&cru SRST_VICAP_I4CLK>;
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				vicap_mipi0: port@1 {
+					reg = <1>;
+
+					vicap_mipi0_input: endpoint {
+						remote-endpoint = <&csi0_output>;
+					};
+				};
+
+				vicap_mipi1: port@2 {
+					reg = <2>;
+
+					vicap_mipi1_input: endpoint {
+						remote-endpoint = <&csi1_output>;
+					};
+				};
+
+				vicap_mipi2: port@3 {
+					reg = <3>;
+
+					vicap_mipi2_input: endpoint {
+						remote-endpoint = <&csi2_output>;
+					};
+				};
+
+				vicap_mipi3: port@4 {
+					reg = <4>;
+
+					vicap_mipi3_input: endpoint {
+						remote-endpoint = <&csi3_output>;
+					};
+				};
+
+				vicap_mipi4: port@5 {
+					reg = <5>;
+
+					vicap_mipi4_input: endpoint {
+						remote-endpoint = <&csi4_output>;
+					};
+				};
+			};
+		};
+
+		vicap_mmu: iommu@27c10800 {
+			compatible = "rockchip,rk3576-iommu", "rockchip,rk3568-iommu";
+			reg = <0x0 0x27c10800 0x0 0x100>;
+			interrupts = <GIC_SPI 319 IRQ_TYPE_LEVEL_HIGH>;
+			clocks = <&cru ACLK_VICAP>, <&cru HCLK_VICAP>;
+			clock-names = "aclk", "iface";
+			power-domains = <&power RK3576_PD_VI>;
+			rockchip,disable-mmu-reset;
+			#iommu-cells = <0>;
+			status = "disabled";
+		};
+
+		csi0: csi@27c80000 {
+			compatible = "rockchip,rk3576-mipi-csi2", "rockchip,rk3568-mipi-csi2";
+			reg = <0x0 0x27c80000 0x0 0x10000>;
+			interrupts = <GIC_SPI 312 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 313 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "err1", "err2";
+			clocks = <&cru PCLK_CSI_HOST_0>, <&cru ICLK_CSIHOST0>;
+			clock-names = "pclk", "iclk";
+			phys = <&csi_dphy0>;
+			power-domains = <&power RK3576_PD_VI>;
+			resets = <&cru SRST_P_CSI_HOST_0>;
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				csi0_in: port@0 {
+					reg = <0>;
+				};
+
+				csi0_out: port@1 {
+					reg = <1>;
+
+					csi0_output: endpoint {
+						remote-endpoint = <&vicap_mipi0_input>;
+					};
+				};
+			};
+		};
+
+		csi1: csi@27c90000 {
+			compatible = "rockchip,rk3576-mipi-csi2", "rockchip,rk3568-mipi-csi2";
+			reg = <0x0 0x27c90000 0x0 0x10000>;
+			interrupts = <GIC_SPI 314 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 315 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "err1", "err2";
+			clocks = <&cru PCLK_CSI_HOST_1>;
+			clock-names = "pclk";
+			phys = <&csi_dphy0>;
+			power-domains = <&power RK3576_PD_VI>;
+			resets = <&cru SRST_P_CSI_HOST_1>;
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				csi1_in: port@0 {
+					reg = <0>;
+				};
+
+				csi1_out: port@1 {
+					reg = <1>;
+
+					csi1_output: endpoint {
+						remote-endpoint = <&vicap_mipi1_input>;
+					};
+				};
+			};
+		};
+
+		csi2: csi@27ca0000 {
+			compatible = "rockchip,rk3576-mipi-csi2", "rockchip,rk3568-mipi-csi2";
+			reg = <0x0 0x27ca0000 0x0 0x10000>;
+			interrupts = <GIC_SPI 316 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 317 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "err1", "err2";
+			clocks = <&cru PCLK_CSI_HOST_2>;
+			clock-names = "pclk";
+			phys = <&csi_dphy1>;
+			power-domains = <&power RK3576_PD_VI>;
+			resets = <&cru SRST_P_CSI_HOST_2>;
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				csi2_in: port@0 {
+					reg = <0>;
+				};
+
+				csi2_out: port@1 {
+					reg = <1>;
+
+					csi2_output: endpoint {
+						remote-endpoint = <&vicap_mipi2_input>;
+					};
+				};
+			};
+		};
+
+		csi3: csi@27cb0000 {
+			compatible = "rockchip,rk3576-mipi-csi2", "rockchip,rk3568-mipi-csi2";
+			reg = <0x0 0x27cb0000 0x0 0x10000>;
+			interrupts = <GIC_SPI 383 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 384 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "err1", "err2";
+			clocks = <&cru PCLK_CSI_HOST_3>;
+			clock-names = "pclk";
+			phys = <&csi_dphy1>;
+			power-domains = <&power RK3576_PD_VI>;
+			resets = <&cru SRST_P_CSI_HOST_3>;
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				csi3_in: port@0 {
+					reg = <0>;
+				};
+
+				csi3_out: port@1 {
+					reg = <1>;
+
+					csi3_output: endpoint {
+						remote-endpoint = <&vicap_mipi3_input>;
+					};
+				};
+			};
+		};
+
+		csi4: csi@27cc0000 {
+			compatible = "rockchip,rk3576-mipi-csi2", "rockchip,rk3568-mipi-csi2";
+			reg = <0x0 0x27cc0000 0x0 0x10000>;
+			interrupts = <GIC_SPI 385 IRQ_TYPE_LEVEL_HIGH>,
+				     <GIC_SPI 386 IRQ_TYPE_LEVEL_HIGH>;
+			interrupt-names = "err1", "err2";
+			clocks = <&cru PCLK_CSI_HOST_4>;
+			clock-names = "pclk";
+			phys = <&csi_dphy1>;
+			power-domains = <&power RK3576_PD_VI>;
+			resets = <&cru SRST_P_CSI_HOST_4>;
+			status = "disabled";
+
+			ports {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				csi4_in: port@0 {
+					reg = <0>;
+				};
+
+				csi4_out: port@1 {
+					reg = <1>;
+
+					csi4_output: endpoint {
+						remote-endpoint = <&vicap_mipi4_input>;
+					};
+				};
+			};
 		};
 
 		vop: vop@27d00000 {
@@ -2974,6 +3214,19 @@
 			status = "disabled";
 		};
 
+		csi_dphy0: phy@2b030000 {
+			compatible = "rockchip,rk3576-csi-dphy";
+			reg = <0x0 0x2b030000 0x0 0x8000>;
+			clocks = <&cru PCLK_CSIDPHY>;
+			clock-names = "pclk";
+			#phy-cells = <0>;
+			power-domains = <&power RK3576_PD_VI>;
+			resets = <&cru SRST_P_CSIPHY>, <&cru SRST_SCAN_CSIPHY>;
+			reset-names = "apb", "phy";
+			rockchip,grf = <&mipidphy0_grf>;
+			status = "disabled";
+		};
+
 		combphy0_ps: phy@2b050000 {
 			compatible = "rockchip,rk3576-naneng-combphy";
 			reg = <0x0 0x2b050000 0x0 0x100>;
@@ -3007,6 +3260,19 @@
 			reset-names = "phy", "apb";
 			rockchip,pipe-grf = <&php_grf>;
 			rockchip,pipe-phy-grf = <&pipe_phy1_grf>;
+			status = "disabled";
+		};
+
+		csi_dphy1: phy@2b070000 {
+			compatible = "rockchip,rk3576-csi-dphy";
+			reg = <0x0 0x2b070000 0x0 0x8000>;
+			clocks = <&cru PCLK_CSIDPHY1>;
+			clock-names = "pclk";
+			#phy-cells = <0>;
+			power-domains = <&power RK3576_PD_VI>;
+			resets = <&cru SRST_P_CSIDPHY1>, <&cru SRST_SCAN_CSIDPHY1>;
+			reset-names = "apb", "phy";
+			rockchip,grf = <&mipidphy1_grf>;
 			status = "disabled";
 		};
 
