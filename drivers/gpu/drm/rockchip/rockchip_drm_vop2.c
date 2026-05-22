@@ -1453,12 +1453,18 @@ static enum drm_mode_status vop2_crtc_mode_valid(struct drm_crtc *crtc,
 						 const struct drm_display_mode *mode)
 {
 	struct vop2_video_port *vp = to_vop2_video_port(crtc);
+	unsigned long pclk = mode->clock * 1000;
+	unsigned long rpclk;
 
 	if (mode->hdisplay > vp->data->max_output.width)
 		return MODE_BAD_HVALUE;
 
-	if (mode->clock > vp->data->max_pixel_clock_rate / 1000)
+	if (pclk > vp->data->max_pixel_clock_rate)
 		return MODE_CLOCK_HIGH;
+
+	rpclk = clk_round_rate(vp->dclk, pclk);
+	if (rpclk < 0 || abs(rpclk - pclk) > pclk / 1000)
+		return MODE_NOCLOCK;
 
 	return MODE_OK;
 }
