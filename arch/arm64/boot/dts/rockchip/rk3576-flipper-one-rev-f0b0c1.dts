@@ -1793,3 +1793,133 @@
 		remote-endpoint = <&dp0_in_vp1>;
 	};
 };
+
+/* Staircase of passive trips so cooling state grows monotonically with temperature. */
+&bigcore_thermal {
+	trips {
+		bigcore_alert_warn: bigcore-alert-warn {
+			temperature = <90000>;
+			hysteresis = <2000>;
+			type = "passive";
+		};
+		bigcore_alert_hot: bigcore-alert-hot {
+			temperature = <95000>;
+			hysteresis = <2000>;
+			type = "passive";
+		};
+		bigcore_alert_vhot: bigcore-alert-vhot {
+			temperature = <100000>;
+			hysteresis = <2000>;
+			type = "passive";
+		};
+	};
+
+	cooling-maps {
+		map1 {
+			trip = <&bigcore_alert_warn>;
+			cooling-device =
+				<&cpu_b0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_b1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_b2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_b3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+		map2 {
+			trip = <&bigcore_alert_hot>;
+			cooling-device =
+				<&cpu_b0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_b1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_b2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_b3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+		map3 {
+			trip = <&bigcore_alert_vhot>;
+			cooling-device =
+				<&cpu_b0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_b1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_b2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_b3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&littlecore_thermal {
+	trips {
+		littlecore_alert_warn: littlecore-alert-warn {
+			temperature = <90000>;
+			hysteresis = <2000>;
+			type = "passive";
+		};
+		littlecore_alert_hot: littlecore-alert-hot {
+			temperature = <95000>;
+			hysteresis = <2000>;
+			type = "passive";
+		};
+		littlecore_alert_vhot: littlecore-alert-vhot {
+			temperature = <100000>;
+			hysteresis = <2000>;
+			type = "passive";
+		};
+	};
+
+	cooling-maps {
+		map1 {
+			trip = <&littlecore_alert_warn>;
+			cooling-device =
+				<&cpu_l0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_l1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_l2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_l3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+		map2 {
+			trip = <&littlecore_alert_hot>;
+			cooling-device =
+				<&cpu_l0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_l1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_l2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_l3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+		map3 {
+			trip = <&littlecore_alert_vhot>;
+			cooling-device =
+				<&cpu_l0 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_l1 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_l2 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>,
+				<&cpu_l3 THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
+
+&gpu_thermal {
+	trips {
+		gpu_alert_warn: gpu-alert-warn {
+			temperature = <90000>;
+			hysteresis = <2000>;
+			type = "passive";
+		};
+		gpu_alert_hot: gpu-alert-hot {
+			temperature = <95000>;
+			hysteresis = <2000>;
+			type = "passive";
+		};
+		gpu_alert_vhot: gpu-alert-vhot {
+			temperature = <100000>;
+			hysteresis = <2000>;
+			type = "passive";
+		};
+	};
+
+	cooling-maps {
+		map1 {
+			trip = <&gpu_alert_warn>;
+			cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+		map2 {
+			trip = <&gpu_alert_hot>;
+			cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+		map3 {
+			trip = <&gpu_alert_vhot>;
+			cooling-device = <&gpu THERMAL_NO_LIMIT THERMAL_NO_LIMIT>;
+		};
+	};
+};
