@@ -1577,30 +1577,35 @@ static void vop2_post_config(struct drm_crtc *crtc)
 {
 	struct vop2_video_port *vp = to_vop2_video_port(crtc);
 	struct vop2 *vop2 = vp->vop2;
+	struct rockchip_crtc_state *vcstate = to_rockchip_crtc_state(crtc->state);
 	struct drm_display_mode *mode = &crtc->state->adjusted_mode;
+	const struct drm_connector_tv_margins *m = &vcstate->tv_margins;
 	u64 bgcolor = crtc->state->background_color;
 	u16 vtotal = mode->crtc_vtotal;
 	u16 hdisplay = mode->crtc_hdisplay;
 	u16 hact_st = mode->crtc_htotal - mode->crtc_hsync_start;
 	u16 vdisplay = mode->crtc_vdisplay;
 	u16 vact_st = mode->crtc_vtotal - mode->crtc_vsync_start;
-	u32 left_margin = 100, right_margin = 100;
-	u32 top_margin = 100, bottom_margin = 100;
-	u16 hsize = hdisplay * (left_margin + right_margin) / 200;
-	u16 vsize = vdisplay * (top_margin + bottom_margin) / 200;
+	u16 hsize = hdisplay;
+	u16 vsize = vdisplay;
 	u16 hact_end, vact_end;
 	u32 val;
 
 	vop2->ops->setup_bg_dly(vp);
 
+	if (m->left + m->right < hdisplay)
+		hsize = hdisplay - m->left - m->right;
+	if (m->top + m->bottom < vdisplay)
+		vsize = vdisplay - m->top - m->bottom;
+
 	vsize = rounddown(vsize, 2);
 	hsize = rounddown(hsize, 2);
-	hact_st += hdisplay * (100 - left_margin) / 200;
+	hact_st += m->left;
 	hact_end = hact_st + hsize;
 	val = hact_st << 16;
 	val |= hact_end;
 	vop2_vp_write(vp, RK3568_VP_POST_DSP_HACT_INFO, val);
-	vact_st += vdisplay * (100 - top_margin) / 200;
+	vact_st += m->top;
 	vact_end = vact_st + vsize;
 	val = vact_st << 16;
 	val |= vact_end;

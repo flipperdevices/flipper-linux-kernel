@@ -10,6 +10,7 @@
 #define _ROCKCHIP_DRM_DRV_H
 
 #include <drm/drm_atomic_helper.h>
+#include <drm/drm_connector.h>
 #include <drm/drm_gem.h>
 
 #include <linux/bits.h>
@@ -54,6 +55,7 @@ struct rockchip_crtc_state {
 	u32 bus_flags;
 	int color_space;
 	bool frl_enabled;
+	struct drm_connector_tv_margins tv_margins;
 };
 #define to_rockchip_crtc_state(s) \
 		container_of(s, struct rockchip_crtc_state, base)
