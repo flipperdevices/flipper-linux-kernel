@@ -84,7 +84,11 @@ struct dw_hdmi_qp {
 
 	/* Written by the atomic enable/disable hooks, read locklessly by HPD */
 	struct drm_connector *curr_conn;
-	unsigned long tmds_char_rate;
+
+	unsigned long long tmds_char_rate;
+	u8 frl_rate_per_lane;
+	u8 frl_lanes;
+
 	bool no_hpd;
 };
 
@@ -251,7 +255,11 @@ static void dw_hdmi_qp_set_sample_rate(struct dw_hdmi_qp *hdmi, unsigned long lo
 {
 	unsigned int n, cts;
 
-	drm_hdmi_acr_get_n_cts(tmds_char_rate, sample_rate, &n, &cts);
+	if (hdmi->frl_rate_per_lane)
+		drm_hdmi_acr_get_frl_n_cts(hdmi->frl_rate_per_lane, sample_rate,
+					   &n, &cts);
+	else
+		drm_hdmi_acr_get_n_cts(tmds_char_rate, sample_rate, &n, &cts);
 
 	dw_hdmi_qp_set_cts_n(hdmi, cts, n);
 }
@@ -541,6 +549,21 @@ static struct i2c_adapter *dw_hdmi_qp_i2c_adapter(struct dw_hdmi_qp *hdmi)
 	return adap;
 }
 
+static void dw_hdmi_qp_tx_enable(struct dw_hdmi_qp *hdmi)
+{
+	dw_hdmi_qp_mod(hdmi, 0, AVP_DATAPATH_VIDEO_SWDISABLE, GLOBAL_SWDISABLE);
+	dw_hdmi_qp_write(hdmi, PKTSCHED_GCP_CLEAR_AVMUTE, PKTSCHED_PKT_CONTROL0);
+	dw_hdmi_qp_mod(hdmi, PKTSCHED_GCP_TX_EN, PKTSCHED_GCP_TX_EN, PKTSCHED_PKT_EN);
+}
+
+static void dw_hdmi_qp_tx_disable(struct dw_hdmi_qp *hdmi)
+{
+	dw_hdmi_qp_write(hdmi, PKTSCHED_GCP_SET_AVMUTE, PKTSCHED_PKT_CONTROL0);
+	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_GCP_TX_EN, PKTSCHED_PKT_EN);
+	dw_hdmi_qp_mod(hdmi, AVP_DATAPATH_VIDEO_SWDISABLE,
+		       AVP_DATAPATH_VIDEO_SWDISABLE, GLOBAL_SWDISABLE);
+}
+
 static void dw_hdmi_qp_bridge_atomic_enable(struct drm_bridge *bridge,
 					    struct drm_atomic_commit *state)
 {
@@ -549,7 +572,6 @@ static void dw_hdmi_qp_bridge_atomic_enable(struct drm_bridge *bridge,
 	const struct drm_display_mode *mode;
 	struct drm_crtc_state *crtc_state;
 	struct drm_connector *connector;
-	unsigned int op_mode;
 	int ret;
 
 	connector = drm_atomic_get_new_connector_for_encoder(state, bridge->encoder);
@@ -564,33 +586,39 @@ static void dw_hdmi_qp_bridge_atomic_enable(struct drm_bridge *bridge,
 		crtc_state = drm_atomic_get_new_crtc_state(state, conn_state->crtc);
 		mode = &crtc_state->mode;
 
-		op_mode = 0;
 		hdmi->tmds_char_rate = conn_state->hdmi.tmds_char_rate;
+		hdmi->frl_rate_per_lane = conn_state->hdmi.frl_rate_per_lane;
+		hdmi->frl_lanes = conn_state->hdmi.frl_lanes;
 
 		ret = drm_connector_hdmi_enable_scrambling(connector, conn_state);
 		if (ret)
 			dev_warn(hdmi->dev, "Failed to enable scrambling: %d\n", ret);
 
 		dev_dbg(hdmi->dev,
-			"%s mode=HDMI:%ux%u@%uHz fmt=%s rate=%llu bpc=%u scramb=%d\n",
+			"%s mode=HDMI:%ux%u@%uHz fmt=%s rate=%llu bpc=%u scramb=%d frl=%ux%u\n",
 			__func__, mode->hdisplay, mode->vdisplay,
 			drm_mode_vrefresh(mode),
 			drm_hdmi_connector_get_output_format_name(conn_state->hdmi.output_format),
 			conn_state->hdmi.tmds_char_rate, conn_state->hdmi.output_bpc,
-			connector->hdmi.scrambler_enabled);
+			connector->hdmi.scrambler_enabled,
+			conn_state->hdmi.frl_rate_per_lane, conn_state->hdmi.frl_lanes);
 	} else {
-		op_mode = OPMODE_DVI;
 		dev_dbg(hdmi->dev, "%s mode=DVI\n", __func__);
 	}
 
-	hdmi->phy.ops->init(hdmi, hdmi->phy.data);
+	WRITE_ONCE(hdmi->curr_conn, connector);
+
+	ret = hdmi->phy.ops->init(hdmi, hdmi->phy.data);
+	if (ret)
+		dev_warn(hdmi->dev, "Failed to enable PHY: %d\n", ret);
 
 	dw_hdmi_qp_mod(hdmi, HDCP2_BYPASS, HDCP2_BYPASS, HDCP2LOGIC_CONFIG0);
-	dw_hdmi_qp_mod(hdmi, op_mode, OPMODE_DVI, LINK_CONFIG0);
 
 	drm_atomic_helper_connector_hdmi_update_infoframes(connector, state);
 
-	WRITE_ONCE(hdmi->curr_conn, connector);
+	ret = drm_connector_hdmi_enable_frl(connector, conn_state);
+	if (ret)
+		dev_warn(hdmi->dev, "Failed to enable FRL: %d\n", ret);
 }
 
 static void dw_hdmi_qp_bridge_atomic_disable(struct drm_bridge *bridge,
@@ -599,11 +627,15 @@ static void dw_hdmi_qp_bridge_atomic_disable(struct drm_bridge *bridge,
 	struct dw_hdmi_qp *hdmi = bridge->driver_private;
 	struct drm_connector *connector;
 
+	dw_hdmi_qp_tx_disable(hdmi);
+
 	WRITE_ONCE(hdmi->curr_conn, NULL);
 	hdmi->tmds_char_rate = 0;
+	hdmi->frl_rate_per_lane = 0;
 
 	connector = drm_atomic_get_old_connector_for_encoder(state, bridge->encoder);
 	drm_connector_hdmi_disable_scrambling(connector);
+	drm_connector_hdmi_disable_frl(connector);
 
 	hdmi->phy.ops->disable(hdmi, hdmi->phy.data);
 }
@@ -639,6 +671,92 @@ dw_hdmi_qp_bridge_edid_read(struct drm_bridge *bridge,
 	return drm_edid;
 }
 
+static int dw_hdmi_qp_bridge_frl_configure(struct drm_bridge *bridge,
+					   u8 rate_per_lane, u8 lanes)
+{
+	struct dw_hdmi_qp *hdmi = bridge->driver_private;
+	int ret;
+
+	if (hdmi->frl_rate_per_lane == rate_per_lane && hdmi->frl_lanes == lanes)
+		goto link_config;
+
+	hdmi->phy.ops->disable(hdmi, hdmi->phy.data);
+
+	ret = hdmi->phy.ops->set_frl_rate(hdmi, hdmi->phy.data, rate_per_lane,
+					  lanes);
+	if (ret) {
+		dev_err(hdmi->dev, "Failed to set PHY FRL rate: %d\n", ret);
+		return ret;
+	}
+
+	ret = hdmi->phy.ops->init(hdmi, hdmi->phy.data);
+	if (ret) {
+		dev_err(hdmi->dev, "Failed to re-init PHY for FRL: %d\n", ret);
+		return ret;
+	}
+
+	hdmi->frl_rate_per_lane = rate_per_lane;
+	hdmi->frl_lanes = lanes;
+
+link_config:
+	dw_hdmi_qp_mod(hdmi, OPMODE_FRL | (lanes == 4 ? OPMODE_FRL_4LANES : 0),
+		       OPMODE_FRL | OPMODE_FRL_4LANES | OPMODE_DVI, LINK_CONFIG0);
+
+	/* Reset the LTP register at the start of every (re)training cycle. */
+	dw_hdmi_qp_write(hdmi, 0, FLT_CONFIG1);
+
+	return 0;
+}
+
+static int dw_hdmi_qp_bridge_frl_set_ltp(struct drm_bridge *bridge,
+					 u8 ln0, u8 ln1, u8 ln2, u8 ln3)
+{
+	struct dw_hdmi_qp *hdmi = bridge->driver_private;
+	u32 flt_cfg;
+
+	flt_cfg = (ln3 << 16) | (ln2 << 12) | (ln1 << 8) | (ln0 << 4) | 0xf;
+
+	dw_hdmi_qp_write(hdmi, flt_cfg, FLT_CONFIG1);
+
+	return 0;
+}
+
+static int dw_hdmi_qp_bridge_frl_tx_start(struct drm_bridge *bridge)
+{
+	struct dw_hdmi_qp *hdmi = bridge->driver_private;
+
+	dw_hdmi_qp_tx_enable(hdmi);
+
+	return 0;
+}
+
+static int dw_hdmi_qp_bridge_frl_tx_stop(struct drm_bridge *bridge)
+{
+	struct dw_hdmi_qp *hdmi = bridge->driver_private;
+
+	dw_hdmi_qp_tx_disable(hdmi);
+
+	dw_hdmi_qp_write(hdmi, AVP_DATAPATH_SWINIT_P, GLOBAL_SWRESET_REQUEST);
+
+	return 0;
+}
+
+static int dw_hdmi_qp_bridge_frl_fallback_tmds(struct drm_bridge *bridge)
+{
+	struct dw_hdmi_qp *hdmi = bridge->driver_private;
+	struct drm_connector *conn = READ_ONCE(hdmi->curr_conn);
+
+	if (!conn)
+		return 0;
+
+	dw_hdmi_qp_mod(hdmi, conn->display_info.is_hdmi ? 0 : OPMODE_DVI,
+		       OPMODE_DVI | OPMODE_FRL, LINK_CONFIG0);
+
+	dw_hdmi_qp_tx_enable(hdmi);
+
+	return 0;
+}
+
 static int dw_hdmi_qp_bridge_scrambler_enable(struct drm_bridge *bridge)
 {
 	struct dw_hdmi_qp *hdmi = bridge->driver_private;
@@ -663,8 +781,7 @@ static int dw_hdmi_qp_bridge_clear_avi_infoframe(struct drm_bridge *bridge)
 {
 	struct dw_hdmi_qp *hdmi = bridge->driver_private;
 
-	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_AVI_TX_EN | PKTSCHED_GCP_TX_EN,
-		       PKTSCHED_PKT_EN);
+	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_AVI_TX_EN, PKTSCHED_PKT_EN);
 
 	return 0;
 }
@@ -745,8 +862,8 @@ static int dw_hdmi_qp_bridge_write_avi_infoframe(struct drm_bridge *bridge,
 	dw_hdmi_qp_write_infoframe(hdmi, buffer, len, PKT_AVI_CONTENTS0);
 
 	dw_hdmi_qp_mod(hdmi, 0, PKTSCHED_AVI_FIELDRATE, PKTSCHED_PKT_CONFIG1);
-	dw_hdmi_qp_mod(hdmi, PKTSCHED_AVI_TX_EN | PKTSCHED_GCP_TX_EN,
-		       PKTSCHED_AVI_TX_EN | PKTSCHED_GCP_TX_EN, PKTSCHED_PKT_EN);
+	dw_hdmi_qp_mod(hdmi, PKTSCHED_AVI_TX_EN, PKTSCHED_AVI_TX_EN,
+		       PKTSCHED_PKT_EN);
 
 	return 0;
 }
@@ -1032,6 +1149,11 @@ static const struct drm_bridge_funcs dw_hdmi_qp_bridge_funcs = {
 	.hpd_enable = dw_hdmi_qp_bridge_hpd_enable,
 	.hpd_disable = dw_hdmi_qp_bridge_hpd_disable,
 	.edid_read = dw_hdmi_qp_bridge_edid_read,
+	.hdmi_frl_configure = dw_hdmi_qp_bridge_frl_configure,
+	.hdmi_frl_set_ltp = dw_hdmi_qp_bridge_frl_set_ltp,
+	.hdmi_frl_tx_start = dw_hdmi_qp_bridge_frl_tx_start,
+	.hdmi_frl_tx_stop = dw_hdmi_qp_bridge_frl_tx_stop,
+	.hdmi_frl_fallback_tmds = dw_hdmi_qp_bridge_frl_fallback_tmds,
 	.hdmi_scrambler_enable = dw_hdmi_qp_bridge_scrambler_enable,
 	.hdmi_scrambler_disable = dw_hdmi_qp_bridge_scrambler_disable,
 	.hdmi_clear_avi_infoframe = dw_hdmi_qp_bridge_clear_avi_infoframe,
@@ -1168,6 +1290,10 @@ struct dw_hdmi_qp *dw_hdmi_qp_bind(struct platform_device *pdev,
 	} else {
 		hdmi->bridge.supported_hdmi_ver = HDMI_VERSION_2_0;
 		hdmi->bridge.ops |= DRM_BRIDGE_OP_HPD;
+		hdmi->bridge.min_frl_rate_per_lane = plat_data->min_frl_rate_per_lane;
+		hdmi->bridge.min_frl_lanes = plat_data->min_frl_lanes;
+		hdmi->bridge.max_frl_rate_per_lane = plat_data->max_frl_rate_per_lane;
+		hdmi->bridge.max_frl_lanes = plat_data->max_frl_lanes;
 	}
 
 	if (plat_data->supported_formats)
