@@ -1,11 +1,13 @@
 /* SPDX-License-Identifier: GPL-2.0-or-later */
 /*
  * Copyright (c) 2021-2022 Rockchip Electronics Co., Ltd.
- * Copyright (c) 2024 Collabora Ltd.
+ * Copyright (c) 2024-2026 Collabora Ltd.
  */
 
 #ifndef __DW_HDMI_QP__
 #define __DW_HDMI_QP__
+
+#include <linux/types.h>
 
 struct device;
 struct drm_encoder;
@@ -18,6 +20,7 @@ struct dw_hdmi_qp_phy_ops {
 	enum drm_connector_status (*read_hpd)(struct dw_hdmi_qp *hdmi, void *data);
 	void (*enable_hpd)(struct dw_hdmi_qp *hdmi, void *data);
 	void (*disable_hpd)(struct dw_hdmi_qp *hdmi, void *data);
+	int (*set_frl_rate)(struct dw_hdmi_qp *hdmi, void *data, u8 rate_per_lane, u8 lanes);
 };
 
 struct dw_hdmi_qp_plat_data {
@@ -30,6 +33,11 @@ struct dw_hdmi_qp_plat_data {
 	unsigned int supported_formats;
 	/* Maximum bits per color channel: 8, 10 or 12 */
 	unsigned int max_bpc;
+	/* FRL limits */
+	u8 min_frl_rate_per_lane;
+	u8 min_frl_lanes;
+	u8 max_frl_rate_per_lane;
+	u8 max_frl_lanes;
 };
 
 struct dw_hdmi_qp *dw_hdmi_qp_bind(struct platform_device *pdev,
