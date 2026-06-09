@@ -757,6 +757,17 @@ static int dw_hdmi_qp_bridge_frl_fallback_tmds(struct drm_bridge *bridge)
 	return 0;
 }
 
+static int dw_hdmi_qp_bridge_frl_set_ffe_level(struct drm_bridge *bridge,
+					       u8 ffe_level)
+{
+	struct dw_hdmi_qp *hdmi = bridge->driver_private;
+
+	if (!hdmi->phy.ops->set_ffe_level)
+		return -EOPNOTSUPP;
+
+	return hdmi->phy.ops->set_ffe_level(hdmi, hdmi->phy.data, ffe_level);
+}
+
 static int dw_hdmi_qp_bridge_scrambler_enable(struct drm_bridge *bridge)
 {
 	struct dw_hdmi_qp *hdmi = bridge->driver_private;
@@ -1154,6 +1165,7 @@ static const struct drm_bridge_funcs dw_hdmi_qp_bridge_funcs = {
 	.hdmi_frl_tx_start = dw_hdmi_qp_bridge_frl_tx_start,
 	.hdmi_frl_tx_stop = dw_hdmi_qp_bridge_frl_tx_stop,
 	.hdmi_frl_fallback_tmds = dw_hdmi_qp_bridge_frl_fallback_tmds,
+	.hdmi_frl_set_ffe_level = dw_hdmi_qp_bridge_frl_set_ffe_level,
 	.hdmi_scrambler_enable = dw_hdmi_qp_bridge_scrambler_enable,
 	.hdmi_scrambler_disable = dw_hdmi_qp_bridge_scrambler_disable,
 	.hdmi_clear_avi_infoframe = dw_hdmi_qp_bridge_clear_avi_infoframe,
@@ -1297,6 +1309,7 @@ struct dw_hdmi_qp *dw_hdmi_qp_bind(struct platform_device *pdev,
 		hdmi->bridge.min_frl_lanes = plat_data->min_frl_lanes;
 		hdmi->bridge.max_frl_rate_per_lane = plat_data->max_frl_rate_per_lane;
 		hdmi->bridge.max_frl_lanes = plat_data->max_frl_lanes;
+		hdmi->bridge.max_ffe_level = plat_data->max_ffe_level;
 	}
 
 	if (plat_data->supported_formats)

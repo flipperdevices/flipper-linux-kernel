@@ -21,6 +21,7 @@ struct dw_hdmi_qp_phy_ops {
 	void (*enable_hpd)(struct dw_hdmi_qp *hdmi, void *data);
 	void (*disable_hpd)(struct dw_hdmi_qp *hdmi, void *data);
 	int (*set_frl_rate)(struct dw_hdmi_qp *hdmi, void *data, u8 rate_per_lane, u8 lanes);
+	int (*set_ffe_level)(struct dw_hdmi_qp *hdmi, void *data, u8 ffe_level);
 };
 
 struct dw_hdmi_qp_plat_data {
@@ -38,6 +39,7 @@ struct dw_hdmi_qp_plat_data {
 	u8 min_frl_lanes;
 	u8 max_frl_rate_per_lane;
 	u8 max_frl_lanes;
+	u8 max_ffe_level;
 };
 
 struct dw_hdmi_qp *dw_hdmi_qp_bind(struct platform_device *pdev,
