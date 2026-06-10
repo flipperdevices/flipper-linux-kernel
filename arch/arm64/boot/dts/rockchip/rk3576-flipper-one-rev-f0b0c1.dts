@@ -961,8 +961,7 @@
 			label = "USB-C";
 			data-role = "dual";
 			op-sink-microwatt = <10000000>;
-			/* fusb302 supports PD Rev 2.0 Ver 1.2 */
-			pd-revision = /bits/ 8 <0x2 0x0 0x1 0x2>;
+			pd-revision = /bits/ 8 <0x3 0x1 0x1 0x8>;
 			power-role = "dual";
 			self-powered;
 			sink-pdos = <PDO_FIXED(5000, 3000,
