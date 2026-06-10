@@ -1525,8 +1525,6 @@
 	disable-wp;
 	no-sdio;
 	no-mmc;
-	pinctrl-names = "default";
-	pinctrl-0 = <&sdmmc0_clk &sdmmc0_cmd &sdmmc0_det &sdmmc0_bus4>;
 	sd-uhs-sdr104;
 	vmmc-supply = <&vcc_3v3_s3>;
 	vqmmc-supply = <&vccio_3v3_sd_s0>;
