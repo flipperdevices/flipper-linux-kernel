@@ -1817,6 +1817,24 @@ static int rkvdec_probe(struct platform_device *pdev)
 
 	vb2_dma_contig_set_max_seg_size(&pdev->dev, DMA_BIT_MASK(32));
 
+	/*
+	 * RK3576/VDPU383 needs a power-up priming decode (see
+	 * rkvdec-rk3576-workaround.c). Allocate the priming buffer once here;
+	 * it is run on every pm_runtime resume. Best-effort.
+	 */
+	if (rkvdec->variant == &vdpu383_variant) {
+		ret = rkvdec_rk3576_warmup_alloc(&pdev->dev,
+						 &rkvdec->rk3576_warmup_cpu,
+						 &rkvdec->rk3576_warmup_dma);
+		if (ret)
+			dev_warn(&pdev->dev,
+				 "rk3576 warmup alloc failed: %d (H.264 may corrupt)\n",
+				 ret);
+		else
+			dev_info(&pdev->dev,
+				 "RK3576 H.264 deblock-priming workaround enabled\n");
+	}
+
 	irq = platform_get_irq(pdev, 0);
 	if (irq <= 0)
 		return -ENXIO;
@@ -1881,8 +1899,27 @@ static void rkvdec_remove(struct platform_device *pdev)
 static int rkvdec_runtime_resume(struct device *dev)
 {
 	struct rkvdec_dev *rkvdec = dev_get_drvdata(dev);
+	int ret;
 
-	return clk_bulk_prepare_enable(rkvdec->num_clocks, rkvdec->clocks);
+	ret = clk_bulk_prepare_enable(rkvdec->num_clocks, rkvdec->clocks);
+	if (ret)
+		return ret;
+
+	/*
+	 * RK3576/VDPU383: prime internal deblock-context state after every
+	 * power-up (clocks + power domain are up here). Without it H.264
+	 * decode races and corrupts horizontal deblock edges. Best-effort.
+	 */
+	if (rkvdec->variant == &vdpu383_variant && rkvdec->rk3576_warmup_cpu) {
+		ret = rkvdec_rk3576_warmup_run(rkvdec->link,
+					       rkvdec->rk3576_warmup_dma);
+		if (ret)
+			dev_warn_ratelimited(dev,
+					     "rk3576 warmup on resume failed: %d\n",
+					     ret);
+	}
+
+	return 0;
 }
 
 static int rkvdec_runtime_suspend(struct device *dev)
