@@ -112,28 +112,19 @@
 		vin-supply = <&vcc8v4_sys>;
 	};
 
-	vcc3v3_rtc_s5: regulator-vcc3v3-rtc-s5 {
+	vcc2v1_rtc: regulator-vcc2v1-rtc {
 		compatible = "regulator-fixed";
-		regulator-name = "vcc3v3_rtc_s5";
+		regulator-name = "vcc2v1_rtc";
 		regulator-boot-on;
 		regulator-always-on;
-		regulator-min-microvolt = <3300000>;
-		regulator-max-microvolt = <3300000>;
+		regulator-min-microvolt = <2100000>;
+		regulator-max-microvolt = <2100000>;
 		/* Powered by the system battery */
 	};
 
 	vcc5v0_device_s0: regulator-vcc5v0-device-s0 {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc5v0_device";
-		regulator-boot-on;
-		regulator-always-on;
-		regulator-min-microvolt = <5000000>;
-		regulator-max-microvolt = <5000000>;
-		/*
-		 * Controlled by the GPIO expander pin P13, but turning it off
-		 * makes the expander I2C bus stuck and unrecoverable due to
-		 * the USB MUX misbehavior on the same bus
-		 */
 		vin-supply = <&vcc8v4_sys>;
 	};
 
@@ -146,7 +137,6 @@
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
 		gpios = <&gpio_expander 0xd GPIO_ACTIVE_HIGH>;
-		vin-supply = <&vcc5v0_device_s0>;
 	};
 
 	vusb_typea_up: regulator-vcc5v0-vusb-typea-up {
@@ -520,13 +510,11 @@
 	pinctrl-names = "default";
 	status = "okay";
 
-	embedded-controller@69 {
+	mcu: embedded-controller@69 {
 		compatible = "flipper,one-mcu";
 		reg = <0x69>;
 		interrupt-parent = <&gpio2>;
 		interrupts = <RK_PA6 IRQ_TYPE_LEVEL_LOW>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&audio_headset_int &cpu_int>;
 		wakeup-source;
 	};
 };
@@ -912,7 +900,6 @@
 	status = "okay";
 
 	gpio_expander: gpio@20 {
-		compatible = "ti,tca6416";
 		reg = <0x20>;
 		gpio-controller;
 		#gpio-cells = <2>;
@@ -931,13 +918,6 @@
 			gpio-hog;
 		};
 
-		vcc5v0-device-s0-hog {
-			gpios = <0xb GPIO_ACTIVE_HIGH>;
-			output-high;
-			line-name = "Peripheral power supply";
-			gpio-hog;
-		};
-
 		vcc5v0-sys-s5-hog {
 			gpios = <0xc GPIO_ACTIVE_HIGH>;
 			output-high;
@@ -949,8 +929,6 @@
 	usbc0: typec-portc@22 {
 		compatible = "fcs,fusb302";
 		reg = <0x22>;
-		interrupt-parent = <&gpio_expander>;
-		interrupts = <3 IRQ_TYPE_LEVEL_LOW>;
 		vbus-supply = <&vusb_typec>;
 
 		connector {
@@ -1196,10 +1174,6 @@
 	usbmux: usb-mux@47 {
 		compatible = "ti,hd3ss3220";
 		reg = <0x47>;
-		interrupt-parent = <&gpio1>;
-		interrupts = <RK_PC0 IRQ_TYPE_LEVEL_LOW>;
-		pinctrl-0 = <&usb_mux_int>;
-		pinctrl-names = "default";
 
 		ports {
 			#address-cells = <1>;
@@ -1227,8 +1201,7 @@
 		monitored-battery = <&battery>;
 	};
 
-	bq25792: charger@6b {
-		compatible = "ti,bq25792";
+	charger: charger@6b {
 		reg = <0x6b>;
 		input-current-limit-microamp = <3300000>;
 		interrupt-parent = <&gpio_expander>;

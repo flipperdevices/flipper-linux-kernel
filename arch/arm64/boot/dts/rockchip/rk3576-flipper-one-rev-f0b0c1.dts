@@ -11,3 +11,51 @@
 	model = "Flipper One rev. F0B0C1";
 	compatible = "flipper,one-rev-f0b0c1", "rockchip,rk3576";
 };
+
+&charger {
+	compatible = "ti,bq25792";
+};
+
+&gpio_expander {
+	compatible = "ti,tca6416";
+
+	vcc5v0-device-s0-hog {
+		gpios = <0xb GPIO_ACTIVE_HIGH>;
+		output-high;
+		line-name = "Peripheral power supply";
+		gpio-hog;
+	};
+};
+
+&gpio_vcc5v0 {
+	vin-supply = <&vcc5v0_device_s0>;
+};
+
+&mcu {
+	pinctrl-names = "default";
+	pinctrl-0 = <&audio_headset_int &cpu_int>;
+};
+
+&usbc0 {
+	interrupt-parent = <&gpio_expander>;
+	interrupts = <3 IRQ_TYPE_LEVEL_LOW>;
+};
+
+&usbmux {
+	interrupt-parent = <&gpio1>;
+	interrupts = <RK_PC0 IRQ_TYPE_LEVEL_LOW>;
+	pinctrl-0 = <&usb_mux_int>;
+	pinctrl-names = "default";
+};
+
+&vcc5v0_device_s0 {
+	/*
+	* Controlled by the GPIO expander pin P13, but turning it off
+	* makes the expander I2C bus stuck and unrecoverable due to
+	* the USB MUX misbehavior on the same bus
+	*/
+	regulator-boot-on;
+	regulator-always-on;
+	regulator-min-microvolt = <5000000>;
+	regulator-max-microvolt = <5000000>;
+};

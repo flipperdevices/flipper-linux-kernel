@@ -46,6 +46,6 @@
 	status = "disabled";
 };
 
-&bq25792 {
+&charger {
 	status = "disabled";
 };

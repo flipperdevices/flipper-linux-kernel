@@ -10,4 +10,86 @@
 / {
 	model = "Flipper One rev. F0B1C2";
 	compatible = "flipper,one-rev-f0b1c2", "rockchip,rk3576";
+
+	vcc3v3_wifi: regulator-vcc3v3-wifi {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		regulator-name = "vcc3v3_wifi";
+		regulator-always-on;
+		regulator-min-microvolt = <3300000>;
+		regulator-max-microvolt = <3300000>;
+		gpios = <&gpio2 RK_PB5 GPIO_ACTIVE_HIGH>;
+		pinctrl-0 = <&wifi_pwr_en>;
+		pinctrl-names = "default";
+		vin-supply = <&vcc_3v3_s3>;
+	};
+
+	vusb_typec_up: regulator-vcc5v2-vusb-typec-up {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		regulator-name = "vusb_typec_up";
+		regulator-always-on; /* Remove once VBUS is wired up in the DT binding and driver */
+		regulator-min-microvolt = <5200000>;
+		regulator-max-microvolt = <5200000>;
+		gpios = <&gpio_expander 0x7 GPIO_ACTIVE_HIGH>;
+		vin-supply = <&vcc5v0_device_s0>;
+	};
+};
+
+&charger {
+	compatible = "ti,bq25798", "ti,bq25792";
+};
+
+&gpio_expander {
+	compatible = "nxp,pcal6416";
+};
+
+&gpio_vcc5v0 {
+	vin-supply = <&vcc8v4_sys>;
+};
+
+&hub_2_0 {
+	vdd3v3-supply = <&vcc_3v3_s3>;
+};
+
+&hub_3_0 {
+	vdd3v3-supply = <&vcc_3v3_s3>;
+};
+
+&mcu {
+	pinctrl-names = "default";
+	pinctrl-0 = <&cpu_int>;
+};
+
+&pinctrl {
+	wifi {
+		wifi_pwr_en: wifi-pwr-en {
+			rockchip,pins = <2 RK_PB5 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+	};
+};
+
+&uart1 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart1m1_xfer>;
+	status = "okay";
+};
+
+&usbc0 {
+	interrupt-parent = <&gpio0>;
+	interrupts = <RK_PB5 IRQ_TYPE_LEVEL_LOW>;
+	pinctrl-0 = <&audio_headset_int>;
+	pinctrl-names = "default";
+};
+
+&usbmux {
+	interrupt-parent = <&gpio_expander>;
+	interrupts = <4 IRQ_TYPE_LEVEL_LOW>;
+	vbus-supply = <&vusb_typec_up>; /* Wire it up in the DT binding and driver */
+};
+
+&vcc5v0_device_s0 {
+	regulator-min-microvolt = <5200000>;
+	regulator-max-microvolt = <5200000>;
+	gpios = <&gpio_expander 0xb GPIO_ACTIVE_HIGH>;
 };
