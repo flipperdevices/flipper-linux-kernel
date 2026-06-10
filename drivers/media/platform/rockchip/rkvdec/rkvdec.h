@@ -136,6 +136,11 @@ struct rkvdec_dev {
 	struct clk *axi_clk;
 	void __iomem *regs;
 	void __iomem *link;
+	/* RK3576/VDPU383 power-up priming buffer; see
+	 * rkvdec-rk3576-workaround.c
+	 */
+	void *rk3576_warmup_cpu;
+	dma_addr_t rk3576_warmup_dma;
 	struct mutex vdev_lock; /* serializes ioctls */
 	struct delayed_work watchdog_work;
 	struct gen_pool *sram_pool;
@@ -180,6 +185,9 @@ void rkvdec_run_preamble(struct rkvdec_ctx *ctx, struct rkvdec_run *run);
 void rkvdec_run_postamble(struct rkvdec_ctx *ctx, struct rkvdec_run *run);
 void rkvdec_memcpy_toio(void __iomem *dst, void *src, size_t len);
 void rkvdec_schedule_watchdog(struct rkvdec_dev *rkvdec, u32 timeout_threshold);
+int rkvdec_rk3576_warmup_alloc(struct device *dev, void **out_cpu,
+			       dma_addr_t *out_dma);
+int rkvdec_rk3576_warmup_run(void __iomem *link_base, dma_addr_t buf_iova);
 
 void rkvdec_quirks_disable_qos(struct rkvdec_ctx *ctx);
 
