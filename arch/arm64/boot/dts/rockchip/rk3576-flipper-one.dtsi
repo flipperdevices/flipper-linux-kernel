@@ -15,9 +15,6 @@
 #include "rk3576.dtsi"
 
 / {
-	model = "Flipper One rev. F0B0C1";
-	compatible = "flipper,one-rev-f0b0c1", "rockchip,rk3576";
-
 	aliases {
 		ethernet0 = &gmac0;
 		ethernet1 = &gmac1;

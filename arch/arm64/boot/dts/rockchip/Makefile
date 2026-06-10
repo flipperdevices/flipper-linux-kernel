@@ -172,6 +172,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb1-v10.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb1-v10-pcie1.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb2-v10.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b0c1.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b1c2.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-i2c2-free.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-sata.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-khadas-edge-2l.dtb
