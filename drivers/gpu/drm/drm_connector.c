@@ -682,6 +682,16 @@ int drmm_connector_hdmi_init(struct drm_device *dev,
 			drm_err(dev, "Invalid FRL rate/lane limits\n");
 			return -EINVAL;
 		}
+
+		if (!!connector->hdmi.max_ffe_level != !!hdmi_funcs->frl_set_ffe_level) {
+			drm_err(dev, "Invalid FFE level config\n");
+			return -EINVAL;
+		}
+
+		if (connector->hdmi.max_ffe_level > HDMI_2_1_FRL_FFE_LEVEL_MAX) {
+			drm_err(dev, "Invalid FFE level limit\n");
+			return -EINVAL;
+		}
 	}
 
 	/*
