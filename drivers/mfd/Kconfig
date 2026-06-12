@@ -1985,6 +1985,22 @@ config MFD_TPS6594_SPI
 	  This driver can also be built as a module.  If so, the module
 	  will be called tps6594-spi.
 
+config MFD_UGREEN_DH2300_MCU
+	tristate "UGREEN NASync DH2300 embedded controller"
+	depends on I2C
+	depends on OF
+	select MFD_CORE
+	select REGMAP_I2C
+	help
+	  Say yes here to enable support for the HC32F005 microcontroller found
+	  on the UGREEN NASync DH2300 NAS, where it acts as a board embedded
+	  controller. This core driver sets up the shared register map and
+	  instantiates the function sub-devices (the SATA drive-bay power
+	  regulator).
+
+	  This driver can also be built as a module. If so, the module will be
+	  called ugreen-dh2300-mcu.
+
 config TWL4030_CORE
 	bool "TI TWL4030/TWL5030/TWL6030/TPS659x0 Support"
 	depends on I2C=y
