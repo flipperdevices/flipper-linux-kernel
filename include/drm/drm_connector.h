@@ -1646,6 +1646,24 @@ struct drm_connector_hdmi_funcs {
 	int (*frl_fallback_tmds)(struct drm_connector *connector);
 
 	/**
+	 * @frl_set_ffe_level:
+	 *
+	 * Optional callback invoked by the FRL link training helper from
+	 * LTS:3 when the sink requests a TxFFE (Transmitter Feed-Forward
+	 * Equalization) level increase on one or more lanes. The helper
+	 * increments the level incrementally up to
+	 * &drm_connector_hdmi.max_ffe_level before giving up.
+	 *
+	 * Bridges that do not implement this callback will cause the helper
+	 * to fall back to LTS:L (legacy TMDS) on any FFE level update
+	 * request from the sink.
+	 *
+	 * Returns:
+	 * 0 on success, a negative error code otherwise.
+	 */
+	int (*frl_set_ffe_level)(struct drm_connector *connector, u8 ffe_level);
+
+	/**
 	 * @avi:
 	 *
 	 * Set of callbacks for handling the AVI InfoFrame. These callbacks are
@@ -2312,6 +2330,15 @@ struct drm_connector_hdmi {
 	 * limit.
 	 */
 	u8 max_frl_lanes;
+
+	/**
+	 * @max_ffe_level: Maximum TxFFE (Transmitter Feed-Forward Equalization)
+	 * level supported by the source for the advertised FRL rate.
+	 *
+	 * Valid range is 0..3, as defined by HDMI 2.1 spec. Only meaningful
+	 * when drm_connector_hdmi_frl_supported() returns true.
+	 */
+	u8 max_ffe_level;
 
 	/**
 	 * @scdc_work: Work item that has a dual role, depending on the
