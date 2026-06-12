@@ -684,6 +684,20 @@ struct drm_bridge_funcs {
 	int (*hdmi_frl_fallback_tmds)(struct drm_bridge *bridge);
 
 	/**
+	 * @hdmi_frl_set_ffe_level:
+	 *
+	 * Optional callback used to increase the per-lane TxFFE
+	 * (Transmitter Feed-Forward Equalization) level when the sink
+	 * requests stronger equalization during LTS:3.
+	 *
+	 * Bridges that implement this callback must set the
+	 * DRM_BRIDGE_OP_HDMI_FRL flag in their &drm_bridge->ops.
+	 *
+	 * @ffe_level: target TxFFE level (1..3).
+	 */
+	int (*hdmi_frl_set_ffe_level)(struct drm_bridge *bridge, u8 ffe_level);
+
+	/**
 	 * @hdmi_frl_rate_valid:
 	 *
 	 * Check whether a particular mode is supported by the driver within
@@ -1288,6 +1302,13 @@ struct drm_bridge {
 	 * is set.
 	 */
 	u8 max_frl_lanes;
+
+	/**
+	 * @max_ffe_level: Maximum TxFFE (Transmitter Feed-Forward Equalization)
+	 * level the HDMI bridge supports. Valid range is 0..3, as defined by
+	 * HDMI 2.1 spec. This is only relevant if @DRM_BRIDGE_OP_HDMI is set.
+	 */
+	u8 max_ffe_level;
 
 	/**
 	 * @hdmi_cec_dev: device to be used as a containing device for CEC
