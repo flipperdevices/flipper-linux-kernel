@@ -1,0 +1,62 @@
+# SPDX-License-Identifier: (GPL-2.0-only OR BSD-2-Clause)
+%YAML 1.2
+---
+$id: http://devicetree.org/schemas/mfd/ugreen,dh2300-mcu.yaml#
+$schema: http://devicetree.org/meta-schemas/core.yaml#
+
+title: UGREEN NASync DH2300 embedded controller
+
+maintainers:
+  - Alexey Charkov <alchark@flipper.net>
+
+description:
+  The UGREEN NASync DH2300 NAS carries a HC32F005 microcontroller on I2C that
+  acts as a board embedded controller. It gates power to the SATA drive bays
+  through an internal register and apparently also serves as a watchdog
+  (unconfirmed, as vendor kernel sources are unavailable, works without it)
+
+properties:
+  compatible:
+    const: ugreen,dh2300-mcu
+
+  reg:
+    maxItems: 1
+
+  regulator:
+    type: object
+    $ref: /schemas/regulator/regulator.yaml#
+    unevaluatedProperties: false
+    description:
+      The SATA drive-bay power gate controlled by the MCU.
+
+  watchdog-gpios:
+    description:
+      Optional GPIO line used to ping the hardware watchdog function of the MCU
+    maxItems: 1
+
+required:
+  - compatible
+  - reg
+
+additionalProperties: false
+
+examples:
+  - |
+    #include <dt-bindings/gpio/gpio.h>
+    #include <dt-bindings/pinctrl/rockchip.h>
+
+    i2c {
+        #address-cells = <1>;
+        #size-cells = <0>;
+
+        embedded-controller@4c {
+            compatible = "ugreen,dh2300-mcu";
+            reg = <0x4c>;
+            watchdog-gpios = <&gpio0 RK_PA0 GPIO_ACTIVE_LOW>;
+
+            sata_power: regulator {
+                regulator-name = "sata-power";
+                vin-supply = <&vcc12v_dcin>;
+            };
+        };
+    };
