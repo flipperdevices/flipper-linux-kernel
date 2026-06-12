@@ -705,6 +705,20 @@ static int drm_bridge_connector_frl_fallback_tmds(struct drm_connector *connecto
 	return bridge->funcs->hdmi_frl_fallback_tmds(bridge);
 }
 
+static int drm_bridge_connector_frl_set_ffe_level(struct drm_connector *connector,
+						  u8 ffe_level)
+{
+	struct drm_bridge_connector *bridge_connector =
+		to_drm_bridge_connector(connector);
+	struct drm_bridge *bridge;
+
+	bridge = bridge_connector->bridge_hdmi;
+	if (!bridge)
+		return -EINVAL;
+
+	return bridge->funcs->hdmi_frl_set_ffe_level(bridge, ffe_level);
+}
+
 static const struct drm_edid *
 drm_bridge_connector_read_edid(struct drm_connector *connector)
 {
@@ -1169,6 +1183,10 @@ struct drm_connector *drm_bridge_connector_init(struct drm_device *drm,
 			connector->hdmi.max_frl_lanes =
 				bridge_connector->bridge_hdmi->max_frl_lanes;
 
+		if (bridge_connector->bridge_hdmi->max_ffe_level)
+			connector->hdmi.max_ffe_level =
+				bridge_connector->bridge_hdmi->max_ffe_level;
+
 		if (bridge_connector->bridge_hdmi->max_bpc)
 			bridge_connector->hdmi_funcs.max_bpc =
 				bridge_connector->bridge_hdmi->max_bpc;
@@ -1203,6 +1221,9 @@ struct drm_connector *drm_bridge_connector_init(struct drm_device *drm,
 				drm_bridge_connector_frl_tx_stop;
 			bridge_connector->hdmi_funcs.frl_fallback_tmds =
 				drm_bridge_connector_frl_fallback_tmds;
+			if (bridge_connector->bridge_hdmi->funcs->hdmi_frl_set_ffe_level)
+				bridge_connector->hdmi_funcs.frl_set_ffe_level =
+					drm_bridge_connector_frl_set_ffe_level;
 		}
 
 		ret = drmm_connector_hdmi_init(drm, connector,
