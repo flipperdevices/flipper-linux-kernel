@@ -1810,6 +1810,18 @@ config REGULATOR_TWL4030
 	  This driver supports the voltage regulators provided by
 	  this family of companion chips.
 
+config REGULATOR_UGREEN_DH2300_MCU
+	tristate "UGREEN NASync DH2300 MCU SATA power regulator"
+	depends on MFD_UGREEN_DH2300_MCU
+	help
+	  Say yes here to enable support for the SATA drive-bay power gate of
+	  the UGREEN NASync DH2300 embedded controller. The regulator is a
+	  sub-device of the ugreen-dh2300-mcu MFD core and is normally consumed
+	  by the SATA controllers via their target-supply.
+
+	  This driver can also be built as a module. If so, the module will be
+	  called ugreen-dh2300-mcu-regulator.
+
 config REGULATOR_UNIPHIER
 	tristate "UniPhier regulator driver"
 	depends on ARCH_UNIPHIER || COMPILE_TEST
