@@ -78,3 +78,4 @@ module_platform_driver(ugreen_dh2300_mcu_regulator_driver);
 
 MODULE_DESCRIPTION("UGREEN NASync DH2300 MCU SATA power regulator");
 MODULE_LICENSE("GPL");
+MODULE_ALIAS("platform:ugreen-dh2300-mcu-regulator");
