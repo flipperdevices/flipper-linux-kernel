@@ -2111,6 +2111,8 @@ struct dw_hdmi_qp *dw_hdmi_qp_bind(struct platform_device *pdev,
 	if (plat_data->max_bpc)
 		hdmi->bridge.max_bpc = plat_data->max_bpc;
 
+	hdmi->bridge.ycbcr_420_allowed = plat_data->ycbcr_420_allowed;
+
 	hdmi->bridge.ddc = dw_hdmi_qp_i2c_adapter(hdmi);
 	if (IS_ERR(hdmi->bridge.ddc))
 		return ERR_CAST(hdmi->bridge.ddc);

@@ -10,17 +10,20 @@
 #include <linux/clk.h>
 #include <linux/gpio/consumer.h>
 #include <linux/hw_bitfield.h>
+#include <linux/media-bus-format.h>
 #include <linux/mfd/syscon.h>
 #include <linux/module.h>
 #include <linux/platform_device.h>
 #include <linux/phy/phy.h>
 #include <linux/phy/phy-hdmi.h>
 #include <linux/regmap.h>
+#include <linux/videodev2.h>
 #include <linux/workqueue.h>
 
 #include <drm/bridge/dw_hdmi_qp.h>
 #include <drm/display/drm_hdmi_helper.h>
 #include <drm/drm_bridge_connector.h>
+#include <drm/drm_connector.h>
 #include <drm/drm_managed.h>
 #include <drm/drm_of.h>
 #include <drm/drm_probe_helper.h>
@@ -225,10 +228,29 @@ dw_hdmi_qp_rockchip_encoder_atomic_check(struct drm_encoder *encoder,
 
 	lcfg->bpc = phy_cfg.hdmi.bpc;
 
-	s->output_mode = ROCKCHIP_OUT_MODE_AAAA;
 	s->output_type = DRM_MODE_CONNECTOR_HDMIA;
 	s->output_bpc = conn_state->hdmi.output_bpc;
 	s->frl_enabled = lcfg->frl_enabled;
+
+	/*
+	 * The HDMI connector framework hands us a tmds_char_rate that is
+	 * already halved for 4:2:0, so 4K60 4:2:0 stays on the 297 MHz TMDS
+	 * path (no FRL). Tell VOP2 to emit the 4:2:0 pixel stream -- it does
+	 * the 4:4:4 -> 4:2:0 downsample, R2Y (gated on a YUV bus_format) and
+	 * the multi-pixel-per-cycle dclk. VOP2 picks the R2Y matrix from
+	 * color_space, so pin it to BT.709 for correct UHD colours. bus_format
+	 * and color_space are set unconditionally so an RGB<->420 switch never
+	 * leaves a stale value in the duplicated CRTC state.
+	 */
+	if (conn_state->hdmi.output_format == DRM_OUTPUT_COLOR_FORMAT_YCBCR420) {
+		s->output_mode = ROCKCHIP_OUT_MODE_YUV420;
+		s->bus_format = MEDIA_BUS_FMT_UYYVYY8_0_5X24;
+		s->color_space = V4L2_COLORSPACE_REC709;
+	} else {
+		s->output_mode = ROCKCHIP_OUT_MODE_AAAA;
+		s->bus_format = MEDIA_BUS_FMT_RGB888_1X24;
+		s->color_space = V4L2_COLORSPACE_DEFAULT;
+	}
 
 	return 0;
 }
@@ -523,6 +545,11 @@ static void dw_hdmi_qp_rk3576_enc_init(struct rockchip_hdmi_qp *hdmi,
 	else
 		val = FIELD_PREP_WM16(RK3576_COLOR_DEPTH_MASK, RK3576_8BPC);
 
+	if (state->output_mode == ROCKCHIP_OUT_MODE_YUV420)
+		val |= FIELD_PREP_WM16(RK3576_COLOR_FORMAT_MASK, RK3576_YUV420);
+	else
+		val |= FIELD_PREP_WM16(RK3576_COLOR_FORMAT_MASK, RK3576_RGB);
+
 	regmap_write(hdmi->vo_regmap, RK3576_VO0_GRF_SOC_CON8, val);
 }
 
@@ -540,6 +567,11 @@ static void dw_hdmi_qp_rk3588_enc_init(struct rockchip_hdmi_qp *hdmi,
 		val = FIELD_PREP_WM16(RK3588_COLOR_DEPTH_MASK, RK3588_10BPC);
 	else
 		val = FIELD_PREP_WM16(RK3588_COLOR_DEPTH_MASK, RK3588_8BPC);
+
+	if (state->output_mode == ROCKCHIP_OUT_MODE_YUV420)
+		val |= FIELD_PREP_WM16(RK3588_COLOR_FORMAT_MASK, RK3588_YUV420);
+	else
+		val |= FIELD_PREP_WM16(RK3588_COLOR_FORMAT_MASK, RK3588_RGB);
 
 	regmap_write(hdmi->vo_regmap,
 		     hdmi->port_id ? RK3588_GRF_VO1_CON6 : RK3588_GRF_VO1_CON3,
@@ -674,6 +706,9 @@ static int dw_hdmi_qp_rockchip_bind(struct device *dev, struct device *master,
 	plat_data.phy_ops = cfg->phy_ops;
 	plat_data.phy_data = hdmi;
 	plat_data.max_bpc = 10;
+	plat_data.supported_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444) |
+				      BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR420);
+	plat_data.ycbcr_420_allowed = true;
 
 	encoder = &hdmi->encoder.encoder;
 	encoder->possible_crtcs = drm_of_find_possible_crtcs(drm, dev->of_node);

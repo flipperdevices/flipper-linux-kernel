@@ -47,6 +47,8 @@ struct dw_hdmi_qp_plat_data {
 	unsigned int supported_formats;
 	/* Maximum bits per color channel: 8, 10 or 12 */
 	unsigned int max_bpc;
+	/* Set if the controller/platform supports YCbCr 4:2:0 output */
+	bool ycbcr_420_allowed;
 };
 
 struct dw_hdmi_qp *dw_hdmi_qp_bind(struct platform_device *pdev,
