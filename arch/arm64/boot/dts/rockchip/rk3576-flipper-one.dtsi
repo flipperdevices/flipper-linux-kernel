@@ -406,6 +406,10 @@
 	status = "okay";
 };
 
+&csi3 {
+	status = "okay";
+};
+
 &dp {
 	status = "okay";
 };
@@ -1739,6 +1743,14 @@
 			};
 		};
 	};
+};
+
+&vicap {
+	status = "okay";
+};
+
+&vicap_mmu {
+	status = "okay";
 };
 
 &vop {
