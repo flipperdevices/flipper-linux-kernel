@@ -1,0 +1,43 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * Device tree overlay for the Raspberry Pi Camera rev. 1.3 attached to the CSI
+ * port of the Flipper One
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/clock/rockchip,rk3576-cru.h>
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pinctrl/rockchip.h>
+
+&csi3_in {
+	csi3_input: endpoint {
+		data-lanes = <1 2>;
+		remote-endpoint = <&camera_out>;
+	};
+};
+
+&i2c5 {
+	#address-cells = <1>;
+	#size-cells = <0>;
+
+	camera@36 {
+		compatible = "ovti,ov5647";
+		reg = <0x36>;
+		avdd-supply = <&vcc_3v3_s3>;
+		clocks = <&cru CLK_MIPI_CAMERAOUT_M2>;
+		dvdd-supply = <&vcc_3v3_s3>;
+		dovdd-supply = <&vcc_3v3_s3>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_pdn &cam_clk2m0_clk2>;
+		pwdn-gpios = <&gpio3 RK_PC6 GPIO_ACTIVE_HIGH>;
+
+		port {
+			camera_out: endpoint {
+				data-lanes = <1 2>;
+				remote-endpoint = <&csi3_input>;
+			};
+		};
+	};
+};

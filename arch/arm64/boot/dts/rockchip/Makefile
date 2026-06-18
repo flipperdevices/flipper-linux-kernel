@@ -320,6 +320,10 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-i2c2-free.dtb
 rk3576-flipper-one-i2c2-free-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-flipper-one-i2c2-free.dtbo
 
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rpi-camera-1.3.dtb
+rk3576-flipper-one-rpi-camera-1.3-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
+	rk3576-flipper-one-rpi-camera-1.3.dtbo
+
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-sata.dtb
 rk3576-flipper-one-sata-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-flipper-one-sata.dtbo
