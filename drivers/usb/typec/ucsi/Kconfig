@@ -104,4 +104,15 @@ config UCSI_HUAWEI_GAOKUN
 	  To compile the driver as a module, choose M here: the module will be
 	  called ucsi_huawei_gaokun.
 
+config UCSI_FLIPPER_ONE
+	tristate "UCSI Interface Driver for Flipper One MCU"
+	depends on MFD_FLIPPER_ONE
+	help
+	  This driver enables UCSI support for the Type-C controller exposed
+	  by the Flipper One MCU, which presents the UCSI data structure as a
+	  register block in the shared MCU I2C register map.
+
+	  To compile the driver as a module, choose M here: the module will be
+	  called ucsi_flipper_one.
+
 endif
