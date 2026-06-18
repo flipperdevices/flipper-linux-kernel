@@ -11,7 +11,6 @@
 #include <dt-bindings/leds/common.h>
 #include <dt-bindings/pinctrl/rockchip.h>
 #include <dt-bindings/soc/rockchip,vop2.h>
-#include <dt-bindings/usb/pd.h>
 #include "rk3576.dtsi"
 
 / {
@@ -87,13 +86,11 @@
 
 	gpio_vcc3v3: regulator-vcc3v3-extgpio {
 		compatible = "regulator-fixed";
-		enable-active-high;
 		regulator-name = "gpio_vcc3v3";
 		regulator-boot-on;
 		regulator-always-on;
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
-		gpios = <&gpio_expander 0xe GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc3v3_control>;
 	};
 
@@ -130,22 +127,20 @@
 
 	gpio_vcc5v0: regulator-vcc5v0-extgpio {
 		compatible = "regulator-fixed";
-		enable-active-high;
 		regulator-name = "gpio_vcc5v0";
 		regulator-boot-on;
 		regulator-always-on;
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		gpios = <&gpio_expander 0xd GPIO_ACTIVE_HIGH>;
 	};
 
 	vusb_typea_up: regulator-vcc5v0-vusb-typea-up {
 		compatible = "regulator-fixed";
-		enable-active-high;
 		regulator-name = "vusb_typea_up";
+		regulator-boot-on;
+		regulator-always-on;
 		regulator-min-microvolt = <5000000>;
 		regulator-max-microvolt = <5000000>;
-		gpios = <&gpio_expander 0xa GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc5v0_device_s0>;
 	};
 
@@ -199,11 +194,11 @@
 
 	vdd1v1_hub: regulator-vdd-1v1-hub {
 		compatible = "regulator-fixed";
-		enable-active-high;
 		regulator-name = "vdd1v1_hub";
+		regulator-boot-on;
+		regulator-always-on;
 		regulator-min-microvolt = <1100000>;
 		regulator-max-microvolt = <1100000>;
-		gpios = <&gpio_expander 0x9 GPIO_ACTIVE_HIGH>;
 		vin-supply = <&vcc5v0_sys_s5>;
 	};
 
@@ -359,7 +354,7 @@
 			port@1 {
 				reg = <1>;
 				typec_up_con_ss: endpoint {
-					remote-endpoint = <&usb_mux_in>;
+					remote-endpoint = <&hub_3_0_ds3>;
 				};
 			};
 		};
@@ -516,6 +511,41 @@
 		interrupt-parent = <&gpio2>;
 		interrupts = <RK_PA6 IRQ_TYPE_LEVEL_LOW>;
 		wakeup-source;
+
+		typec {
+			compatible = "flipper,one-typec";
+
+			connector {
+				compatible = "usb-c-connector";
+				label = "USB-C";
+				data-role = "dual";
+				power-role = "dual";
+
+				ports {
+					#address-cells = <1>;
+					#size-cells = <0>;
+
+					port@0 {
+						reg = <0>;
+						usbc0_hs: endpoint {
+							remote-endpoint = <&usb_drd0_hs_ep>;
+						};
+					};
+					port@1 {
+						reg = <1>;
+						usbc0_ss: endpoint {
+							remote-endpoint = <&usbdp_phy_ss_out>;
+						};
+					};
+					port@2 {
+						reg = <2>;
+						usbc0_sbu: endpoint {
+							remote-endpoint = <&usbdp_phy0_dp_out>;
+						};
+					};
+				};
+			};
+		};
 	};
 };
 
@@ -898,327 +928,6 @@
 	pinctrl-0 = <&i2c2m0_xfer_dr5>;
 	pinctrl-names = "default";
 	status = "okay";
-
-	gpio_expander: gpio@20 {
-		reg = <0x20>;
-		gpio-controller;
-		#gpio-cells = <2>;
-		#interrupt-cells = <2>;
-		interrupt-controller;
-		interrupt-parent = <&gpio2>;
-		interrupts = <RK_PA7 IRQ_TYPE_LEVEL_LOW>;
-		pinctrl-0 = <&expander_int>;
-		pinctrl-names = "default";
-		vcc-supply = <&vcc3v3_control>;
-
-		usb2-switch-hog {
-			gpios = <8 GPIO_ACTIVE_HIGH>;
-			output-high;
-			line-name = "Main Type-C USB 2.0 pins switch to CPU";
-			gpio-hog;
-		};
-
-		vcc5v0-sys-s5-hog {
-			gpios = <0xc GPIO_ACTIVE_HIGH>;
-			output-high;
-			line-name = "Main power supply to the system PMIC";
-			gpio-hog;
-		};
-	};
-
-	usbc0: typec-portc@22 {
-		compatible = "fcs,fusb302";
-		reg = <0x22>;
-		vbus-supply = <&vusb_typec>;
-
-		connector {
-			compatible = "usb-c-connector";
-			label = "USB-C";
-			data-role = "dual";
-			op-sink-microwatt = <10000000>;
-			pd-revision = /bits/ 8 <0x3 0x1 0x1 0x8>;
-			power-role = "dual";
-			self-powered;
-			sink-pdos = <PDO_FIXED(5000, 3000,
-					       PDO_FIXED_USB_COMM | PDO_FIXED_DATA_SWAP)
-				     PDO_VAR(3600, 24000, 3300)
-				     PDO_PPS_APDO(3600, 24000, 3300)>;
-			source-pdos = <PDO_FIXED(5000, 2000,
-						 PDO_FIXED_USB_COMM | PDO_FIXED_DATA_SWAP)
-				       PDO_VAR(2800, 22000, 3320)
-				       PDO_PPS_APDO(2800, 22000, 3320)>;
-			try-power-role = "sink";
-
-			altmodes {
-				displayport {
-					svid = /bits/ 16 <0xff01>;
-					vdo = <0xffffffff>;
-				};
-			};
-
-			ports {
-				#address-cells = <1>;
-				#size-cells = <0>;
-
-				port@0 {
-					reg = <0>;
-					usbc0_hs: endpoint {
-						remote-endpoint = <&usb_drd0_hs_ep>;
-					};
-				};
-				port@1 {
-					reg = <1>;
-					usbc0_ss: endpoint {
-						remote-endpoint = <&usbdp_phy_ss_out>;
-					};
-				};
-				port@2 {
-					reg = <2>;
-					usbc0_sbu: endpoint {
-						remote-endpoint = <&usbdp_phy0_dp_out>;
-					};
-				};
-			};
-		};
-	};
-
-	ina4_1: power-sensor@40 {
-		compatible = "ti,ina4230";
-		reg = <0x40>;
-		vs-supply = <&vcc3v3_control>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		input@0 {
-			reg = <0>;
-			label = "vdd_0v75_s3";
-			shunt-resistor-micro-ohms = <50000>;
-			ti,maximum-expected-current-microamp = <300000>;
-		};
-
-		input@1 {
-			reg = <1>;
-			label = "vcc_3v3_control";
-			shunt-resistor-micro-ohms = <10000>;
-			ti,maximum-expected-current-microamp = <4000000>;
-		};
-
-		input@2 {
-			reg = <2>;
-			label = "vdd0v85_ddr_s0";
-			shunt-resistor-micro-ohms = <20000>;
-			ti,maximum-expected-current-microamp = <3000000>;
-		};
-
-		input@3 {
-			reg = <3>;
-			label = "vcc_3v3_s3";
-			shunt-resistor-micro-ohms = <10000>;
-			ti,maximum-expected-current-microamp = <5000000>;
-		};
-	};
-
-	ina4_2: power-sensor@41 {
-		compatible = "ti,ina4230";
-		reg = <0x41>;
-		vs-supply = <&vcc3v3_control>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		input@0 {
-			reg = <0>;
-			label = "vddq0v51_ddr_s0";
-			shunt-resistor-micro-ohms = <20000>;
-			ti,maximum-expected-current-microamp = <3000000>;
-		};
-
-		input@1 {
-			reg = <1>;
-			label = "vdd0v75_npu_s0";
-			shunt-resistor-micro-ohms = <10000>;
-			ti,maximum-expected-current-microamp = <5000000>;
-		};
-
-		input@2 {
-			reg = <2>;
-			label = "vdd0v75_gpu_s0";
-			shunt-resistor-micro-ohms = <20000>;
-			ti,maximum-expected-current-microamp = <3000000>;
-		};
-
-		input@3 {
-			reg = <3>;
-			label = "vdd0v75_logic_s0";
-			shunt-resistor-micro-ohms = <20000>;
-			ti,maximum-expected-current-microamp = <3000000>;
-		};
-	};
-
-	ina4_3: power-sensor@43 {
-		compatible = "ti,ina4230";
-		reg = <0x43>;
-		vs-supply = <&vcc3v3_control>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		input@0 {
-			reg = <0>;
-			label = "vdd0v75_cpu_big_s0";
-			shunt-resistor-micro-ohms = <10000>;
-			ti,maximum-expected-current-microamp = <6500000>;
-		};
-
-		input@1 {
-			reg = <1>;
-			label = "vdda_1v2_s0";
-			shunt-resistor-micro-ohms = <50000>;
-			ti,maximum-expected-current-microamp = <300000>;
-		};
-
-		input@2 {
-			reg = <2>;
-			label = "vcca_1v8_s0";
-			shunt-resistor-micro-ohms = <20000>;
-			ti,maximum-expected-current-microamp = <500000>;
-		};
-
-		input@3 {
-			reg = <3>;
-			label = "vdd0v75_cpu_lit_s0";
-			shunt-resistor-micro-ohms = <10000>;
-			ti,maximum-expected-current-microamp = <5000000>;
-		};
-	};
-
-	ina4_4: power-sensor@44 {
-		compatible = "ti,ina4230";
-		reg = <0x44>;
-		vs-supply = <&vcc3v3_control>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		input@0 {
-			reg = <0>;
-			label = "vdda_0v75_s0";
-			shunt-resistor-micro-ohms = <50000>;
-			ti,maximum-expected-current-microamp = <300000>;
-		};
-
-		input@1 {
-			reg = <1>;
-			label = "vdda_0v85_s0";
-			shunt-resistor-micro-ohms = <20000>;
-			ti,maximum-expected-current-microamp = <500000>;
-		};
-
-		input@2 {
-			reg = <2>;
-			label = "vdda0v75_hdmi_s0";
-			shunt-resistor-micro-ohms = <20000>;
-			ti,maximum-expected-current-microamp = <500000>;
-		};
-
-		input@3 {
-			reg = <3>;
-			label = "vdda0v85_ddr_pll_s0";
-			shunt-resistor-micro-ohms = <50000>;
-			ti,maximum-expected-current-microamp = <300000>;
-		};
-	};
-
-	ina_sys: power-sensor@45 {
-		compatible = "ti,ina219";
-		reg = <0x45>;
-		#io-channel-cells = <1>;
-		label = "vcc8v4_sys";
-		shunt-resistor = <4000>;
-		vs-supply = <&vcc3v3_control>;
-	};
-
-	ina4_5: power-sensor@46 {
-		compatible = "ti,ina4230";
-		reg = <0x46>;
-		vs-supply = <&vcc3v3_control>;
-		#address-cells = <1>;
-		#size-cells = <0>;
-
-		input@0 {
-			reg = <0>;
-			label = "vcca_3v3_s0";
-			shunt-resistor-micro-ohms = <20000>;
-			ti,maximum-expected-current-microamp = <500000>;
-		};
-
-		input@1 {
-			reg = <1>;
-			label = "vccio_3v3_sd_s0";
-			shunt-resistor-micro-ohms = <50000>;
-			ti,maximum-expected-current-microamp = <300000>;
-		};
-
-		input@2 {
-			reg = <2>;
-			label = "vdd2_1v05_ddr_s3";
-			shunt-resistor-micro-ohms = <20000>;
-			ti,maximum-expected-current-microamp = <2500000>;
-		};
-
-		input@3 {
-			reg = <3>;
-			label = "vcc_1v8_s3";
-			shunt-resistor-micro-ohms = <20000>;
-			ti,maximum-expected-current-microamp = <3000000>;
-		};
-	};
-
-	usbmux: usb-mux@47 {
-		compatible = "ti,hd3ss3220";
-		reg = <0x47>;
-
-		ports {
-			#address-cells = <1>;
-			#size-cells = <0>;
-
-			port@0 {
-				reg = <0>;
-				usb_mux_in: endpoint {
-					remote-endpoint = <&typec_up_con_ss>;
-				};
-			};
-
-			port@1 {
-				reg = <1>;
-				usb_mux_out: endpoint {
-					remote-endpoint = <&hub_3_0_ds3>;
-				};
-			};
-		};
-	};
-
-	gauge: fuel-gauge@55 {
-		compatible = "ti,bq28z610"; /* really bq28z620: tbc if we need a new compatible */
-		reg = <0x55>;
-		monitored-battery = <&battery>;
-	};
-
-	charger: charger@6b {
-		reg = <0x6b>;
-		input-current-limit-microamp = <3300000>;
-		interrupt-parent = <&gpio_expander>;
-		interrupts = <2 IRQ_TYPE_LEVEL_LOW>;
-		monitored-battery = <&battery>;
-		power-supplies = <&usbc0>;
-
-		regulators {
-			vusb_typec: vbus {
-				regulator-max-microamp = <3320000>;
-				regulator-max-microvolt = <22000000>;
-				regulator-min-microamp = <0>;
-				regulator-min-microvolt = <2800000>;
-				regulator-name = "vusb_typec";
-			};
-		};
-	};
 };
 
 &i2c5 {
@@ -1729,7 +1438,7 @@
 			port@3 {
 				reg = <3>;
 				hub_3_0_ds3: endpoint {
-					remote-endpoint = <&usb_mux_out>;
+					remote-endpoint = <&typec_up_con_ss>;
 				};
 			};
 
