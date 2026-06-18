@@ -25,6 +25,8 @@
 	camera@36 {
 		compatible = "ovti,ov5647";
 		reg = <0x36>;
+		assigned-clocks = <&cru CLK_MIPI_CAMERAOUT_M2>;
+		assigned-clock-rates = <25000000>;
 		avdd-supply = <&vcc_3v3_s3>;
 		clocks = <&cru CLK_MIPI_CAMERAOUT_M2>;
 		dvdd-supply = <&vcc_3v3_s3>;
