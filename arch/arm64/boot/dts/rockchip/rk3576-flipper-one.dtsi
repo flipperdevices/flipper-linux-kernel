@@ -406,6 +406,10 @@
 	status = "okay";
 };
 
+&csi_dphy1 {
+	status = "okay";
+};
+
 &csi3 {
 	status = "okay";
 };
