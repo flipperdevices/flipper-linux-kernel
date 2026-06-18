@@ -17,6 +17,7 @@ static const struct regmap_range fomcu_writeable_reg_ranges[] = {
 			 FOMCU_REG_INPUT_BTNS - 1),
 	regmap_reg_range(FOMCU_REG_LEDS_BR_LINK,
 			 FOMCU_REG_LEDS_COLOR_LINK4),
+	regmap_reg_range(FOMCU_REG_HAPTIC, FOMCU_REG_HAPTIC),
 };
 
 static const struct regmap_access_table fomcu_writeable_regs = {
@@ -94,6 +95,7 @@ static const struct resource fo_input_irqs[] = {
 };
 
 static const struct mfd_cell cells[] = {
+	MFD_CELL_NAME("flipper-one-haptic"),
 	MFD_CELL_RES("flipper-one-input", fo_input_irqs),
 	MFD_CELL_NAME("flipper-one-leds"),
 	MFD_CELL_NAME("flipper-one-power"),

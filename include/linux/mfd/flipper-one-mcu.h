@@ -44,7 +44,12 @@ enum fomcu_interrupts {
 #define FOMCU_REG_LEDS_COLOR_LINK3	0x0314
 #define FOMCU_REG_LEDS_COLOR_LINK4	0x0316
 
-#define FOMCU_REG_MAX			(FOMCU_REG_LEDS_COLOR_LINK4 + 1)
+#define FOMCU_REG_HAPTIC		0x0400
+#define FOMCU_HAPTIC_PLAY		BIT(15)
+#define FOMCU_HAPTIC_EFFECT		GENMASK(14, 8)
+#define FOMCU_HAPTIC_DURATION		GENMASK(7, 0)
+
+#define FOMCU_REG_MAX			(FOMCU_REG_HAPTIC + 1)
 
 struct fomcu_device {
 	struct i2c_client *client;
