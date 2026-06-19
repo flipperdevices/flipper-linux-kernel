@@ -7,9 +7,38 @@
 /dts-v1/;
 /plugin/;
 
-#include <dt-bindings/clock/rockchip,rk3576-cru.h>
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/pinctrl/rockchip.h>
+
+&{/} {
+	/*
+	 * The camera module is self-clocked by an on-board 25 MHz oscillator;
+	 * the SoC CAM_CLK2 output is not connected on this module.
+	 */
+	cam_osc: cam-oscillator {
+		compatible = "fixed-clock";
+		#clock-cells = <0>;
+		clock-frequency = <25000000>;
+		clock-output-names = "cam_osc";
+	};
+
+	/*
+	 * GPIO3_C6 enables the module's on-board LDOs (analog/digital-IO/
+	 * digital-core). The sensor's own power-down pin is tied to 1V8 on
+	 * the module and is not driven by the SoC, so this line is modelled
+	 * as the module power-enable regulator rather than as pwdn-gpios.
+	 */
+	cam_vdd: regulator-cam-vdd {
+		compatible = "regulator-fixed";
+		regulator-name = "cam_vdd";
+		gpio = <&gpio3 RK_PC6 GPIO_ACTIVE_HIGH>;
+		enable-active-high;
+		startup-delay-us = <1000>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam_pdn>;
+		vin-supply = <&vcc_3v3_s3>;
+	};
+};
 
 &csi3_in {
 	csi3_input: endpoint {
@@ -25,15 +54,10 @@
 	camera@36 {
 		compatible = "ovti,ov5647";
 		reg = <0x36>;
-		assigned-clocks = <&cru CLK_MIPI_CAMERAOUT_M2>;
-		assigned-clock-rates = <25000000>;
-		avdd-supply = <&vcc_3v3_s3>;
-		clocks = <&cru CLK_MIPI_CAMERAOUT_M2>;
-		dvdd-supply = <&vcc_3v3_s3>;
-		dovdd-supply = <&vcc_3v3_s3>;
-		pinctrl-names = "default";
-		pinctrl-0 = <&cam_pdn &cam_clk2m0_clk2>;
-		pwdn-gpios = <&gpio3 RK_PC6 GPIO_ACTIVE_HIGH>;
+		clocks = <&cam_osc>;
+		avdd-supply = <&cam_vdd>;
+		dovdd-supply = <&cam_vdd>;
+		dvdd-supply = <&cam_vdd>;
 
 		port {
 			camera_out: endpoint {
