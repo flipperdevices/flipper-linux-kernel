@@ -531,6 +531,22 @@ struct drm_bridge_funcs {
 	struct drm_bridge_state *(*atomic_reset)(struct drm_bridge *bridge);
 
 	/**
+	 * @atomic_create_state:
+	 *
+	 * Allocate a pristine, initialized, state for the bridge
+	 * object and return it. This callback must have no side
+	 * effects: in particular, the returned state must not be
+	 * assigned to the object's state pointer and it must not affect
+	 * the hardware state.
+	 *
+	 * RETURNS:
+	 *
+	 * A new, pristine, bridge state instance or an error pointer
+	 * on failure.
+	 */
+	struct drm_bridge_state *(*atomic_create_state)(struct drm_bridge *bridge);
+
+	/**
 	 * @detect:
 	 *
 	 * Check if anything is attached to the bridge output.
@@ -1371,7 +1387,8 @@ drm_bridge_get_current_state(struct drm_bridge *bridge)
 	 * drm_atomic_private_obj_init(), so we need to make sure we're
 	 * working with one before we try to use the lock.
 	 */
-	if (!bridge->funcs || !bridge->funcs->atomic_reset)
+	if (!bridge->funcs ||
+	    !(bridge->funcs->atomic_reset || bridge->funcs->atomic_create_state))
 		return NULL;
 
 	drm_modeset_lock_assert_held(&bridge->base.lock);
