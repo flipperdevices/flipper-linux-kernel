@@ -98,6 +98,7 @@ static const struct resource fo_input_irqs[] = {
 	DEFINE_RES_IRQ_NAMED(FOMCU_INT_INPUT_BTN, "flipper-one-input-btn"),
 	DEFINE_RES_IRQ_NAMED(FOMCU_INT_INPUT_TOUCH, "flipper-one-input-touch"),
 	DEFINE_RES_IRQ_NAMED(FOMCU_INT_INPUT_HEADSET, "flipper-one-input-headset"),
+	DEFINE_RES_IRQ_NAMED(FOMCU_INT_INPUT_SWBTN, "flipper-one-input-swbtn"),
 };
 
 static const struct resource fo_ucsi_irqs[] = {
