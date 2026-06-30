@@ -1709,7 +1709,7 @@ static int encoder_bridges_show(struct seq_file *m, void *data)
 	struct drm_printer p = drm_seq_file_printer(m);
 	unsigned int idx = 0;
 
-	drm_for_each_bridge_in_chain_scoped(encoder, bridge)
+	drm_for_each_bridge_in_chain(encoder, bridge)
 		drm_bridge_debugfs_show_bridge(&p, bridge, idx++, false, true);
 
 	return 0;

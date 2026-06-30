@@ -1498,9 +1498,9 @@ static inline struct drm_bridge *__drm_for_each_bridge_in_chain_next(struct drm_
 DEFINE_FREE(__drm_for_each_bridge_in_chain_cleanup, struct drm_bridge *,
 	if (_T) { mutex_unlock(&_T->encoder->bridge_chain_mutex); drm_bridge_put(_T); })
 
-/* Internal to drm_for_each_bridge_in_chain_scoped() */
+/* Internal to drm_for_each_bridge_in_chain() */
 static inline struct drm_bridge *
-__drm_for_each_bridge_in_chain_scoped_start(struct drm_encoder *encoder)
+__drm_for_each_bridge_in_chain_start(struct drm_encoder *encoder)
 {
 	mutex_lock(&encoder->bridge_chain_mutex);
 
@@ -1513,8 +1513,7 @@ __drm_for_each_bridge_in_chain_scoped_start(struct drm_encoder *encoder)
 }
 
 /**
- * drm_for_each_bridge_in_chain_scoped - iterate over all bridges attached
- *                                       to an encoder
+ * drm_for_each_bridge_in_chain - iterate over all bridges attached to an encoder
  * @encoder: the encoder to iterate bridges on
  * @bridge: a bridge pointer updated to point to the current bridge at each
  *	    iteration
@@ -1524,9 +1523,9 @@ __drm_for_each_bridge_in_chain_scoped_start(struct drm_encoder *encoder)
  * Automatically gets/puts the bridge reference while iterating and locks
  * the encoder chain mutex to prevent chain modifications while iterating.
  */
-#define drm_for_each_bridge_in_chain_scoped(encoder, bridge)				\
+#define drm_for_each_bridge_in_chain(encoder, bridge)					\
 	for (struct drm_bridge *bridge __free(__drm_for_each_bridge_in_chain_cleanup) =	\
-		__drm_for_each_bridge_in_chain_scoped_start((encoder));			\
+		__drm_for_each_bridge_in_chain_start((encoder));			\
 	     bridge;									\
 	     bridge = __drm_for_each_bridge_in_chain_next(bridge))			\
 
