@@ -31,8 +31,11 @@ enum fomcu_cpu_states {
 	FOMCU_CPUSTATE_BOOTLOADER,	/* set by the MCU/bootloader itself */
 	FOMCU_CPUSTATE_KERNEL_INIT,	/* this driver has probed */
 	FOMCU_CPUSTATE_ONLINE,		/* userspace up / resumed from suspend */
-	FOMCU_CPUSTATE_SUSPEND,		/* about to suspend */
-	FOMCU_CPUSTATE_SHUTTING_DOWN,	/* reboot or power-off in progress */
+	FOMCU_CPUSTATE_SUSPEND_REQ,	/* userspace preparing to suspend */
+	FOMCU_CPUSTATE_SUSPEND,		/* kernel about to suspend */
+	FOMCU_CPUSTATE_REBOOT_REQ,	/* userspace preparing to reboot */
+	FOMCU_CPUSTATE_POWEROFF_REQ,	/* userspace preparing to power off */
+	FOMCU_CPUSTATE_SHUTTING_DOWN,	/* kernel reboot/power-off in progress */
 	FOMCU_CPUSTATE_POWERED_OFF,	/* safe to cut power to the PMIC */
 	FOMCU_CPUSTATE_NUM_STATES
 };
