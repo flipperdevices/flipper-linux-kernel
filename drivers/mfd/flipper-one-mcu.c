@@ -10,9 +10,12 @@
 #include <linux/mfd/core.h>
 #include <linux/mfd/flipper-one-mcu.h>
 #include <linux/module.h>
+#include <linux/pm.h>
+#include <linux/reboot.h>
 #include <linux/regmap.h>
 
 static const struct regmap_range fomcu_writeable_reg_ranges[] = {
+	regmap_reg_range(FOMCU_REG_CPUSTATE, FOMCU_REG_CPUSTATE),
 	regmap_reg_range(FOMCU_REG_INTMSK_INPUT,
 			 FOMCU_REG_INPUT_BTNS - 1),
 	regmap_reg_range(FOMCU_REG_LEDS_BR_LINK,
@@ -115,6 +118,34 @@ static const struct mfd_cell cells[] = {
 		    "flipper,one-typec"),
 };
 
+static int fomcu_reboot_notify(struct notifier_block *nb,
+			       unsigned long action, void *data)
+{
+	struct fomcu_device *ddata =
+		container_of(nb, struct fomcu_device, reboot_nb);
+
+	/* Runs before device_shutdown() for both reboot and power-off */
+	regmap_write(ddata->regmap, FOMCU_REG_CPUSTATE,
+		     FOMCU_CPUSTATE_SHUTTING_DOWN);
+
+	return NOTIFY_DONE;
+}
+
+static int fomcu_power_off(struct sys_off_data *data)
+{
+	struct fomcu_device *ddata = data->cb_data;
+
+	/*
+	 * Runs after device_shutdown(), just before the machine is actually
+	 * powered off. Only reached on power-off, not on reboot, so this is
+	 * where we tell the MCU it may cut power to the PMIC.
+	 */
+	regmap_write(ddata->regmap, FOMCU_REG_CPUSTATE,
+		     FOMCU_CPUSTATE_POWERED_OFF);
+
+	return NOTIFY_DONE;
+}
+
 static int fomcu_probe(struct i2c_client *client)
 {
 	struct regmap_irq_chip_data *irq_data;
@@ -149,8 +180,48 @@ static int fomcu_probe(struct i2c_client *client)
 		return dev_err_probe(&client->dev, ret,
 				     "Failed to register child devices\n");
 
-	return ret;
+	ddata->reboot_nb.notifier_call = fomcu_reboot_notify;
+	ret = devm_register_reboot_notifier(&client->dev, &ddata->reboot_nb);
+	if (ret)
+		return dev_err_probe(&client->dev, ret,
+				     "Failed to register reboot notifier\n");
+
+	ret = devm_register_sys_off_handler(&client->dev,
+					    SYS_OFF_MODE_POWER_OFF_PREPARE,
+					    SYS_OFF_PRIO_DEFAULT,
+					    fomcu_power_off, ddata);
+	if (ret)
+		return dev_err_probe(&client->dev, ret,
+				     "Failed to register power-off handler\n");
+
+	/*
+	 * Signal that early kernel init has reached this driver. Userspace is
+	 * expected to move the MCU to FOMCU_CPUSTATE_ONLINE once boot completes.
+	 */
+	ddata->cpustate = FOMCU_CPUSTATE_KERNEL_INIT;
+	return regmap_write(ddata->regmap, FOMCU_REG_CPUSTATE, ddata->cpustate);
 }
+
+static int fomcu_suspend(struct device *dev)
+{
+	struct fomcu_device *ddata = dev_get_drvdata(dev);
+
+	/*
+	 * Leave ddata->cpustate untouched so that resume can restore whatever
+	 * state we were in before suspending (KERNEL_INIT if userspace had not
+	 * come up yet, ONLINE otherwise).
+	 */
+	return regmap_write(ddata->regmap, FOMCU_REG_CPUSTATE, FOMCU_CPUSTATE_SUSPEND);
+}
+
+static int fomcu_resume(struct device *dev)
+{
+	struct fomcu_device *ddata = dev_get_drvdata(dev);
+
+	return regmap_write(ddata->regmap, FOMCU_REG_CPUSTATE, ddata->cpustate);
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(fomcu_pm_ops, fomcu_suspend, fomcu_resume);
 
 static const struct i2c_device_id fomcu_i2c_ids[] = {
 	{ "flipper-one-mcu" },
@@ -168,6 +239,7 @@ static struct i2c_driver fomcu_driver = {
 	.driver = {
 		.name = "flipper-one-mcu",
 		.of_match_table = fomcu_of_match,
+		.pm = pm_sleep_ptr(&fomcu_pm_ops),
 	},
 	.probe = fomcu_probe,
 	.id_table = fomcu_i2c_ids,
