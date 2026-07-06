@@ -8,6 +8,7 @@
 #define __LINUX_MFD_FLIPPER_ONE_MCU_H
 
 #include <linux/i2c.h>
+#include <linux/notifier.h>
 #include <linux/regmap.h>
 
 enum fomcu_interrupts {
@@ -18,6 +19,23 @@ enum fomcu_interrupts {
 };
 
 #define FOMCU_REG_INTSTS		0x0000
+
+#define FOMCU_REG_CPUSTATE		0x0040
+
+/*
+ * These values are part of the wire protocol shared with the MCU firmware;
+ * keep them stable and in sync with the MCU side when adding new states.
+ */
+enum fomcu_cpu_states {
+	FOMCU_CPUSTATE_UNKNOWN = 0,
+	FOMCU_CPUSTATE_BOOTLOADER,	/* set by the MCU/bootloader itself */
+	FOMCU_CPUSTATE_KERNEL_INIT,	/* this driver has probed */
+	FOMCU_CPUSTATE_ONLINE,		/* userspace up / resumed from suspend */
+	FOMCU_CPUSTATE_SUSPEND,		/* about to suspend */
+	FOMCU_CPUSTATE_SHUTTING_DOWN,	/* reboot or power-off in progress */
+	FOMCU_CPUSTATE_POWERED_OFF,	/* safe to cut power to the PMIC */
+	FOMCU_CPUSTATE_NUM_STATES
+};
 
 #define FOMCU_REG_VERSION		0x0080
 
@@ -69,6 +87,9 @@ enum fomcu_interrupts {
 struct fomcu_device {
 	struct i2c_client *client;
 	struct regmap *regmap;
+	struct notifier_block reboot_nb;
+	/* Last non-transient CPU state, restored on resume. */
+	enum fomcu_cpu_states cpustate;
 };
 
 #endif /* __LINUX_MFD_FLIPPER_ONE_MCU_H */
