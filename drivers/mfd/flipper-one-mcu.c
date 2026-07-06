@@ -118,6 +118,87 @@ static const struct mfd_cell cells[] = {
 		    "flipper,one-typec"),
 };
 
+static int fomcu_set_cpustate(struct fomcu_device *ddata,
+			      enum fomcu_cpu_states state)
+{
+	int ret;
+
+	ret = regmap_write(ddata->regmap, FOMCU_REG_CPUSTATE, state);
+	if (ret)
+		return ret;
+
+	ddata->cpustate = state;
+	return 0;
+}
+
+static const char * const fomcu_state_names[FOMCU_CPUSTATE_NUM_STATES] = {
+	[FOMCU_CPUSTATE_UNKNOWN]	= "unknown",
+	[FOMCU_CPUSTATE_BOOTLOADER]	= "bootloader",
+	[FOMCU_CPUSTATE_KERNEL_INIT]	= "kernel-init",
+	[FOMCU_CPUSTATE_ONLINE]		= "online",
+	[FOMCU_CPUSTATE_SUSPEND_REQ]	= "suspend-request",
+	[FOMCU_CPUSTATE_SUSPEND]	= "suspend",
+	[FOMCU_CPUSTATE_REBOOT_REQ]	= "reboot-request",
+	[FOMCU_CPUSTATE_POWEROFF_REQ]	= "poweroff-request",
+	[FOMCU_CPUSTATE_SHUTTING_DOWN]	= "shutting-down",
+	[FOMCU_CPUSTATE_POWERED_OFF]	= "powered-off",
+};
+
+/* States userspace is permitted to report through the cpustate sysfs file. */
+static const enum fomcu_cpu_states fomcu_user_writable_states[] = {
+	FOMCU_CPUSTATE_ONLINE,
+	FOMCU_CPUSTATE_SUSPEND_REQ,
+	FOMCU_CPUSTATE_REBOOT_REQ,
+	FOMCU_CPUSTATE_POWEROFF_REQ,
+};
+
+static ssize_t cpustate_show(struct device *dev,
+			     struct device_attribute *attr, char *buf)
+{
+	struct fomcu_device *ddata = dev_get_drvdata(dev);
+
+	return sysfs_emit(buf, "%s\n", fomcu_state_names[ddata->cpustate]);
+}
+
+static ssize_t cpustate_store(struct device *dev,
+			      struct device_attribute *attr,
+			      const char *buf, size_t count)
+{
+	struct fomcu_device *ddata = dev_get_drvdata(dev);
+	enum fomcu_cpu_states state;
+	int i, ret;
+
+	for (i = 0; i < ARRAY_SIZE(fomcu_user_writable_states); i++) {
+		state = fomcu_user_writable_states[i];
+		if (sysfs_streq(buf, fomcu_state_names[state]))
+			break;
+	}
+
+	if (i == ARRAY_SIZE(fomcu_user_writable_states))
+		return -EINVAL;
+
+	/*
+	 * Only ONLINE is a sticky state that resume should restore. The
+	 * *-request states are transient announcements of an imminent
+	 * transition, so they must not become the resume restore-point
+	 * (otherwise a suspend-request/suspend/resume cycle would come back
+	 * as "suspend-request" instead of "online").
+	 */
+	if (state == FOMCU_CPUSTATE_ONLINE)
+		ret = fomcu_set_cpustate(ddata, state);
+	else
+		ret = regmap_write(ddata->regmap, FOMCU_REG_CPUSTATE, state);
+
+	return ret ? : count;
+}
+static DEVICE_ATTR_RW(cpustate);
+
+static struct attribute *fomcu_attrs[] = {
+	&dev_attr_cpustate.attr,
+	NULL,
+};
+ATTRIBUTE_GROUPS(fomcu);
+
 static int fomcu_reboot_notify(struct notifier_block *nb,
 			       unsigned long action, void *data)
 {
@@ -198,8 +279,7 @@ static int fomcu_probe(struct i2c_client *client)
 	 * Signal that early kernel init has reached this driver. Userspace is
 	 * expected to move the MCU to FOMCU_CPUSTATE_ONLINE once boot completes.
 	 */
-	ddata->cpustate = FOMCU_CPUSTATE_KERNEL_INIT;
-	return regmap_write(ddata->regmap, FOMCU_REG_CPUSTATE, ddata->cpustate);
+	return fomcu_set_cpustate(ddata, FOMCU_CPUSTATE_KERNEL_INIT);
 }
 
 static int fomcu_suspend(struct device *dev)
@@ -240,6 +320,7 @@ static struct i2c_driver fomcu_driver = {
 		.name = "flipper-one-mcu",
 		.of_match_table = fomcu_of_match,
 		.pm = pm_sleep_ptr(&fomcu_pm_ops),
+		.dev_groups = fomcu_groups,
 	},
 	.probe = fomcu_probe,
 	.id_table = fomcu_i2c_ids,
