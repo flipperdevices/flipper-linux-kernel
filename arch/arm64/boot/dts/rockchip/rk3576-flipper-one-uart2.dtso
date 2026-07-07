@@ -1,0 +1,14 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+// SPDX-FileCopyrightText: 2026 Flipper FZCO
+/*
+ * DT-overlay to enable UART2 on the GPIO header on Flipper One
+ */
+
+/dts-v1/;
+/plugin/;
+
+&uart2 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart2m1_xfer>;
+	status = "okay";
+};
