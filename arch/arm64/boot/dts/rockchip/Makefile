@@ -324,6 +324,10 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-sata.dtb
 rk3576-flipper-one-sata-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-flipper-one-sata.dtbo
 
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-uart2.dtb
+rk3576-flipper-one-uart2-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
+	rk3576-flipper-one-uart2.dtbo
+
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-edgeble-neu6a-wifi.dtb
 rk3588-edgeble-neu6a-wifi-dtbs := rk3588-edgeble-neu6a-io.dtb \
 	rk3588-edgeble-neu6a-wifi.dtbo
