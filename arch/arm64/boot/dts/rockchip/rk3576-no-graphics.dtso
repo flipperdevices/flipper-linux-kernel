@@ -1,0 +1,61 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * DT-overlay for a "No Graphics" (headless) target on RK3576 boards: disables
+ * the display pipeline so it can be powered down - the VOP display controller
+ * and its IOMMU, the HDMI and DP interfaces and their PHYs, the HDMI/DP audio
+ * cards, and the rockchip-drm display-subsystem aggregator.
+ *
+ * The Mali GPU is deliberately left enabled: a headless system may still drive
+ * a directly-attached panel (e.g. the Flipper One SPI panel, its own drm/tiny
+ * device) whose userspace renders via GLES/EGL, which needs the GPU. The GPU
+ * also idles into its own power domain via runtime PM when unused, so leaving
+ * it enabled costs practically nothing.
+ *
+ * All disabled nodes are SoC nodes defined in rk3576.dtsi, so this single
+ * overlay applies to any RK3576 board. Nodes a given board does not enable stay
+ * disabled - a harmless no-op that also keeps the overlay robust against
+ * stacked overlays.
+ *
+ * With these consumers disabled, genpd powers off the PD_VO0 and PD_VO1 power
+ * domains. Note that PD_VOP is the genpd parent of PD_USB/PD_VO0/PD_VO1, so it
+ * stays powered as long as USB/UFS (children of PD_USB) are in use - a hardware
+ * power-tree constraint. The VOP controller itself is left unbound and idle.
+ *
+ * Panels driven directly over a peripheral bus rather than through the VOP
+ * (e.g. the Flipper One SPI panel) are unaffected and keep working.
+ */
+
+/dts-v1/;
+/plugin/;
+
+&display_subsystem {
+	status = "disabled";
+};
+
+&vop {
+	status = "disabled";
+};
+
+&vop_mmu {
+	status = "disabled";
+};
+
+&hdmi {
+	status = "disabled";
+};
+
+&hdptxphy {
+	status = "disabled";
+};
+
+&hdmi_sound {
+	status = "disabled";
+};
+
+&dp {
+	status = "disabled";
+};
+
+&dp0_sound {
+	status = "disabled";
+};
