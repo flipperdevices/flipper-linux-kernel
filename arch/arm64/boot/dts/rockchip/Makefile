@@ -180,6 +180,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-khadas-edge-2l.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-luckfox-omni3576.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-nanopi-m5.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-nanopi-r76s.dtb
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-no-graphics.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-roc-pc.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-rock-4d.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3582-radxa-e52c.dtb
@@ -301,6 +302,10 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-armsom-sige5-dp-4k-hdmi-2.5k.dtb
 rk3576-armsom-sige5-dp-4k-hdmi-2.5k-dtbs := rk3576-armsom-sige5.dtb \
 	rk3576-dp-4k-hdmi-2.5k.dtbo
 
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-armsom-sige5-no-graphics.dtb
+rk3576-armsom-sige5-no-graphics-dtbs := rk3576-armsom-sige5.dtb \
+	rk3576-no-graphics.dtbo
+
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-armsom-sige5-v1.2-wifibt.dtb
 rk3576-armsom-sige5-v1.2-wifibt-dtbs := rk3576-armsom-sige5.dtb \
 	rk3576-armsom-sige5-v1.2-wifibt.dtbo
@@ -308,6 +313,10 @@ rk3576-armsom-sige5-v1.2-wifibt-dtbs := rk3576-armsom-sige5.dtb \
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb1-v10-dp-4k-hdmi-2.5k.dtb
 rk3576-evb1-v10-dp-4k-hdmi-2.5k-dtbs := rk3576-evb1-v10.dtb \
 	rk3576-dp-4k-hdmi-2.5k.dtbo
+
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb1-v10-no-graphics.dtb
+rk3576-evb1-v10-no-graphics-dtbs := rk3576-evb1-v10.dtb \
+	rk3576-no-graphics.dtbo
 
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-evb1-v10-pcie1.dtb
 rk3576-evb1-v10-pcie1-dtbs := rk3576-evb1-v10.dtb \
@@ -321,6 +330,10 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-i2c2-free.dtb
 rk3576-flipper-one-i2c2-free-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-flipper-one-i2c2-free.dtbo
 
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-no-graphics.dtb
+rk3576-flipper-one-no-graphics-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
+	rk3576-no-graphics.dtbo
+
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-sata.dtb
 rk3576-flipper-one-sata-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-flipper-one-sata.dtbo
@@ -328,6 +341,14 @@ rk3576-flipper-one-sata-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-uart2.dtb
 rk3576-flipper-one-uart2-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-flipper-one-uart2.dtbo
+
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-nanopi-m5-no-graphics.dtb
+rk3576-nanopi-m5-no-graphics-dtbs := rk3576-nanopi-m5.dtb \
+	rk3576-no-graphics.dtbo
+
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-rock-4d-no-graphics.dtb
+rk3576-rock-4d-no-graphics-dtbs := rk3576-rock-4d.dtb \
+	rk3576-no-graphics.dtbo
 
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3588-edgeble-neu6a-wifi.dtb
 rk3588-edgeble-neu6a-wifi-dtbs := rk3588-edgeble-neu6a-io.dtb \
