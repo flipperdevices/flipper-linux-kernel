@@ -840,6 +840,10 @@ static const struct of_device_id dw_mipi_csi2rx_of_match[] = {
 		.data = &imx93_drvdata,
 	},
 	{
+		.compatible = "rockchip,rk3576-mipi-csi2",
+		.data = &rk3568_drvdata,
+	},
+	{
 		.compatible = "rockchip,rk3568-mipi-csi2",
 		.data = &rk3568_drvdata,
 	},

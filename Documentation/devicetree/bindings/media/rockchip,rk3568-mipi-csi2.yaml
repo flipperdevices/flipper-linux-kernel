@@ -20,6 +20,7 @@ properties:
       - const: fsl,imx93-mipi-csi2
       - items:
           - enum:
+              - rockchip,rk3576-mipi-csi2
               - rockchip,rk3588-mipi-csi2
           - const: rockchip,rk3568-mipi-csi2
       - const: rockchip,rk3568-mipi-csi2
@@ -117,12 +118,39 @@ allOf:
           minItems: 2
         interrupt-names:
           minItems: 2
+      required:
+        - resets
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: rockchip,rk3568-mipi-csi2
+      not:
+        properties:
+          compatible:
+            contains:
+              const: rockchip,rk3576-mipi-csi2
+    then:
+      properties:
         clocks:
           maxItems: 1
         clock-names:
           maxItems: 1
-      required:
-        - resets
+
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: rockchip,rk3576-mipi-csi2
+    then:
+      properties:
+        clocks:
+          minItems: 1
+          maxItems: 2
+        clock-names:
+          minItems: 1
+          maxItems: 2
 
   - if:
       properties:
