@@ -306,7 +306,7 @@ static int rockchip_pwm_v4_probe(struct platform_device *pdev)
 	 * For referencing the PWM in the DT to work, we need the parent MFD
 	 * device's OF node.
 	 */
-	dev->of_node_reused = true;
+	dev_set_of_node_reused(dev);
 	device_set_node(dev, of_fwnode_handle(dev->parent->of_node));
 
 	chip = devm_pwmchip_alloc(dev, 1, sizeof(*pc));
