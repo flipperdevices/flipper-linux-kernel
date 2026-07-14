@@ -81,7 +81,7 @@ static void fo_set_tx_buffer_data(struct fo_device *fo,
 	drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);
 }
 
-static int fo_plane_atomic_check(struct drm_plane *plane, struct drm_atomic_state *state)
+static int fo_plane_atomic_check(struct drm_plane *plane, struct drm_atomic_commit *state)
 {
 	struct drm_plane_state *plane_state = drm_atomic_get_new_plane_state(state, plane);
 	struct fo_device *fo;
@@ -96,7 +96,7 @@ static int fo_plane_atomic_check(struct drm_plane *plane, struct drm_atomic_stat
 						   false, false);
 }
 
-static void fo_plane_atomic_update(struct drm_plane *plane, struct drm_atomic_state *state)
+static void fo_plane_atomic_update(struct drm_plane *plane, struct drm_atomic_commit *state)
 {
 	struct fo_device *fo = container_of(plane, struct fo_device, plane);
 	struct drm_plane_state *plane_state = plane->state;
@@ -138,7 +138,7 @@ static enum drm_mode_status fo_crtc_mode_valid(struct drm_crtc *crtc,
 	return drm_crtc_helper_mode_valid_fixed(crtc, mode, fo->mode);
 }
 
-static int fo_crtc_check(struct drm_crtc *crtc, struct drm_atomic_state *state)
+static int fo_crtc_check(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct drm_crtc_state *crtc_state = drm_atomic_get_new_crtc_state(state, crtc);
 	int ret;
@@ -154,7 +154,7 @@ out:
 	return drm_atomic_add_affected_planes(state, crtc);
 }
 
-static void fo_begin_frame(struct drm_crtc *crtc, struct drm_atomic_state *state)
+static void fo_begin_frame(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct fo_device *fo = drm_to_fo_device(crtc->dev);
 
@@ -162,7 +162,7 @@ static void fo_begin_frame(struct drm_crtc *crtc, struct drm_atomic_state *state
 		gpiod_set_value(fo->active_gpio, 1);
 }
 
-static void fo_end_frame(struct drm_crtc *crtc, struct drm_atomic_state *state)
+static void fo_end_frame(struct drm_crtc *crtc, struct drm_atomic_commit *state)
 {
 	struct fo_device *fo = drm_to_fo_device(crtc->dev);
 
@@ -220,7 +220,7 @@ static const struct drm_display_mode fo_display_mode = {
 };
 
 static const struct spi_device_id fo_ids[] = {
-	{"flipper_one_display", (kernel_ulong_t)&fo_display_mode},
+	{"one-display", (kernel_ulong_t)&fo_display_mode},
 	{},
 };
 MODULE_DEVICE_TABLE(spi, fo_ids);
