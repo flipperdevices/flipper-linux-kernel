@@ -65,7 +65,17 @@ install_linux_image () {
 	esac
 	cp "$(${MAKE} -s -f ${srctree}/Makefile image_name)" "${pdir}/${installed_image_path}"
 
+	# Additionally install the image, System.map and config under
+	# /lib/modules/${KERNELRELEASE} (i.e. /usr/lib/modules on a usr-merged
+	# system) so that they remain available to kernel-install even when the
+	# /boot filesystem is not shipped alongside /usr. This mirrors the
+	# layout produced by the rpm-pkg target (scripts/package/kernel.spec).
 	if [ "${ARCH}" != um ]; then
+		mkdir -p "${pdir}/lib/modules/${KERNELRELEASE}"
+		cp "$(${MAKE} -s -f ${srctree}/Makefile image_name)" "${pdir}/lib/modules/${KERNELRELEASE}/vmlinuz"
+		cp System.map "${pdir}/lib/modules/${KERNELRELEASE}/System.map"
+		cp ${KCONFIG_CONFIG} "${pdir}/lib/modules/${KERNELRELEASE}/config"
+
 		install_maint_scripts "${pdir}"
 	fi
 }
