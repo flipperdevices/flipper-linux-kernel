@@ -793,7 +793,7 @@
 			};
 
 			vcca_3v3_s0: pldo-reg4 {
-				regulator-enable-ramp-delay = <500>;
+				regulator-enable-ramp-delay = <1000>;
 				regulator-min-microvolt = <3300000>;
 				regulator-max-microvolt = <3300000>;
 				regulator-ramp-delay = <12500>;
