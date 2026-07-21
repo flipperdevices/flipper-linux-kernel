@@ -23,6 +23,8 @@ struct drm_connector_init_priv {
 	struct drm_device drm;
 	struct drm_connector connector;
 	struct i2c_adapter ddc;
+	/* Mutable copy of a static instance for test-specific overrides */
+	struct drm_connector_hdmi_funcs hdmi_funcs;
 };
 
 static int accept_infoframe_clear_infoframe(struct drm_connector *connector)
@@ -37,6 +39,11 @@ static int accept_infoframe_write_infoframe(struct drm_connector *connector,
 }
 
 static const struct drm_connector_hdmi_funcs dummy_hdmi_funcs = {
+	.vendor = "Vendor",
+	.product = "Product",
+	.supported_hdmi_ver = HDMI_VERSION_1_4,
+	.supported_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
+	.max_bpc = 8,
 	.avi = {
 		.clear_infoframe = accept_infoframe_clear_infoframe,
 		.write_infoframe = accept_infoframe_write_infoframe,
@@ -669,14 +676,11 @@ static void drm_test_connector_hdmi_init_valid(struct kunit *test)
 	struct drm_connector_init_priv *priv = test->priv;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", "Product",
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
 				       &dummy_hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 }
 
@@ -689,14 +693,11 @@ static void drm_test_connector_hdmi_init_null_ddc(struct kunit *test)
 	struct drm_connector_init_priv *priv = test->priv;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", "Product",
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
 				       &dummy_hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       NULL,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       NULL);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 }
 
@@ -709,14 +710,14 @@ static void drm_test_connector_hdmi_init_null_vendor(struct kunit *test)
 	struct drm_connector_init_priv *priv = test->priv;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       NULL, "Product",
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.vendor = NULL;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_LT(test, ret, 0);
 }
 
@@ -729,14 +730,14 @@ static void drm_test_connector_hdmi_init_null_product(struct kunit *test)
 	struct drm_connector_init_priv *priv = test->priv;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", NULL,
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.product = NULL;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_LT(test, ret, 0);
 }
 
@@ -750,19 +751,19 @@ static void drm_test_connector_hdmi_init_product_valid(struct kunit *test)
 	const unsigned char expected_product[DRM_CONNECTOR_HDMI_PRODUCT_LEN] = {
 		'P', 'r', 'o', 'd',
 	};
-	const char *product_name = "Prod";
 	int ret;
 
-	KUNIT_ASSERT_LT(test, strlen(product_name), DRM_CONNECTOR_HDMI_PRODUCT_LEN);
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.product = "Prod";
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", product_name,
+	KUNIT_ASSERT_LT(test, strlen(priv->hdmi_funcs.product),
+			DRM_CONNECTOR_HDMI_PRODUCT_LEN);
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_MEMEQ(test,
 			   priv->connector.hdmi.product,
@@ -783,19 +784,19 @@ static void drm_test_connector_hdmi_init_product_length_exact(struct kunit *test
 		'P', 'r', 'o', 'd', 'u', 'c', 't',
 		'P', 'r',
 	};
-	const char *product_name = "ProductProductPr";
 	int ret;
 
-	KUNIT_ASSERT_EQ(test, strlen(product_name), DRM_CONNECTOR_HDMI_PRODUCT_LEN);
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.product = "ProductProductPr";
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", product_name,
+	KUNIT_ASSERT_EQ(test, strlen(priv->hdmi_funcs.product),
+			DRM_CONNECTOR_HDMI_PRODUCT_LEN);
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_MEMEQ(test,
 			   priv->connector.hdmi.product,
@@ -810,19 +811,19 @@ static void drm_test_connector_hdmi_init_product_length_exact(struct kunit *test
 static void drm_test_connector_hdmi_init_product_length_too_long(struct kunit *test)
 {
 	struct drm_connector_init_priv *priv = test->priv;
-	const char *product_name = "ProductProductProduct";
 	int ret;
 
-	KUNIT_ASSERT_GT(test, strlen(product_name), DRM_CONNECTOR_HDMI_PRODUCT_LEN);
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.product = "ProductProductProduct";
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", product_name,
+	KUNIT_ASSERT_GT(test, strlen(priv->hdmi_funcs.product),
+			DRM_CONNECTOR_HDMI_PRODUCT_LEN);
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_LT(test, ret, 0);
 }
 
@@ -836,19 +837,19 @@ static void drm_test_connector_hdmi_init_vendor_valid(struct kunit *test)
 	const char expected_vendor[DRM_CONNECTOR_HDMI_VENDOR_LEN] = {
 		'V', 'e', 'n', 'd',
 	};
-	const char *vendor_name = "Vend";
 	int ret;
 
-	KUNIT_ASSERT_LT(test, strlen(vendor_name), DRM_CONNECTOR_HDMI_VENDOR_LEN);
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.vendor = "Vend";
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       vendor_name, "Product",
+	KUNIT_ASSERT_LT(test, strlen(priv->hdmi_funcs.vendor),
+			DRM_CONNECTOR_HDMI_VENDOR_LEN);
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_MEMEQ(test,
 			   priv->connector.hdmi.vendor,
@@ -868,19 +869,19 @@ static void drm_test_connector_hdmi_init_vendor_length_exact(struct kunit *test)
 		'V', 'e', 'n', 'd', 'o', 'r',
 		'V', 'e',
 	};
-	const char *vendor_name = "VendorVe";
 	int ret;
 
-	KUNIT_ASSERT_EQ(test, strlen(vendor_name), DRM_CONNECTOR_HDMI_VENDOR_LEN);
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.vendor = "VendorVe";
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       vendor_name, "Product",
+	KUNIT_ASSERT_EQ(test, strlen(priv->hdmi_funcs.vendor),
+			DRM_CONNECTOR_HDMI_VENDOR_LEN);
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 	KUNIT_EXPECT_MEMEQ(test,
 			   priv->connector.hdmi.vendor,
@@ -895,19 +896,17 @@ static void drm_test_connector_hdmi_init_vendor_length_exact(struct kunit *test)
 static void drm_test_connector_hdmi_init_vendor_length_too_long(struct kunit *test)
 {
 	struct drm_connector_init_priv *priv = test->priv;
-	const char *vendor_name = "VendorVendor";
 	int ret;
 
-	KUNIT_ASSERT_GT(test, strlen(vendor_name), DRM_CONNECTOR_HDMI_VENDOR_LEN);
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.vendor = "VendorVendor";
+	KUNIT_ASSERT_GT(test, strlen(priv->hdmi_funcs.vendor), DRM_CONNECTOR_HDMI_VENDOR_LEN);
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       vendor_name, "Product",
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_LT(test, ret, 0);
 }
 
@@ -920,14 +919,14 @@ static void drm_test_connector_hdmi_init_bpc_invalid(struct kunit *test)
 	struct drm_connector_init_priv *priv = test->priv;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", "Product",
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.max_bpc = 9;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       9);
+				       &priv->ddc);
 	KUNIT_EXPECT_LT(test, ret, 0);
 }
 
@@ -940,14 +939,14 @@ static void drm_test_connector_hdmi_init_bpc_null(struct kunit *test)
 	struct drm_connector_init_priv *priv = test->priv;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", "Product",
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.max_bpc = 0;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       0);
+				       &priv->ddc);
 	KUNIT_EXPECT_LT(test, ret, 0);
 }
 
@@ -965,14 +964,11 @@ static void drm_test_connector_hdmi_init_bpc_8(struct kunit *test)
 	uint64_t val;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, connector,
-				       "Vendor", "Product",
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
 				       &dummy_hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 
 	prop = connector->max_bpc_property;
@@ -1006,14 +1002,14 @@ static void drm_test_connector_hdmi_init_bpc_10(struct kunit *test)
 	uint64_t val;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, connector,
-				       "Vendor", "Product",
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.max_bpc = 10;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       10);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 
 	prop = connector->max_bpc_property;
@@ -1047,14 +1043,14 @@ static void drm_test_connector_hdmi_init_bpc_12(struct kunit *test)
 	uint64_t val;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, connector,
-				       "Vendor", "Product",
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.max_bpc = 12;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       12);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 
 	prop = connector->max_bpc_property;
@@ -1083,14 +1079,14 @@ static void drm_test_connector_hdmi_init_formats_empty(struct kunit *test)
 	struct drm_connector_init_priv *priv = test->priv;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", "Product",
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.supported_formats = 0;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       0,
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_LT(test, ret, 0);
 }
 
@@ -1103,14 +1099,14 @@ static void drm_test_connector_hdmi_init_formats_no_rgb(struct kunit *test)
 	struct drm_connector_init_priv *priv = test->priv;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", "Product",
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.supported_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422);
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_YCBCR422),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_LT(test, ret, 0);
 }
 
@@ -1161,14 +1157,14 @@ static void drm_test_connector_hdmi_init_formats_yuv420_allowed(struct kunit *te
 	params = test->param_value;
 	priv->connector.ycbcr_420_allowed = params->yuv420_allowed;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", "Product",
+	priv->hdmi_funcs = dummy_hdmi_funcs;
+	priv->hdmi_funcs.supported_formats = params->supported_formats;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
-				       &dummy_hdmi_funcs,
+				       &priv->hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       params->supported_formats,
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, params->expected_result);
 }
 
@@ -1182,14 +1178,11 @@ static void drm_test_connector_hdmi_init_type_valid(struct kunit *test)
 	unsigned int connector_type = *(unsigned int *)test->param_value;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", "Product",
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
 				       &dummy_hdmi_funcs,
 				       connector_type,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 }
 
@@ -1217,14 +1210,11 @@ static void drm_test_connector_hdmi_init_type_invalid(struct kunit *test)
 	unsigned int connector_type = *(unsigned int *)test->param_value;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, &priv->connector,
-				       "Vendor", "Product",
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
 				       &dummy_funcs,
 				       &dummy_hdmi_funcs,
 				       connector_type,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_LT(test, ret, 0);
 }
 
@@ -1494,14 +1484,11 @@ static void drm_test_drm_connector_attach_broadcast_rgb_property_hdmi_connector(
 	struct drm_property *prop;
 	int ret;
 
-	ret = drmm_connector_hdmi_ini2(&priv->drm, connector,
-				       "Vendor", "Product",
+	ret = drmm_connector_hdmi_init(&priv->drm, connector,
 				       &dummy_funcs,
 				       &dummy_hdmi_funcs,
 				       DRM_MODE_CONNECTOR_HDMIA,
-				       &priv->ddc,
-				       BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
-				       8);
+				       &priv->ddc);
 	KUNIT_EXPECT_EQ(test, ret, 0);
 
 	ret = drm_connector_attach_broadcast_rgb_property(connector);
