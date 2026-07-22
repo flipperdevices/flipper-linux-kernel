@@ -2392,11 +2392,6 @@ struct drm_connector {
 	struct drm_property_blob *path_blob_ptr;
 
 	/**
-	 * @max_bpc: Maximum bits per color channel the connector supports.
-	 */
-	unsigned int max_bpc;
-
-	/**
 	 * @max_bpc_property: Default connector property for the max bpc to be
 	 * driven out of the connector.
 	 */
