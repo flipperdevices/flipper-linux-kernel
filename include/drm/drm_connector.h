@@ -2193,12 +2193,6 @@ struct drm_connector_hdmi_audio {
  */
 struct drm_connector_hdmi {
 	/**
-	 * @supported_formats: Bitmask of @drm_output_color_format
-	 * supported by the controller.
-	 */
-	unsigned long supported_formats;
-
-	/**
 	 * @max_tmds_char_rate: Maximum TMDS character rate, in Hz,
 	 * supported by the controller.
 	 *
