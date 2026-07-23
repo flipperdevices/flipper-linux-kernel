@@ -1,0 +1,40 @@
+AICSemi AIC8800D80 USB staging driver
+=====================================
+
+Source: https://github.com/radxa-pkg/aic8800
+Release: 5.0+git20260123.5f7be68d-7
+Commit: 6e07604
+
+This directory contains the USB Wi-Fi portions of Radxa's AIC8800 package
+needed for the AIC8800D80 on the Radxa ROCK 4D:
+
+  src/USB/driver_fw/drivers/aic8800/aic_load_fw
+  src/USB/driver_fw/drivers/aic8800/aic8800_fdrv
+
+Before import, every patch listed in Radxa's debian/patches/series was applied
+in release order. Legacy line endings and trailing whitespace were normalized.
+The resulting source was integrated under drivers/staging with kernel-native
+Kconfig and Kbuild files. The DKMS packaging and standalone platform build
+logic were not imported.
+
+Licensing provenance
+--------------------
+
+COPYRIGHT.radxa.original is a byte-for-byte copy of Radxa's debian/copyright.
+Its Files patterns refer to paths in Radxa's original package, not paths in
+this kernel tree.
+
+The imported driver directories originated below src/USB/driver_fw and are
+therefore covered by the original src/* paragraph, which Radxa declares
+GPL-2. Changes flattened from debian/patches/* are declared by Radxa to use
+the same license as the source they modify. This records Radxa's package
+metadata; it does not claim that Radxa authored every imported vendor file.
+
+Flipper-specific changes after flattening:
+
+- Replaced standalone/DKMS and platform Makefiles with in-tree Kbuild.
+- Added Linux 7.2 cfg80211 remain-on-channel compatibility.
+- Replaced removed unsafe string operations used by Linux 7.2 builds.
+
+This is an incubation import, not an upstream-ready driver. See TODO for the
+remaining scope reduction, subsystem integration, and firmware provenance work.

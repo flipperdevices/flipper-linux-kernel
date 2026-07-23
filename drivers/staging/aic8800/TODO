@@ -1,0 +1,10 @@
+TODO:
+- finish removing dormant non-D80 code from shared source files and headers
+- remove unused SDIO, PCI, Android, and legacy platform code
+- replace direct VFS access with request_firmware()
+- remove the private regulatory database and use cfg80211 regulatory data
+- audit cfg80211 interface lifecycle, including radio disable/enable
+- replace private compatibility abstractions with current kernel APIs
+- run checkpatch, sparse, and Coccinelle and fix reported issues
+- document redistributable licensing for every required firmware file
+- add a long-term maintainer before proposing the driver upstream

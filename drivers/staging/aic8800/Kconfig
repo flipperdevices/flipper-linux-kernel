@@ -1,0 +1,14 @@
+# SPDX-License-Identifier: GPL-2.0-only
+
+config AIC8800D80_USB
+	tristate "AICSemi AIC8800D80 USB support"
+	depends on WLAN && USB && CFG80211
+	select FW_LOADER
+	help
+	  This staging driver supports the AICSemi AIC8800D80 USB Wi-Fi
+	  device used on the Radxa ROCK 4D. The device initially enumerates
+	  as USB ID a69c:8d80. The aic_load_fw module loads its firmware,
+	  after which it re-enumerates as a69c:8d81. The aic8800_fdrv
+	  module then provides the cfg80211 network interface.
+	  To compile this driver as modules, choose M here. The modules will
+	  be called aic_load_fw and aic8800_fdrv.

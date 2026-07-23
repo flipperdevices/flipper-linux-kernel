@@ -24,6 +24,8 @@ menuconfig STAGING
 
 if STAGING
 
+source "drivers/staging/aic8800/Kconfig"
+
 source "drivers/staging/rtl8723bs/Kconfig"
 
 source "drivers/staging/octeon/Kconfig"
