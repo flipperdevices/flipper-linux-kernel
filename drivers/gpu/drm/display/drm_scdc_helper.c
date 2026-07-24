@@ -24,7 +24,9 @@
 #include <linux/export.h>
 #include <linux/i2c.h>
 #include <linux/slab.h>
+#include <linux/debugfs.h>
 #include <linux/delay.h>
+#include <linux/overflow.h>
 
 #include <drm/display/drm_scdc_helper.h>
 #include <drm/drm_connector.h>
@@ -276,3 +278,187 @@ bool drm_scdc_set_high_tmds_clock_ratio(struct drm_connector *connector,
 	return true;
 }
 EXPORT_SYMBOL(drm_scdc_set_high_tmds_clock_ratio);
+
+static void
+drm_scdc_parse_status0_flags(u8 val, struct drm_scdc_status_flags *flags)
+{
+	flags->clock_detected = val & SCDC_CLOCK_DETECT;
+	flags->ch0_locked = val & SCDC_CH0_LOCK;
+	flags->ch1_locked = val & SCDC_CH1_LOCK;
+	flags->ch2_locked = val & SCDC_CH2_LOCK;
+}
+
+static int drm_scdc_parse_error_counters(const u8 scdc[256], u16 counter[3])
+{
+	u8 sum = 0;
+	int i;
+
+	for (i = SCDC_ERR_DET_0_L; i <= SCDC_ERR_DET_CHECKSUM ; i++)
+		sum = wrapping_add(u8, sum, scdc[i]);
+
+	if (sum)
+		return -EPROTO;
+
+	for (i = 0; i < 3; i++) {
+		if (scdc[SCDC_ERR_DET_0_H + i * 2] & SCDC_CHANNEL_VALID)
+			counter[i] =  (scdc[SCDC_ERR_DET_0_H + i * 2] &
+				       ~SCDC_CHANNEL_VALID) << 8 |
+				       scdc[SCDC_ERR_DET_0_L + i * 2];
+		else
+			counter[i] = 0;
+	}
+
+	return 0;
+}
+
+/**
+ * drm_scdc_read_state - Update state from SCDC
+ * @connector: pointer to a &struct drm_connector on which to operate on
+ * @state: pointer to a &struct drm_scdc_state to fill
+ *
+ * Reads the entire 256 byte SCDC state and parses it.
+ *
+ * Returns: %0 on success, negative errno on failure.
+ */
+int drm_scdc_read_state(struct drm_connector *connector, struct drm_scdc_state *state)
+{
+	struct i2c_adapter *ddc;
+	struct drm_scdc *scdc;
+	u8 *buf = state->scdc;
+	int ret;
+
+	if (!state || !connector)
+		return -ENODEV;
+
+	scdc = &connector->display_info.hdmi.scdc;
+	ddc = connector->ddc;
+
+	if (!scdc->supported || !ddc)
+		return -EOPNOTSUPP;
+
+	/* Read in 128-byte chunks, to work around DP<->HDMI converters with issues. */
+	ret = drm_scdc_read(ddc, 0, buf, 128);
+	if (ret)
+		return ret;
+
+	ret = drm_scdc_read(ddc, 128, &buf[128], 128);
+	if (ret)
+		return ret;
+
+	state->scrambling_enabled = buf[SCDC_TMDS_CONFIG] & SCDC_SCRAMBLING_ENABLE;
+	state->tmds_bclk_x40 = buf[SCDC_TMDS_CONFIG] & SCDC_TMDS_BIT_CLOCK_RATIO_BY_40;
+
+	state->scrambling_detected = buf[SCDC_SCRAMBLER_STATUS] & SCDC_SCRAMBLING_STATUS;
+
+	drm_scdc_parse_status0_flags(buf[SCDC_STATUS_FLAGS_0], &state->stf);
+	ret = drm_scdc_parse_error_counters(buf, state->error_count);
+	if (ret)
+		return ret;
+
+	return 0;
+}
+EXPORT_SYMBOL(drm_scdc_read_state);
+
+#define scdc_print_str(_f, key, s) \
+	(seq_printf((_f), "%-30s: %s\n", (key), (s)))
+#define scdc_print_flag(_f, key, val) \
+	(scdc_print_str((_f), (key), str_yes_no((val))))
+#define scdc_print_dec(_f, key, val) \
+	(seq_printf((_f), "%-30s: %d\n", (key), (val)))
+
+static int scdc_status_show(struct seq_file *m, void *data)
+{
+	struct drm_connector *connector = m->private;
+	struct drm_scdc *scdc = &connector->display_info.hdmi.scdc;
+	struct drm_scdc_state *st;
+	int i, ret;
+
+	drm_connector_get(connector);
+
+	ret = mutex_lock_interruptible(&connector->dev->mode_config.mutex);
+	if (ret)
+		goto err_conn_put;
+
+	if (connector->status != connector_status_connected) {
+		ret = -ENODEV;
+		goto err_unlock;
+	}
+
+	if (scdc->supported) {
+		st = kzalloc_obj(*st);
+		if (!st) {
+			ret = -ENOMEM;
+			goto err_unlock;
+		}
+		ret = drm_scdc_read_state(connector, st);
+		if (ret)
+			goto err_free_state;
+
+		for (i = 0; i < ARRAY_SIZE(st->scdc); i += 16)
+			seq_printf(m, "%*ph\n", 16, &st->scdc[i]);
+
+		seq_puts(m, "\n----------------\n\n");
+	}
+
+	scdc_print_flag(m, "SCDC Supported", scdc->supported);
+	if (!scdc->supported) {
+		ret = 0;
+		goto err_unlock;
+	}
+
+	scdc_print_flag(m, "Sink Read Request Capable", scdc->read_request);
+	scdc_print_flag(m, "Scrambling Supported", scdc->scrambling.supported);
+	scdc_print_flag(m, "Low Rate Scrambling Supported", scdc->scrambling.low_rates);
+
+	mutex_unlock(&connector->dev->mode_config.mutex);
+
+	drm_connector_put(connector);
+
+	scdc_print_flag(m, "Scrambling Enabled", st->scrambling_enabled);
+	scdc_print_flag(m, "Scrambling Detected", st->scrambling_detected);
+
+	if (st->tmds_bclk_x40)
+		scdc_print_str(m, "TMDS Bit Clock Ratio", "1/40");
+	else
+		scdc_print_str(m, "TMDS Bit Clock Ratio", "1/10");
+
+	scdc_print_flag(m, "Clock Detected", st->stf.clock_detected);
+	scdc_print_flag(m, "Channel 0 Locked", st->stf.ch0_locked);
+	scdc_print_flag(m, "Channel 1 Locked", st->stf.ch1_locked);
+	scdc_print_flag(m, "Channel 2 Locked", st->stf.ch2_locked);
+
+	scdc_print_dec(m, "Channel 0 Errors", st->error_count[0]);
+	scdc_print_dec(m, "Channel 1 Errors", st->error_count[1]);
+	scdc_print_dec(m, "Channel 2 Errors", st->error_count[2]);
+
+	kfree(st);
+
+	return 0;
+
+err_free_state:
+	kfree(st);
+err_unlock:
+	mutex_unlock(&connector->dev->mode_config.mutex);
+err_conn_put:
+	drm_connector_put(connector);
+
+	return ret;
+}
+DEFINE_SHOW_ATTRIBUTE(scdc_status);
+
+/**
+ * drm_scdc_debugfs_init - Initialize scdc files in connector debugfs
+ * @connector: pointer to &struct drm_connector to operate on
+ * @root: debugfs &struct dentry for the debugfs root of @connector
+ *
+ * Creates SCDC-related debugfs files for @connector. Must be called after
+ * @root is already created.
+ */
+void drm_scdc_debugfs_init(struct drm_connector *connector, struct dentry *root)
+{
+	if (!root || !connector)
+		return;
+
+	debugfs_create_file("scdc_status", 0444, root, connector, &scdc_status_fops);
+}
+EXPORT_SYMBOL(drm_scdc_debugfs_init);
