@@ -7,6 +7,7 @@
  * Author: Algea Cao <algea.cao@rock-chips.com>
  * Author: Cristian Ciocaltea <cristian.ciocaltea@collabora.com>
  */
+#include <linux/bitfield.h>
 #include <linux/completion.h>
 #include <linux/hdmi.h>
 #include <linux/export.h>
@@ -116,24 +117,6 @@ static const struct dw_hdmi_audio_tmds_n {
 	/* For 297 MHz+ HDMI spec have some other rule for setting N */
 	{ .tmds = 297000000, .n_32k = 3073,  .n_44k1 = 4704,  .n_48k = 5120, },
 	{ .tmds = 594000000, .n_32k = 3073,  .n_44k1 = 9408,  .n_48k = 10240,},
-};
-
-/*
- * These are the CTS values as recommended in the Audio chapter of the HDMI
- * specification.
- */
-static const struct dw_hdmi_audio_tmds_cts {
-	unsigned long tmds;
-	unsigned int cts_32k;
-	unsigned int cts_44k1;
-	unsigned int cts_48k;
-} common_tmds_cts_table[] = {
-	{ .tmds = 25175000,  .cts_32k = 28125,  .cts_44k1 = 31250,  .cts_48k = 28125,  },
-	{ .tmds = 25200000,  .cts_32k = 25200,  .cts_44k1 = 28000,  .cts_48k = 25200,  },
-	{ .tmds = 27000000,  .cts_32k = 27000,  .cts_44k1 = 30000,  .cts_48k = 27000,  },
-	{ .tmds = 54000000,  .cts_32k = 54000,  .cts_44k1 = 60000,  .cts_48k = 54000,  },
-	{ .tmds = 74250000,  .cts_32k = 74250,  .cts_44k1 = 82500,  .cts_48k = 74250,  },
-	{ .tmds = 148500000, .cts_32k = 148500, .cts_44k1 = 165000, .cts_48k = 148500, },
 };
 
 struct dw_hdmi_qp_i2c {
@@ -378,36 +361,30 @@ static unsigned int dw_hdmi_qp_find_n(struct dw_hdmi_qp *hdmi, unsigned long pix
 	return dw_hdmi_qp_compute_n(hdmi, pixel_clk, sample_rate);
 }
 
+/*
+ * HDMI 1.4b section 7.2.1: fs = f_TMDS * N / (128 * CTS), so the CTS that goes with
+ * a given N is f_TMDS * N / (128 * fs). This reproduces the values tabulated in the
+ * spec for the rates it lists, and covers everything it does not: deep colour alone
+ * puts most modes off that list, since it scales f_TMDS by 1.25 or 1.5.
+ */
 static unsigned int dw_hdmi_qp_find_cts(struct dw_hdmi_qp *hdmi, unsigned long pixel_clk,
-					unsigned long sample_rate)
+					unsigned long sample_rate, unsigned int n)
 {
-	const struct dw_hdmi_audio_tmds_cts *tmds_cts = NULL;
-	int i;
+	u64 cts;
 
-	for (i = 0; i < ARRAY_SIZE(common_tmds_cts_table); i++) {
-		if (pixel_clk == common_tmds_cts_table[i].tmds) {
-			tmds_cts = &common_tmds_cts_table[i];
-			break;
-		}
-	}
-
-	if (!tmds_cts)
+	if (!n || !sample_rate)
 		return 0;
 
-	switch (sample_rate) {
-	case 32000:
-		return tmds_cts->cts_32k;
-	case 44100:
-	case 88200:
-	case 176400:
-		return tmds_cts->cts_44k1;
-	case 48000:
-	case 96000:
-	case 192000:
-		return tmds_cts->cts_48k;
-	default:
-		return -ENOENT;
+	cts = DIV_ROUND_CLOSEST_ULL((u64)pixel_clk * n, 128ULL * sample_rate);
+
+	/* leave it to the hardware rather than write a truncated override */
+	if (cts > FIELD_MAX(AUDPKT_ACR_CTS_OVR_VAL_MSK)) {
+		dev_warn(hdmi->dev, "CTS %llu exceeds the override field, using automatic CTS\n",
+			 cts);
+		return 0;
 	}
+
+	return cts;
 }
 
 static void dw_hdmi_qp_set_audio_interface(struct dw_hdmi_qp *hdmi,
@@ -530,7 +507,7 @@ static void dw_hdmi_qp_set_sample_rate(struct dw_hdmi_qp *hdmi, unsigned long lo
 	unsigned int n, cts;
 
 	n = dw_hdmi_qp_find_n(hdmi, tmds_char_rate, sample_rate);
-	cts = dw_hdmi_qp_find_cts(hdmi, tmds_char_rate, sample_rate);
+	cts = dw_hdmi_qp_find_cts(hdmi, tmds_char_rate, sample_rate, n);
 
 	dw_hdmi_qp_set_cts_n(hdmi, cts, n);
 }
