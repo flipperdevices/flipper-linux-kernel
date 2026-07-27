@@ -74,6 +74,7 @@ static const struct regmap_irq fomcu_irqs[] = {
 	FOMCU_IRQ_REG(INPUT, BTN),
 	FOMCU_IRQ_REG(INPUT, TOUCH),
 	FOMCU_IRQ_REG(INPUT, HEADSET),
+	FOMCU_IRQ_REG(INPUT, SWBTN),
 	FOMCU_IRQ_REG(UCSI, EVENT),
 };
 
