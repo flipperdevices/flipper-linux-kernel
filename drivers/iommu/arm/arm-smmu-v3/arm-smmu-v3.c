@@ -1013,8 +1013,8 @@ static int arm_smmu_drain_queues(struct arm_smmu_device *smmu)
 		goto out;
 
 	/* Drain all implementation-specific queues */
-	if (smmu->impl_ops && smmu->impl_ops->drain_queues)
-		ret = smmu->impl_ops->drain_queues(smmu);
+	if (smmu->impl_ops && smmu->impl_ops->quiesce_and_drain_queues)
+		ret = smmu->impl_ops->quiesce_and_drain_queues(smmu);
 out:
 	return ret;
 }
