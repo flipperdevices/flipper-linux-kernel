@@ -949,6 +949,51 @@ static int arm_smmu_cmdq_batch_submit(struct arm_smmu_device *smmu,
 					   cmds->num, true);
 }
 
+/*
+ * Currently, only used for CMDQ.
+ * TODO: Update to handle PRIQ & EVTQ when PRI support is added
+ */
+int arm_smmu_queue_poll_until_empty(struct arm_smmu_device *smmu,
+				    struct arm_smmu_queue *q)
+{
+	struct arm_smmu_queue_poll qp;
+	struct arm_smmu_ll_queue *llq = &q->llq;
+	int ret = 0;
+
+	queue_poll_init(smmu, &qp);
+
+	/*
+	 * The events are only generated when CMDQ becomes non-full.
+	 * Thus, wfe can't be used here, mark it false explicitly.
+	 */
+	qp.wfe = false;
+
+	do {
+		WRITE_ONCE(llq->cons, readl_relaxed(q->cons_reg));
+		if (queue_empty(llq))
+			break;
+
+		ret = queue_poll(&qp);
+
+	} while (!ret);
+
+	return ret;
+}
+
+static int arm_smmu_drain_queues(struct arm_smmu_device *smmu)
+{
+	int ret;
+
+	/*
+	 * We skip the cmdq locking here since this helper is only called
+	 * from contexts (like suspend) where the caller has already
+	 * ensured that new command submissions are fully closed.
+	 */
+	ret = arm_smmu_queue_poll_until_empty(smmu, &smmu->cmdq.q);
+
+	return ret;
+}
+
 static void arm_smmu_page_response(struct device *dev, struct iopf_fault *unused,
 				   struct iommu_page_response *resp)
 {
