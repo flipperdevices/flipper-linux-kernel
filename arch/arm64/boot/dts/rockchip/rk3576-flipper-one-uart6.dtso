@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * DT-overlay to enable UART6 on the GPIO header on Flipper One
+ */
+
+/dts-v1/;
+/plugin/;
+
+&uart6 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&uart6m0_xfer>;
+	status = "okay";
+};
