@@ -182,6 +182,7 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b1c2.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-i2c2-free.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-sata.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-uart2.dtbo
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-uart6.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-khadas-edge-2l.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-lckfb-tspi-3m.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-luckfox-omni3576.dtb
@@ -353,6 +354,10 @@ rk3576-flipper-one-sata-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-uart2.dtb
 rk3576-flipper-one-uart2-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-flipper-one-uart2.dtbo
+
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-uart6.dtb
+rk3576-flipper-one-uart6-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
+	rk3576-flipper-one-uart6.dtbo
 
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-nanopi-m5-no-graphics.dtb
 rk3576-nanopi-m5-no-graphics-dtbs := rk3576-nanopi-m5.dtb \
