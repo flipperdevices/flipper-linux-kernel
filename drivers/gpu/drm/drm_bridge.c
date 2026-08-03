@@ -453,9 +453,16 @@ void drm_bridge_add(struct drm_bridge *bridge)
 	 * If the bridge was previously added and then removed, it is now
 	 * in bridge_lingering_list. Remove it or bridge_lingering_list will be
 	 * corrupted when adding this bridge to bridge_list below.
+	 *
+	 * Legacy drivers that allocate the bridge with kzalloc() rather than
+	 * devm_drm_bridge_alloc() leave list.next NULL. Such a bridge cannot
+	 * be on any list, and list_del_init() would dereference NULL, so
+	 * initialize the list head first.
 	 */
 	mutex_lock(&bridge_lock);
-	if (!list_empty(&bridge->list))
+	if (!bridge->list.next)
+		INIT_LIST_HEAD(&bridge->list);
+	else if (!list_empty(&bridge->list))
 		list_del_init(&bridge->list);
 	mutex_unlock(&bridge_lock);
 
