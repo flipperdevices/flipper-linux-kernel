@@ -1519,7 +1519,7 @@
 		active-gpios = <&gpio0 RK_PD1 GPIO_ACTIVE_LOW>;
 		spi-cpha;
 		spi-cpol;
-		spi-max-frequency = <33000000>;
+		spi-max-frequency = <50000000>;
 		spi-rx-bus-width = <0>;
 	};
 };
