@@ -866,7 +866,7 @@ static int drm_connector_hdmi_frl_lts1(struct drm_connector *connector)
 }
 
 /*
- * Check if sink is ready to training. Set FRL rate.
+ * Check if sink is ready to training. Set FRL rate & max FFE level.
  */
 static int drm_connector_hdmi_frl_lts2(struct drm_connector *connector)
 {
@@ -889,6 +889,7 @@ static int drm_connector_hdmi_frl_lts2(struct drm_connector *connector)
 		if (val & SCDC_FLT_READY) {
 			u8 rate_per_lane = connector->hdmi.scdc_work_data.frl_rate_per_lane;
 			u8 lanes = connector->hdmi.scdc_work_data.frl_lanes;
+			u8 ffe = connector->hdmi.max_ffe_level;
 
 			ret = connector->hdmi.funcs->frl_configure(connector,
 								   rate_per_lane, lanes);
@@ -898,10 +899,19 @@ static int drm_connector_hdmi_frl_lts2(struct drm_connector *connector)
 				return DRM_HDMI_FRL_LTSL;
 			}
 
-			drm_dbg_kms(connector->dev, "FRL LTS:2 set rate=%ux%u\n",
-				    rate_per_lane, lanes);
+			drm_dbg_kms(connector->dev, "FRL LTS:2 set rate=%ux%u maxffe=%u\n",
+				    rate_per_lane, lanes, ffe);
 
-			if (drm_scdc_set_frl(connector, rate_per_lane, lanes, 0))
+			if (ffe) {
+				ret = connector->hdmi.funcs->frl_set_ffe_level(connector, 0);
+				if (ret) {
+					drm_err(connector->dev,
+						"FRL LTS:2 set_ffe_level failed: %d\n", ret);
+					return DRM_HDMI_FRL_LTSL;
+				}
+			}
+
+			if (drm_scdc_set_frl(connector, rate_per_lane, lanes, ffe))
 				ret = drm_scdc_writeb(connector->ddc, SCDC_CONFIG_0, 0);
 			else
 				ret = -EIO;
@@ -930,7 +940,7 @@ static int drm_connector_hdmi_frl_lts3(struct drm_connector *connector)
 	struct drm_connector_hdmi *hdmi = &connector->hdmi;
 	struct drm_device *dev = connector->dev;
 	int ret, polls = 4000; /* 2s timeout at ~500us per poll */
-	u8 val;
+	u8 val, ffe_lv = 0;
 
 	while (hdmi->scdc_work_data.flt_no_timeout || polls--) {
 		usleep_range(400, 500);
@@ -994,8 +1004,25 @@ static int drm_connector_hdmi_frl_lts3(struct drm_connector *connector)
 			}
 
 			if (ln0 == 0xe || ln1 == 0xe || ln2 == 0xe || ln3 == 0xe) {
-				drm_err(dev, "FRL LTS:3 FFE level update not expected\n");
-				return DRM_HDMI_FRL_LTSL;
+				if (!hdmi->max_ffe_level) {
+					drm_err(dev, "FRL LTS:3 FFE level update not expected\n");
+					return DRM_HDMI_FRL_LTSL;
+				}
+
+				if (ffe_lv >= hdmi->max_ffe_level) {
+					drm_err(dev, "FRL LTS:3 FFE level limit (%u) reached\n",
+						hdmi->max_ffe_level);
+					return DRM_HDMI_FRL_LTSL;
+				}
+
+				ffe_lv++;
+				drm_dbg_kms(dev, "FRL LTS:3 FFE level up to %u\n", ffe_lv);
+
+				ret = hdmi->funcs->frl_set_ffe_level(connector, ffe_lv);
+				if (ret) {
+					drm_err(dev, "FRL LTS:3 set_ffe_level failed: %d\n", ret);
+					return DRM_HDMI_FRL_LTSL;
+				}
 			} else if (ln0 == 0x3 && ln1 == 0x3 && ln2 == 0x3 &&
 				   ln3 == 0x3 && !hdmi->scdc_work_data.flt_no_timeout) {
 				drm_dbg_kms(dev, "FRL LTS:3 ignore Nyquist clock pattern\n");
@@ -1030,7 +1057,7 @@ static int drm_connector_hdmi_frl_lts3(struct drm_connector *connector)
  */
 static int drm_connector_hdmi_frl_lts4(struct drm_connector *connector)
 {
-	u8 try_rate_per_lane, try_lanes;
+	u8 try_rate_per_lane, try_lanes, ffe;
 	int ret;
 
 	ret = drm_scdc_calc_lower_frl(connector->hdmi.scdc_work_data.frl_rate_per_lane,
@@ -1057,17 +1084,26 @@ static int drm_connector_hdmi_frl_lts4(struct drm_connector *connector)
 		return DRM_HDMI_FRL_LTSL;
 	}
 
-	ret = connector->hdmi.funcs->frl_configure(connector, try_rate_per_lane,
-						   try_lanes);
+	ret = connector->hdmi.funcs->frl_configure(connector, try_rate_per_lane, try_lanes);
 	if (ret) {
 		drm_err(connector->dev, "FRL LTS:4 configure failed: %d\n", ret);
 		return DRM_HDMI_FRL_LTSL;
 	}
 
+	ffe = connector->hdmi.max_ffe_level;
+	if (ffe) {
+		ret = connector->hdmi.funcs->frl_set_ffe_level(connector, 0);
+		if (ret) {
+			drm_err(connector->dev,
+				"FRL LTS:4 set_ffe_level failed: %d\n", ret);
+			return DRM_HDMI_FRL_LTSL;
+		}
+	}
+
 	connector->hdmi.scdc_work_data.frl_rate_per_lane = try_rate_per_lane;
 	connector->hdmi.scdc_work_data.frl_lanes = try_lanes;
 
-	if (drm_scdc_set_frl(connector, try_rate_per_lane, try_lanes, 0))
+	if (drm_scdc_set_frl(connector, try_rate_per_lane, try_lanes, ffe))
 		ret = drm_scdc_writeb(connector->ddc, SCDC_UPDATE_0, SCDC_FLT_UPDATE);
 	else
 		ret = -EIO;
