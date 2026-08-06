@@ -5,7 +5,6 @@
  * Fairchild FUSB302 Type-C Chip Driver
  */
 
-#include <drm/bridge/aux-bridge.h>
 #include <linux/debugfs.h>
 #include <linux/delay.h>
 #include <linux/devm-helpers.h>
@@ -1685,7 +1684,6 @@ static int fusb302_probe(struct i2c_client *client)
 {
 	struct fusb302_chip *chip;
 	struct i2c_adapter *adapter = client->adapter;
-	struct auxiliary_device *bridge_dev;
 	struct device *dev = &client->dev;
 	const char *name;
 	int ret = 0;
@@ -1749,11 +1747,6 @@ static int fusb302_probe(struct i2c_client *client)
 	if (ret < 0)
 		return ret;
 
-	bridge_dev = devm_drm_dp_hpd_bridge_alloc(chip->dev, to_of_node(chip->tcpc_dev.fwnode));
-	if (IS_ERR(bridge_dev))
-		return dev_err_probe(chip->dev, PTR_ERR(bridge_dev),
-				     "failed to alloc bridge\n");
-
 	chip->tcpm_port = devm_tcpm_register_port(&client->dev, &chip->tcpc_dev);
 	if (IS_ERR(chip->tcpm_port))
 		return dev_err_probe(dev, PTR_ERR(chip->tcpm_port),
@@ -1776,10 +1769,6 @@ static int fusb302_probe(struct i2c_client *client)
 		return dev_err_probe(dev, ret, "failed to request IRQ");
 
 	i2c_set_clientdata(client, chip);
-
-	ret = devm_drm_dp_hpd_bridge_add(chip->dev, bridge_dev);
-	if (ret)
-		return ret;
 
 	enable_irq_wake(chip->irq);
 
