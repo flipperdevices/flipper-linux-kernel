@@ -244,6 +244,106 @@ static const struct drm_connector_hdmi_funcs scrambler_connector_hdmi_funcs = {
 	},
 };
 
+static int accept_frl_configure(struct drm_connector *connector,
+				u8 rate_per_lane, u8 lanes)
+{
+	return 0;
+}
+
+static int accept_frl_set_ltp(struct drm_connector *connector,
+			      u8 ln0, u8 ln1, u8 ln2, u8 ln3)
+{
+	return 0;
+}
+
+static int accept_frl_tx_start(struct drm_connector *connector)
+{
+	return 0;
+}
+
+static int accept_frl_tx_stop(struct drm_connector *connector)
+{
+	return 0;
+}
+
+static int accept_frl_fallback_tmds(struct drm_connector *connector)
+{
+	return 0;
+}
+
+static enum drm_mode_status
+accept_48gbps_connector_frl_rate_valid(const struct drm_connector *connector,
+				       const struct drm_display_mode *mode,
+				       unsigned int min_frl_rate,
+				       unsigned int max_frl_rate,
+				       unsigned int *pref_frl_rate)
+{
+	if (min_frl_rate > 48)
+		return MODE_BAD;
+
+	*pref_frl_rate = 48;
+
+	return MODE_OK;
+}
+
+static const struct drm_connector_hdmi_funcs accept_frl_connector_hdmi_funcs = {
+	.vendor = "Vendor",
+	.product = "Product",
+	.supported_hdmi_ver = HDMI_VERSION_2_1,
+	.supported_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
+	.max_bpc = 8,
+	.frl_configure = accept_frl_configure,
+	.frl_set_ltp = accept_frl_set_ltp,
+	.frl_tx_start = accept_frl_tx_start,
+	.frl_tx_stop = accept_frl_tx_stop,
+	.frl_fallback_tmds = accept_frl_fallback_tmds,
+	.frl_rate_valid = accept_48gbps_connector_frl_rate_valid,
+	.scrambler_enable	 = accept_scrambler_enable,
+	.scrambler_disable	 = accept_scrambler_disable,
+	.avi = {
+		.clear_infoframe = accept_infoframe_clear_infoframe,
+		.write_infoframe = accept_infoframe_write_infoframe,
+	},
+	.hdmi = {
+		.clear_infoframe = accept_infoframe_clear_infoframe,
+		.write_infoframe = accept_infoframe_write_infoframe,
+	},
+};
+
+static enum drm_mode_status
+reject_connector_frl_rate_valid(const struct drm_connector *connector,
+				const struct drm_display_mode *mode,
+				unsigned int min_frl_rate,
+				unsigned int max_frl_rate,
+				unsigned int *pref_frl_rate)
+{
+	return MODE_BAD;
+}
+
+static const struct drm_connector_hdmi_funcs reject_frl_connector_hdmi_funcs = {
+	.vendor = "Vendor",
+	.product = "Product",
+	.supported_hdmi_ver = HDMI_VERSION_2_1,
+	.supported_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
+	.max_bpc = 8,
+	.frl_configure = accept_frl_configure,
+	.frl_set_ltp = accept_frl_set_ltp,
+	.frl_tx_start = accept_frl_tx_start,
+	.frl_tx_stop = accept_frl_tx_stop,
+	.frl_fallback_tmds = accept_frl_fallback_tmds,
+	.frl_rate_valid = reject_connector_frl_rate_valid,
+	.scrambler_enable	 = accept_scrambler_enable,
+	.scrambler_disable	 = accept_scrambler_disable,
+	.avi = {
+		.clear_infoframe = accept_infoframe_clear_infoframe,
+		.write_infoframe = accept_infoframe_write_infoframe,
+	},
+	.hdmi = {
+		.clear_infoframe = accept_infoframe_clear_infoframe,
+		.write_infoframe = accept_infoframe_write_infoframe,
+	},
+};
+
 static int dummy_connector_get_modes(struct drm_connector *connector)
 {
 	struct drm_atomic_helper_connector_hdmi_priv *priv =
@@ -2403,6 +2503,232 @@ retry_conn_enable:
 	drm_modeset_acquire_fini(&ctx);
 }
 
+/*
+ * Test that if:
+ * - We have an HDMI connector supporting RGB only and up to 12 bpc
+ * - The chosen mode has a TMDS character rate higher than the display
+ *   supports in RGB/12bpc
+ * - The display supports HDMI 2.1 FRL with enough bandwidth
+ * - The driver provides a .frl_rate_valid callback that allows the bandwidth.
+ *
+ * Then the mode is accepted at RGB/12bpc and the TMDS clock rate stored
+ * in the connector state is equal to 1.5 times the mode pixel clock.
+ */
+static void drm_test_check_frl_rate_rgb_12bpc(struct kunit *test)
+{
+	struct drm_connector_hdmi_funcs hdmi_funcs = accept_frl_connector_hdmi_funcs;
+	struct drm_atomic_helper_connector_hdmi_priv *priv;
+	struct drm_modeset_acquire_ctx ctx;
+	struct drm_connector_state *conn_state;
+	struct drm_display_info *info;
+	struct drm_display_mode *preferred;
+	unsigned long long rate;
+	struct drm_connector *conn;
+	struct drm_device *drm;
+	struct drm_crtc *crtc;
+	int ret;
+
+	hdmi_funcs.max_bpc = 12;
+	priv = drm_kunit_helper_connector_hdmi_init_with_edid_funcs(test,
+				&hdmi_funcs,
+				test_edid_hdmi_4k_rgb_yuv420_dc_max_600mhz_frl_48gbps);
+	KUNIT_ASSERT_NOT_NULL(test, priv);
+
+	drm = &priv->drm;
+	crtc = priv->crtc;
+	conn = &priv->connector;
+	info = &conn->display_info;
+	KUNIT_ASSERT_TRUE(test, info->is_hdmi);
+	KUNIT_ASSERT_GT(test, info->max_tmds_clock, 0);
+	KUNIT_ASSERT_GT(test, info->hdmi.max_frl_rate_per_lane, 0);
+	KUNIT_ASSERT_GT(test, info->hdmi.max_lanes, 0);
+
+	preferred = find_preferred_mode(conn);
+	KUNIT_ASSERT_NOT_NULL(test, preferred);
+	KUNIT_ASSERT_FALSE(test, preferred->flags & DRM_MODE_FLAG_DBLCLK);
+
+	rate = drm_hdmi_compute_mode_clock(preferred, 12, DRM_OUTPUT_COLOR_FORMAT_RGB444);
+	KUNIT_ASSERT_GT(test, rate, info->max_tmds_clock * 1000);
+
+	drm_modeset_acquire_init(&ctx, 0);
+
+retry_conn_enable:
+	ret = drm_kunit_helper_enable_crtc_connector(test, drm,
+						     crtc, conn,
+						     preferred,
+						     &ctx);
+	if (ret == -EDEADLK) {
+		ret = drm_modeset_backoff(&ctx);
+		if (!ret)
+			goto retry_conn_enable;
+	}
+	KUNIT_EXPECT_EQ(test, ret, 0);
+
+	conn_state = conn->state;
+	KUNIT_ASSERT_NOT_NULL(test, conn_state);
+
+	KUNIT_EXPECT_EQ(test, conn_state->hdmi.output_bpc, 12);
+	KUNIT_EXPECT_EQ(test, conn_state->hdmi.output_format, DRM_OUTPUT_COLOR_FORMAT_RGB444);
+	KUNIT_EXPECT_EQ(test, conn_state->hdmi.tmds_char_rate, preferred->clock * 1500);
+
+	drm_modeset_drop_locks(&ctx);
+	drm_modeset_acquire_fini(&ctx);
+}
+
+/*
+ * Test that if:
+ * - We have an HDMI connector supporting RGB only and up to 12 bpc
+ * - The chosen mode has a TMDS character rate higher than the display
+ *   supports in RGB/12bpc
+ * - The display supports HDMI 2.1 FRL with enough bandwidth
+ * - The driver does NOT provide a .frl_rate_valid callback.
+ *
+ * Then the mode is still accepted at RGB/12bpc, since that callback only
+ * narrows down the FRL rates the source and the sink already agree upon,
+ * and the highest of those rates is selected.
+ */
+static void drm_test_check_frl_no_rate_valid_func(struct kunit *test)
+{
+	struct drm_connector_hdmi_funcs hdmi_funcs = accept_frl_connector_hdmi_funcs;
+	struct drm_atomic_helper_connector_hdmi_priv *priv;
+	struct drm_modeset_acquire_ctx ctx;
+	struct drm_connector_state *conn_state;
+	struct drm_display_info *info;
+	struct drm_display_mode *preferred;
+	unsigned long long rate;
+	struct drm_connector *conn;
+	struct drm_device *drm;
+	struct drm_crtc *crtc;
+	int ret;
+
+	hdmi_funcs.max_bpc = 12;
+	hdmi_funcs.frl_rate_valid = NULL;
+	priv = drm_kunit_helper_connector_hdmi_init_with_edid_funcs(test,
+				&hdmi_funcs,
+				test_edid_hdmi_4k_rgb_yuv420_dc_max_600mhz_frl_48gbps);
+	KUNIT_ASSERT_NOT_NULL(test, priv);
+
+	drm = &priv->drm;
+	crtc = priv->crtc;
+	conn = &priv->connector;
+	info = &conn->display_info;
+	KUNIT_ASSERT_TRUE(test, info->is_hdmi);
+	KUNIT_ASSERT_GT(test, info->max_tmds_clock, 0);
+	KUNIT_ASSERT_GT(test, info->hdmi.max_frl_rate_per_lane, 0);
+	KUNIT_ASSERT_GT(test, info->hdmi.max_lanes, 0);
+
+	preferred = find_preferred_mode(conn);
+	KUNIT_ASSERT_NOT_NULL(test, preferred);
+	KUNIT_ASSERT_FALSE(test, preferred->flags & DRM_MODE_FLAG_DBLCLK);
+
+	rate = drm_hdmi_compute_mode_clock(preferred, 12, DRM_OUTPUT_COLOR_FORMAT_RGB444);
+	KUNIT_ASSERT_GT(test, rate, info->max_tmds_clock * 1000);
+
+	rate = drm_hdmi_compute_mode_clock(preferred, 8, DRM_OUTPUT_COLOR_FORMAT_RGB444);
+	KUNIT_ASSERT_LT(test, rate, info->max_tmds_clock * 1000);
+
+	drm_modeset_acquire_init(&ctx, 0);
+
+retry_conn_enable:
+	ret = drm_kunit_helper_enable_crtc_connector(test, drm,
+						     crtc, conn,
+						     preferred,
+						     &ctx);
+	if (ret == -EDEADLK) {
+		ret = drm_modeset_backoff(&ctx);
+		if (!ret)
+			goto retry_conn_enable;
+	}
+	KUNIT_EXPECT_EQ(test, ret, 0);
+
+	conn_state = conn->state;
+	KUNIT_ASSERT_NOT_NULL(test, conn_state);
+
+	KUNIT_EXPECT_EQ(test, conn_state->hdmi.output_bpc, 12);
+	KUNIT_EXPECT_EQ(test, conn_state->hdmi.output_format, DRM_OUTPUT_COLOR_FORMAT_RGB444);
+	KUNIT_EXPECT_EQ(test, conn_state->hdmi.frl_rate_per_lane, 12);
+	KUNIT_EXPECT_EQ(test, conn_state->hdmi.frl_lanes, 4);
+	KUNIT_EXPECT_FALSE(test, conn_state->hdmi.scrambler_needed);
+
+	drm_modeset_drop_locks(&ctx);
+	drm_modeset_acquire_fini(&ctx);
+}
+
+/*
+ * Test that if:
+ * - We have an HDMI connector supporting RGB only and up to 12 bpc
+ * - The chosen mode has a TMDS character rate higher than the display
+ *   supports in RGB/12bpc
+ * - The display supports HDMI 2.1 FRL with enough bandwidth
+ * - The driver provides a .frl_rate_valid callback that doesn't accept
+ *   the bandwidth
+ *
+ * Then the FRL path is rejected by the driver and the mode falls back
+ * to RGB/8bpc.
+ */
+static void drm_test_check_frl_reject_rate(struct kunit *test)
+{
+	struct drm_connector_hdmi_funcs hdmi_funcs = reject_frl_connector_hdmi_funcs;
+	struct drm_atomic_helper_connector_hdmi_priv *priv;
+	struct drm_modeset_acquire_ctx ctx;
+	struct drm_connector_state *conn_state;
+	struct drm_display_info *info;
+	struct drm_display_mode *preferred;
+	unsigned long long rate;
+	struct drm_connector *conn;
+	struct drm_device *drm;
+	struct drm_crtc *crtc;
+	int ret;
+
+	hdmi_funcs.max_bpc = 12;
+	priv = drm_kunit_helper_connector_hdmi_init_with_edid_funcs(test,
+				&hdmi_funcs,
+				test_edid_hdmi_4k_rgb_yuv420_dc_max_600mhz_frl_48gbps);
+	KUNIT_ASSERT_NOT_NULL(test, priv);
+
+	drm = &priv->drm;
+	crtc = priv->crtc;
+	conn = &priv->connector;
+	info = &conn->display_info;
+	KUNIT_ASSERT_TRUE(test, info->is_hdmi);
+	KUNIT_ASSERT_GT(test, info->max_tmds_clock, 0);
+	KUNIT_ASSERT_GT(test, info->hdmi.max_frl_rate_per_lane, 0);
+	KUNIT_ASSERT_GT(test, info->hdmi.max_lanes, 0);
+
+	preferred = find_preferred_mode(conn);
+	KUNIT_ASSERT_NOT_NULL(test, preferred);
+	KUNIT_ASSERT_FALSE(test, preferred->flags & DRM_MODE_FLAG_DBLCLK);
+
+	rate = drm_hdmi_compute_mode_clock(preferred, 12, DRM_OUTPUT_COLOR_FORMAT_RGB444);
+	KUNIT_ASSERT_GT(test, rate, info->max_tmds_clock * 1000);
+
+	rate = drm_hdmi_compute_mode_clock(preferred, 8, DRM_OUTPUT_COLOR_FORMAT_RGB444);
+	KUNIT_ASSERT_LT(test, rate, info->max_tmds_clock * 1000);
+
+	drm_modeset_acquire_init(&ctx, 0);
+
+retry_conn_enable:
+	ret = drm_kunit_helper_enable_crtc_connector(test, drm,
+						     crtc, conn,
+						     preferred,
+						     &ctx);
+	if (ret == -EDEADLK) {
+		ret = drm_modeset_backoff(&ctx);
+		if (!ret)
+			goto retry_conn_enable;
+	}
+	KUNIT_EXPECT_EQ(test, ret, 0);
+
+	conn_state = conn->state;
+	KUNIT_ASSERT_NOT_NULL(test, conn_state);
+
+	KUNIT_EXPECT_EQ(test, conn_state->hdmi.output_bpc, 8);
+	KUNIT_EXPECT_EQ(test, conn_state->hdmi.output_format, DRM_OUTPUT_COLOR_FORMAT_RGB444);
+
+	drm_modeset_drop_locks(&ctx);
+	drm_modeset_acquire_fini(&ctx);
+}
+
 struct color_format_test_param {
 	enum drm_connector_color_format fmt;
 	enum drm_output_color_format expected;
@@ -2647,6 +2973,9 @@ static struct kunit_case drm_atomic_helper_connector_hdmi_check_tests[] = {
 	KUNIT_CASE(drm_test_check_tmds_char_rate_rgb_12bpc),
 	KUNIT_CASE(drm_test_check_scrambler_needed_low_rate),
 	KUNIT_CASE(drm_test_check_scrambler_needed_high_rate),
+	KUNIT_CASE(drm_test_check_frl_rate_rgb_12bpc),
+	KUNIT_CASE(drm_test_check_frl_no_rate_valid_func),
+	KUNIT_CASE(drm_test_check_frl_reject_rate),
 	KUNIT_CASE_PARAM(drm_test_check_hdmi_color_format,
 			 check_hdmi_color_format_gen_params),
 	KUNIT_CASE_PARAM(drm_test_check_hdmi_color_format_420_only,
