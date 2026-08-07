@@ -616,6 +616,73 @@ static int drm_bridge_connector_scrambler_disable(struct drm_connector *connecto
 	return bridge->funcs->hdmi_scrambler_disable(bridge);
 }
 
+static int drm_bridge_connector_frl_configure(struct drm_connector *connector,
+					      u8 rate_per_lane, u8 lanes)
+{
+	struct drm_bridge_connector *bridge_connector =
+		to_drm_bridge_connector(connector);
+	struct drm_bridge *bridge;
+
+	bridge = bridge_connector->bridge_hdmi;
+	if (!bridge)
+		return -EINVAL;
+
+	return bridge->funcs->hdmi_frl_configure(bridge, rate_per_lane, lanes);
+}
+
+static int drm_bridge_connector_frl_set_ltp(struct drm_connector *connector,
+					    u8 ln0, u8 ln1, u8 ln2, u8 ln3)
+{
+	struct drm_bridge_connector *bridge_connector =
+		to_drm_bridge_connector(connector);
+	struct drm_bridge *bridge;
+
+	bridge = bridge_connector->bridge_hdmi;
+	if (!bridge)
+		return -EINVAL;
+
+	return bridge->funcs->hdmi_frl_set_ltp(bridge, ln0, ln1, ln2, ln3);
+}
+
+static int drm_bridge_connector_frl_tx_start(struct drm_connector *connector)
+{
+	struct drm_bridge_connector *bridge_connector =
+		to_drm_bridge_connector(connector);
+	struct drm_bridge *bridge;
+
+	bridge = bridge_connector->bridge_hdmi;
+	if (!bridge)
+		return -EINVAL;
+
+	return bridge->funcs->hdmi_frl_tx_start(bridge);
+}
+
+static int drm_bridge_connector_frl_tx_stop(struct drm_connector *connector)
+{
+	struct drm_bridge_connector *bridge_connector =
+		to_drm_bridge_connector(connector);
+	struct drm_bridge *bridge;
+
+	bridge = bridge_connector->bridge_hdmi;
+	if (!bridge)
+		return -EINVAL;
+
+	return bridge->funcs->hdmi_frl_tx_stop(bridge);
+}
+
+static int drm_bridge_connector_frl_fallback_tmds(struct drm_connector *connector)
+{
+	struct drm_bridge_connector *bridge_connector =
+		to_drm_bridge_connector(connector);
+	struct drm_bridge *bridge;
+
+	bridge = bridge_connector->bridge_hdmi;
+	if (!bridge)
+		return -EINVAL;
+
+	return bridge->funcs->hdmi_frl_fallback_tmds(bridge);
+}
+
 static const struct drm_edid *
 drm_bridge_connector_read_edid(struct drm_connector *connector)
 {
@@ -643,7 +710,7 @@ static const struct drm_connector_hdmi_funcs drm_bridge_connector_hdmi_funcs = {
 		.clear_infoframe = drm_bridge_connector_clear_hdmi_infoframe,
 		.write_infoframe = drm_bridge_connector_write_hdmi_infoframe,
 	},
-	/* scrambler, audio, hdr_drm and spd are set dynamically during init */
+	/* frl, scrambler, audio, hdr_drm and spd are set dynamically during init */
 };
 
 static const struct drm_connector_infoframe_funcs drm_bridge_connector_hdmi_audio_infoframe = {
@@ -952,6 +1019,14 @@ struct drm_connector *drm_bridge_connector_init(struct drm_device *drm,
 			     !bridge->funcs->hdmi_scrambler_disable))
 				return ERR_PTR(-EINVAL);
 
+			if (bridge->supported_hdmi_ver >= HDMI_VERSION_2_1 &&
+			    (!bridge->funcs->hdmi_frl_configure ||
+			     !bridge->funcs->hdmi_frl_set_ltp ||
+			     !bridge->funcs->hdmi_frl_tx_start ||
+			     !bridge->funcs->hdmi_frl_tx_stop ||
+			     !bridge->funcs->hdmi_frl_fallback_tmds))
+				return ERR_PTR(-EINVAL);
+
 			bridge_connector->bridge_hdmi = drm_bridge_get(bridge);
 		}
 
@@ -1055,6 +1130,22 @@ struct drm_connector *drm_bridge_connector_init(struct drm_device *drm,
 			bridge_connector->hdmi_funcs.supported_tmds_char_rate =
 				bridge_connector->bridge_hdmi->max_tmds_char_rate;
 
+		if (bridge_connector->bridge_hdmi->min_frl_rate_per_lane)
+			connector->hdmi.min_frl_rate_per_lane =
+				bridge_connector->bridge_hdmi->min_frl_rate_per_lane;
+
+		if (bridge_connector->bridge_hdmi->min_frl_lanes)
+			connector->hdmi.min_frl_lanes =
+				bridge_connector->bridge_hdmi->min_frl_lanes;
+
+		if (bridge_connector->bridge_hdmi->max_frl_rate_per_lane)
+			connector->hdmi.max_frl_rate_per_lane =
+				bridge_connector->bridge_hdmi->max_frl_rate_per_lane;
+
+		if (bridge_connector->bridge_hdmi->max_frl_lanes)
+			connector->hdmi.max_frl_lanes =
+				bridge_connector->bridge_hdmi->max_frl_lanes;
+
 		if (bridge_connector->bridge_hdmi->max_bpc)
 			bridge_connector->hdmi_funcs.max_bpc =
 				bridge_connector->bridge_hdmi->max_bpc;
@@ -1076,6 +1167,19 @@ struct drm_connector *drm_bridge_connector_init(struct drm_device *drm,
 				drm_bridge_connector_scrambler_enable;
 			bridge_connector->hdmi_funcs.scrambler_disable =
 				drm_bridge_connector_scrambler_disable;
+		}
+
+		if (bridge_connector->bridge_hdmi->supported_hdmi_ver >= HDMI_VERSION_2_1) {
+			bridge_connector->hdmi_funcs.frl_configure =
+				drm_bridge_connector_frl_configure;
+			bridge_connector->hdmi_funcs.frl_set_ltp =
+				drm_bridge_connector_frl_set_ltp;
+			bridge_connector->hdmi_funcs.frl_tx_start =
+				drm_bridge_connector_frl_tx_start;
+			bridge_connector->hdmi_funcs.frl_tx_stop =
+				drm_bridge_connector_frl_tx_stop;
+			bridge_connector->hdmi_funcs.frl_fallback_tmds =
+				drm_bridge_connector_frl_fallback_tmds;
 		}
 
 		ret = drmm_connector_hdmi_init(drm, connector,
