@@ -611,6 +611,79 @@ struct drm_bridge_funcs {
 	int (*hdmi_scrambler_disable)(struct drm_bridge *bridge);
 
 	/**
+	 * @hdmi_frl_configure:
+	 *
+	 * Configure the bridge / source PHY for the given HDMI 2.1 Fixed
+	 * Rate Link (FRL) operating point.
+	 *
+	 * Called by the FRL helpers to switch the PHY to the requested
+	 * per-lane rate and lane count.
+	 *
+	 * This callback is optional but it must be implemented by bridges
+	 * that set the DRM_BRIDGE_OP_HDMI_FRL flag in their &drm_bridge->ops.
+	 */
+	int (*hdmi_frl_configure)(struct drm_bridge *bridge,
+				  u8 rate_per_lane, u8 lanes);
+
+	/**
+	 * @hdmi_frl_set_ltp:
+	 *
+	 * Apply the per-lane Link Training Pattern (LTP) requested by the sink.
+	 *
+	 * The four arguments are the raw request values read from SCDC. The
+	 * bridge is expected to translate them into the IP-specific lane
+	 * training register format and write them to hardware.
+	 *
+	 * This callback is optional but it must be implemented by bridges
+	 * that set the DRM_BRIDGE_OP_HDMI_FRL flag in their &drm_bridge->ops.
+	 */
+	int (*hdmi_frl_set_ltp)(struct drm_bridge *bridge,
+				u8 ln0, u8 ln1, u8 ln2, u8 ln3);
+
+	/**
+	 * @hdmi_frl_tx_start:
+	 *
+	 * Resume the video pipeline once FRL link training has reached LTSP.
+	 *
+	 * Implementations are expected to unmute AV and start the control
+	 * packets transmission.
+	 *
+	 * This callback is optional but it must be implemented by bridges
+	 * that set the DRM_BRIDGE_OP_HDMI_FRL flag in their &drm_bridge->ops.
+	 */
+	int (*hdmi_frl_tx_start)(struct drm_bridge *bridge);
+
+	/**
+	 * @hdmi_frl_tx_stop:
+	 *
+	 * Quiesce the bridge video pipeline during FRL link training.
+	 *
+	 * Implementations are expected to mute AV and stop the control
+	 * packets transmission.
+	 *
+	 * This callback is optional but it must be implemented by bridges
+	 * that set the DRM_BRIDGE_OP_HDMI_FRL flag in their &drm_bridge->ops.
+	 */
+	int (*hdmi_frl_tx_stop)(struct drm_bridge *bridge);
+
+	/**
+	 * @hdmi_frl_fallback_tmds:
+	 *
+	 * Fall back the link operation mode to TMDS when FRL is not supported
+	 * by the sink, not required for the current mode, or when FRL link
+	 * training has failed.
+	 *
+	 * Implementations are expected to program the PHY for the TMDS
+	 * character rate of the current mode and leave the link ready to
+	 * transmit video. This callback may be invoked when TMDS operation
+	 * is already active and must be idempotent.
+	 *
+	 * This callback is optional but it must be implemented by bridges
+	 * that set the DRM_BRIDGE_OP_HDMI_FRL flag in their &drm_bridge->ops.
+	 */
+	int (*hdmi_frl_fallback_tmds)(struct drm_bridge *bridge);
+
+	/**
 	 * @hdmi_clear_avi_infoframe:
 	 *
 	 * This callback clears the infoframes in the hardware during commit.
@@ -1157,6 +1230,38 @@ struct drm_bridge {
 	 * @DRM_BRIDGE_OP_HDMI is set.
 	 */
 	unsigned int max_bpc;
+
+	/**
+	 * @min_frl_rate_per_lane: Minimum FRL rate per lane, in Gbps,
+	 * the HDMI bridge supports. A value of 0 means the core should use the
+	 * default limit implied by @supported_hdmi_ver. This is only relevant
+	 * if @DRM_BRIDGE_OP_HDMI is set.
+	 */
+	u8 min_frl_rate_per_lane;
+
+	/**
+	 * @min_frl_lanes: Minimum FRL lane count the HDMI bridge supports.
+	 * A value of 0 means the core should use the default limit implied
+	 * by @supported_hdmi_ver. This is only relevant if @DRM_BRIDGE_OP_HDMI
+	 * is set.
+	 */
+	u8 min_frl_lanes;
+
+	/**
+	 * @max_frl_rate_per_lane: Maximum FRL rate per lane, in Gbps, the
+	 * HDMI bridge supports. A value of 0 means the core should use the
+	 * default limit implied by @supported_hdmi_ver. This is only relevant
+	 * if @DRM_BRIDGE_OP_HDMI is set.
+	 */
+	u8 max_frl_rate_per_lane;
+
+	/**
+	 * @max_frl_lanes: Maximum FRL lane count the HDMI bridge supports.
+	 * A value of 0 means the core should use the default limit implied
+	 * by @supported_hdmi_ver. This is only relevant if @DRM_BRIDGE_OP_HDMI
+	 * is set.
+	 */
+	u8 max_frl_lanes;
 
 	/**
 	 * @hdmi_cec_dev: device to be used as a containing device for CEC
