@@ -639,6 +639,16 @@ int drmm_connector_hdmi_init(struct drm_device *dev,
 		return -EINVAL;
 	}
 
+	if (hdmi_funcs->supported_hdmi_ver >= HDMI_VERSION_2_1 &&
+	    (!hdmi_funcs->frl_configure ||
+	     !hdmi_funcs->frl_set_ltp ||
+	     !hdmi_funcs->frl_tx_start ||
+	     !hdmi_funcs->frl_tx_stop ||
+	     !hdmi_funcs->frl_fallback_tmds)) {
+		drm_err(dev, "FRL callbacks missing for HDMI 2.1+\n");
+		return -EINVAL;
+	}
+
 	if (!(connector_type == DRM_MODE_CONNECTOR_HDMIA ||
 	      connector_type == DRM_MODE_CONNECTOR_HDMIB))
 		return -EINVAL;
@@ -646,6 +656,33 @@ int drmm_connector_hdmi_init(struct drm_device *dev,
 	ret = drmm_connector_init(dev, connector, funcs, connector_type, ddc);
 	if (ret)
 		return ret;
+
+	if (hdmi_funcs->supported_hdmi_ver >= HDMI_VERSION_2_1) {
+		if (!connector->hdmi.min_frl_rate_per_lane)
+			connector->hdmi.min_frl_rate_per_lane = HDMI_2_1_FRL_LANE_RATE_MIN_GBPS;
+		if (!connector->hdmi.max_frl_rate_per_lane)
+			connector->hdmi.max_frl_rate_per_lane =
+				hdmi_frl_get_max_lane_rate_gbps(hdmi_funcs->supported_hdmi_ver);
+		if (!connector->hdmi.min_frl_lanes)
+			connector->hdmi.min_frl_lanes = HDMI_2_1_FRL_LANE_COUNT_MIN;
+		if (!connector->hdmi.max_frl_lanes)
+			connector->hdmi.max_frl_lanes =
+				hdmi_frl_get_max_lane_count(hdmi_funcs->supported_hdmi_ver);
+
+		if (connector->hdmi.max_frl_rate_per_lane < connector->hdmi.min_frl_rate_per_lane ||
+		    connector->hdmi.max_frl_lanes < connector->hdmi.min_frl_lanes ||
+		    !hdmi_is_valid_frl_config(connector->hdmi.min_frl_rate_per_lane,
+					      connector->hdmi.min_frl_lanes) ||
+		    !hdmi_is_valid_frl_config(connector->hdmi.max_frl_rate_per_lane,
+					      connector->hdmi.max_frl_lanes) ||
+		    (hdmi_frl_get_max_lane_rate_gbps(hdmi_funcs->supported_hdmi_ver) <
+				connector->hdmi.max_frl_rate_per_lane) ||
+		    (hdmi_frl_get_max_lane_count(hdmi_funcs->supported_hdmi_ver) <
+				connector->hdmi.max_frl_lanes)) {
+			drm_err(dev, "Invalid FRL rate/lane limits\n");
+			return -EINVAL;
+		}
+	}
 
 	/*
 	 * The supported HDMI version can be used to determinate the maximum
