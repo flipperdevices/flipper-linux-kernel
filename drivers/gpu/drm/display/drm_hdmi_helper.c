@@ -1,5 +1,6 @@
 // SPDX-License-Identifier: MIT
 
+#include <linux/delay.h>
 #include <linux/export.h>
 #include <linux/module.h>
 
@@ -470,6 +471,15 @@ static bool drm_scdc_sink_supports_scrambling(struct drm_connector *connector)
 	       info->hdmi.scdc.scrambling.supported;
 }
 
+static bool drm_scdc_sink_supports_frl(struct drm_connector *connector)
+{
+	const struct drm_display_info *info = &connector->display_info;
+
+	return info->is_hdmi &&
+	       info->hdmi.max_frl_rate_per_lane &&
+	       info->hdmi.max_lanes;
+}
+
 static int drm_connector_hdmi_try_scrambling_setup(struct drm_connector *connector)
 {
 	bool done;
@@ -489,6 +499,8 @@ static int drm_connector_hdmi_try_scrambling_setup(struct drm_connector *connect
 	return 0;
 }
 
+static void drm_connector_hdmi_frl_flt_work(struct drm_connector *connector);
+
 static void drm_connector_hdmi_scdc_work(struct work_struct *work)
 {
 	struct drm_connector *connector;
@@ -506,6 +518,11 @@ static void drm_connector_hdmi_scdc_work(struct work_struct *work)
 	 */
 	if (drm_connector_is_unregistered(connector))
 		return;
+
+	if (READ_ONCE(connector->hdmi.frl_enabled)) {
+		drm_connector_hdmi_frl_flt_work(connector);
+		return;
+	}
 
 	if (READ_ONCE(connector->hdmi.scrambler_enabled) &&
 	    !drm_scdc_get_scrambling_status(connector))
@@ -556,6 +573,8 @@ int drm_connector_hdmi_enable_scrambling(struct drm_connector *connector,
 
 	if (!connector->ddc)
 		return -EINVAL;
+
+	drm_connector_hdmi_disable_frl(connector);
 
 	/*
 	 * Advertise our SCDC source version. This is purely informational and
@@ -672,10 +691,10 @@ int drm_connector_hdmi_sync_scdc(struct drm_connector *connector, bool plugged,
 	if (ret)
 		return ret;
 
-	/* TODO: Also handle HDMI 2.1 FRL link training */
+	if (!drm_connector_hdmi_scrambler_supported(connector))
+		return 0;
 
-	if (!drm_connector_hdmi_scrambler_supported(connector) ||
-	    !READ_ONCE(hdmi->scrambler_enabled))
+	if (!READ_ONCE(hdmi->scrambler_enabled) && !READ_ONCE(hdmi->frl_enabled))
 		return 0;
 
 	conn_state = connector->state;
@@ -730,3 +749,502 @@ int drm_connector_hdmi_sync_scdc(struct drm_connector *connector, bool plugged,
 	return ret;
 }
 EXPORT_SYMBOL(drm_connector_hdmi_sync_scdc);
+
+enum drm_hdmi_frl_lts {
+	DRM_HDMI_FRL_LTS1,	/* Read sink version & FLT capabilities */
+	DRM_HDMI_FRL_LTS2,	/* Configure PHY for target FRL operating point */
+	DRM_HDMI_FRL_LTS3,	/* Apply per-lane LTP requested by sink */
+	DRM_HDMI_FRL_LTS4,	/* Fall back to a lower FRL operating point */
+	DRM_HDMI_FRL_LTSP,	/* Training passed, monitor for re-train */
+	DRM_HDMI_FRL_LTSL,	/* Training failed, drop to TMDS (legacy) */
+};
+
+static bool drm_connector_hdmi_frl_active(struct drm_connector *connector)
+{
+	return READ_ONCE(connector->hdmi.frl_enabled);
+}
+
+/*
+ * Check sink version and FLT no-timeout mode.
+ */
+static int drm_connector_hdmi_frl_lts1(struct drm_connector *connector)
+{
+	int ret;
+	u8 val;
+
+	/*
+	 * Advertise our SCDC source version. This is purely informational and
+	 * does not gate FRL, so failures are non-fatal.
+	 */
+	drm_scdc_set_source_version(connector, DRM_HDMI_SCDC_SOURCE_VERSION);
+
+	ret = drm_scdc_readb(connector->ddc, SCDC_SOURCE_TEST_CONFIG, &val);
+	if (ret) {
+		drm_err(connector->dev, "FRL LTS:1 SCDC read failed: %d\n", ret);
+		return DRM_HDMI_FRL_LTSL;
+	}
+
+	connector->hdmi.scdc_work_data.flt_no_timeout = !!(val & SCDC_FLT_NO_TIMEOUT);
+
+	drm_dbg_kms(connector->dev, "FRL LTS:1 flt_no_timeout=%d\n",
+		    connector->hdmi.scdc_work_data.flt_no_timeout);
+
+	return DRM_HDMI_FRL_LTS2;
+}
+
+/*
+ * Check if sink is ready to training. Set FRL rate.
+ */
+static int drm_connector_hdmi_frl_lts2(struct drm_connector *connector)
+{
+	int ret, polls = 50; /* 10s timeout at 20ms per poll */
+	u8 val;
+
+	ret = connector->hdmi.funcs->frl_tx_stop(connector);
+	if (ret) {
+		drm_err(connector->dev, "FRL LTS:2 tx_stop failed: %d\n", ret);
+		return DRM_HDMI_FRL_LTSL;
+	}
+
+	while (polls--) {
+		ret = drm_scdc_readb(connector->ddc, SCDC_STATUS_FLAGS_0, &val);
+		if (ret) {
+			drm_err(connector->dev, "FRL LTS:2 SCDC read failed: %d\n", ret);
+			return DRM_HDMI_FRL_LTSL;
+		}
+
+		if (val & SCDC_FLT_READY) {
+			u8 rate_per_lane = connector->hdmi.scdc_work_data.frl_rate_per_lane;
+			u8 lanes = connector->hdmi.scdc_work_data.frl_lanes;
+
+			ret = connector->hdmi.funcs->frl_configure(connector,
+								   rate_per_lane, lanes);
+			if (ret) {
+				drm_err(connector->dev,
+					"FRL LTS:2 configure failed: %d\n", ret);
+				return DRM_HDMI_FRL_LTSL;
+			}
+
+			drm_dbg_kms(connector->dev, "FRL LTS:2 set rate=%ux%u\n",
+				    rate_per_lane, lanes);
+
+			if (drm_scdc_set_frl(connector, rate_per_lane, lanes, 0))
+				ret = drm_scdc_writeb(connector->ddc, SCDC_CONFIG_0, 0);
+			else
+				ret = -EIO;
+
+			if (ret) {
+				drm_err(connector->dev,
+					"FRL LTS:2 SCDC write failed: %d\n", ret);
+				return DRM_HDMI_FRL_LTSL;
+			}
+
+			return DRM_HDMI_FRL_LTS3;
+		}
+
+		msleep(20);
+	}
+
+	drm_err(connector->dev, "FRL LTS:2 sink FLT not ready\n");
+	return DRM_HDMI_FRL_LTSL;
+}
+
+/*
+ * Conduct link training for the specified FRL rate.
+ */
+static int drm_connector_hdmi_frl_lts3(struct drm_connector *connector)
+{
+	struct drm_connector_hdmi *hdmi = &connector->hdmi;
+	struct drm_device *dev = connector->dev;
+	int ret, polls = 4000; /* 2s timeout at ~500us per poll */
+	u8 val;
+
+	while (hdmi->scdc_work_data.flt_no_timeout || polls--) {
+		usleep_range(400, 500);
+
+		if (!drm_connector_hdmi_frl_active(connector)) {
+			drm_dbg_kms(dev, "FRL LTS:3 link disabled\n");
+			return DRM_HDMI_FRL_LTSL;
+		}
+
+		ret = drm_scdc_readb(connector->ddc, SCDC_UPDATE_0, &val);
+		if (ret) {
+			drm_err(dev, "FRL LTS:3 SCDC read failed: %d\n", ret);
+			return DRM_HDMI_FRL_LTSL;
+		}
+
+		if (val & SCDC_SOURCE_TEST_UPDATE) {
+			u8 test_cfg;
+
+			ret = drm_scdc_readb(connector->ddc, SCDC_SOURCE_TEST_CONFIG,
+					     &test_cfg);
+			if (ret) {
+				drm_err(dev, "FRL LTS:3 SCDC read failed: %d\n", ret);
+				return DRM_HDMI_FRL_LTSL;
+			}
+
+			if (hdmi->scdc_work_data.flt_no_timeout &&
+			    !(test_cfg & SCDC_FLT_NO_TIMEOUT)) {
+				drm_dbg_kms(dev, "FRL LTS:3 exit test mode\n");
+				hdmi->scdc_work_data.flt_no_timeout = false;
+			} else if (!hdmi->scdc_work_data.flt_no_timeout &&
+				   (test_cfg & SCDC_FLT_NO_TIMEOUT)) {
+				drm_dbg_kms(dev, "FRL LTS:3 enter test mode\n");
+				hdmi->scdc_work_data.flt_no_timeout = true;
+			}
+
+			/* Clear SCDC_SOURCE_TEST_UPDATE flag */
+			ret = drm_scdc_writeb(connector->ddc, SCDC_UPDATE_0,
+					      SCDC_SOURCE_TEST_UPDATE);
+			if (ret) {
+				drm_err(dev, "FRL LTS:3 SCDC write failed: %d\n", ret);
+				return DRM_HDMI_FRL_LTSL;
+			}
+		}
+
+		if (val & SCDC_FLT_UPDATE) {
+			u8 ln0, ln1, ln2, ln3;
+
+			ret = drm_scdc_get_frl_ltp_request(connector, &ln0, &ln1,
+							   &ln2, &ln3);
+			if (!ret) {
+				drm_err(dev, "FRL LTS:3 SCDC read failed\n");
+				return DRM_HDMI_FRL_LTSL;
+			}
+
+			drm_dbg_kms(dev, "FRL LTS:3 ln0=0x%x ln1=0x%x ln2=0x%x ln3=0x%x\n",
+				    ln0, ln1, ln2, ln3);
+
+			if (ln0 == 0xf && ln1 == 0xf && ln2 == 0xf && ln3 == 0xf) {
+				drm_dbg_kms(dev, "FRL LTS:3 rate change request\n");
+				return DRM_HDMI_FRL_LTS4;
+			}
+
+			if (ln0 == 0xe || ln1 == 0xe || ln2 == 0xe || ln3 == 0xe) {
+				drm_err(dev, "FRL LTS:3 FFE level update not expected\n");
+				return DRM_HDMI_FRL_LTSL;
+			} else if (ln0 == 0x3 && ln1 == 0x3 && ln2 == 0x3 &&
+				   ln3 == 0x3 && !hdmi->scdc_work_data.flt_no_timeout) {
+				drm_dbg_kms(dev, "FRL LTS:3 ignore Nyquist clock pattern\n");
+			} else {
+				ret = hdmi->funcs->frl_set_ltp(connector, ln0,
+							       ln1, ln2, ln3);
+				if (ret) {
+					drm_err(dev, "FRL LTS:3 set_ltp failed: %d\n", ret);
+					return DRM_HDMI_FRL_LTSL;
+				}
+
+				if (!ln0 && !ln1 && !ln2 && !ln3)
+					return DRM_HDMI_FRL_LTSP;
+			}
+
+			/* Clear FLT_update flag */
+			ret = drm_scdc_writeb(connector->ddc, SCDC_UPDATE_0,
+					      SCDC_FLT_UPDATE);
+			if (ret) {
+				drm_err(dev, "FRL LTS:3 SCDC write failed: %d\n", ret);
+				return DRM_HDMI_FRL_LTSL;
+			}
+		}
+	}
+
+	drm_err(dev, "FRL LTS:3 timed out\n");
+	return DRM_HDMI_FRL_LTSL;
+}
+
+/*
+ * Handle FRL rate change request from sink.
+ */
+static int drm_connector_hdmi_frl_lts4(struct drm_connector *connector)
+{
+	u8 try_rate_per_lane, try_lanes;
+	int ret;
+
+	ret = drm_scdc_calc_lower_frl(connector->hdmi.scdc_work_data.frl_rate_per_lane,
+				      connector->hdmi.scdc_work_data.frl_lanes,
+				      &try_rate_per_lane, &try_lanes);
+	if (!ret) {
+		drm_err(connector->dev, "FRL LTS:4 failed to compute lower rate\n");
+		return DRM_HDMI_FRL_LTSL;
+	}
+
+	if (try_rate_per_lane < connector->hdmi.min_frl_rate_per_lane ||
+	    try_lanes < connector->hdmi.min_frl_lanes) {
+		drm_err(connector->dev, "FRL LTS:4 unsupported %ux%u rate\n",
+			try_rate_per_lane, try_lanes);
+		return DRM_HDMI_FRL_LTSL;
+	}
+
+	drm_dbg_kms(connector->dev, "FRL LTS:4 switching to %ux%u\n",
+		    try_rate_per_lane, try_lanes);
+
+	ret = drm_scdc_writeb(connector->ddc, SCDC_UPDATE_0, SCDC_FLT_UPDATE);
+	if (ret) {
+		drm_err(connector->dev, "FRL LTS:4 SCDC write failed: %d\n", ret);
+		return DRM_HDMI_FRL_LTSL;
+	}
+
+	ret = connector->hdmi.funcs->frl_configure(connector, try_rate_per_lane,
+						   try_lanes);
+	if (ret) {
+		drm_err(connector->dev, "FRL LTS:4 configure failed: %d\n", ret);
+		return DRM_HDMI_FRL_LTSL;
+	}
+
+	connector->hdmi.scdc_work_data.frl_rate_per_lane = try_rate_per_lane;
+	connector->hdmi.scdc_work_data.frl_lanes = try_lanes;
+
+	if (drm_scdc_set_frl(connector, try_rate_per_lane, try_lanes, 0))
+		ret = drm_scdc_writeb(connector->ddc, SCDC_UPDATE_0, SCDC_FLT_UPDATE);
+	else
+		ret = -EIO;
+
+	if (ret) {
+		drm_err(connector->dev, "FRL LTS:4 SCDC write failed: %d\n", ret);
+		return DRM_HDMI_FRL_LTSL;
+	}
+
+	return DRM_HDMI_FRL_LTS3;
+}
+
+/*
+ * Training passed, monitor for retrain.
+ */
+static int drm_connector_hdmi_frl_ltsp(struct drm_connector *connector)
+{
+	struct drm_device *dev = connector->dev;
+	unsigned int polls = 4000; /* 2s timeout at ~500us per poll */
+	int ret;
+	u8 val;
+
+	ret = drm_scdc_writeb(connector->ddc, SCDC_UPDATE_0, SCDC_FLT_UPDATE);
+	if (ret) {
+		drm_err(dev, "FRL LTS:P SCDC write failed: %d\n", ret);
+		return DRM_HDMI_FRL_LTSL;
+	}
+
+	while (--polls) {
+		usleep_range(400, 500);
+
+		if (!drm_connector_hdmi_frl_active(connector)) {
+			drm_dbg_kms(dev, "FRL LTS:P link disabled\n");
+			return DRM_HDMI_FRL_LTSL;
+		}
+
+		ret = drm_scdc_readb(connector->ddc, SCDC_UPDATE_0, &val);
+		if (ret) {
+			drm_err(dev, "FRL LTS:P SCDC read failed: %d\n", ret);
+			return DRM_HDMI_FRL_LTSL;
+		}
+
+		if (val & SCDC_FRL_START) {
+			ret = connector->hdmi.funcs->frl_tx_start(connector);
+			if (ret) {
+				drm_err(dev, "FRL LTS:P tx_start failed: %d\n", ret);
+				return DRM_HDMI_FRL_LTSL;
+			}
+
+			ret = drm_scdc_writeb(connector->ddc, SCDC_UPDATE_0,
+					      SCDC_FRL_START);
+			if (ret) {
+				drm_err(dev, "FRL LTS:P SCDC write failed: %d\n", ret);
+				return DRM_HDMI_FRL_LTSL;
+			}
+
+			drm_dbg_kms(dev, "FRL LTS:P training succeeded\n");
+			break;
+		}
+
+		if (val & SCDC_FLT_UPDATE) {
+			ret = connector->hdmi.funcs->frl_tx_stop(connector);
+			if (ret) {
+				drm_err(dev, "FRL LTS:P tx_stop failed: %d\n", ret);
+				return DRM_HDMI_FRL_LTSL;
+			}
+
+			ret = drm_scdc_writeb(connector->ddc, SCDC_UPDATE_0,
+					      SCDC_FLT_UPDATE);
+			if (ret) {
+				drm_err(dev, "FRL LTS:P SCDC write failed: %d\n", ret);
+				return DRM_HDMI_FRL_LTSL;
+			}
+
+			return DRM_HDMI_FRL_LTS3;
+		}
+	}
+
+	if (polls == 0) {
+		drm_err(dev, "FRL LTS:P timed out waiting for FRL_START\n");
+		return DRM_HDMI_FRL_LTSL;
+	}
+
+	/*
+	 * According to HDMI 2.1 spec, FLT_update flag should be polled at least
+	 * once per 250 ms when video is active.
+	 */
+	for (polls = 1; ; polls++) {
+		msleep(25);
+
+		if (!drm_connector_hdmi_frl_active(connector)) {
+			drm_dbg_kms(dev, "FRL LTS:P link disabled\n");
+			break;
+		}
+
+		if (polls & 0x3)
+			continue;
+
+		ret = drm_scdc_readb(connector->ddc, SCDC_UPDATE_0, &val);
+		if (ret) {
+			drm_err(dev, "FRL LTS:P SCDC read failed: %d\n", ret);
+			break;
+		}
+
+		if (val & SCDC_FLT_UPDATE) {
+			ret = connector->hdmi.funcs->frl_tx_stop(connector);
+			if (ret) {
+				drm_err(dev, "FRL LTS:P tx_stop failed: %d\n", ret);
+				return DRM_HDMI_FRL_LTSL;
+			}
+
+			ret = drm_scdc_writeb(connector->ddc, SCDC_UPDATE_0,
+					      SCDC_FLT_UPDATE);
+			if (ret) {
+				drm_err(dev, "FRL LTS:P SCDC write failed: %d\n", ret);
+				break;
+			}
+
+			return DRM_HDMI_FRL_LTS3;
+		}
+	}
+
+	return DRM_HDMI_FRL_LTSL;
+}
+
+/*
+ * FLT failed or FRL not selected, fallback to legacy TMDS mode.
+ */
+static void drm_connector_hdmi_frl_ltsl(struct drm_connector *connector)
+{
+	drm_scdc_set_frl(connector, 0, 0, 0);
+	drm_scdc_writeb(connector->ddc, SCDC_UPDATE_0, SCDC_FLT_UPDATE);
+
+	connector->hdmi.funcs->frl_fallback_tmds(connector);
+}
+
+static void drm_connector_hdmi_frl_flt_work(struct drm_connector *connector)
+{
+	enum drm_hdmi_frl_lts state = DRM_HDMI_FRL_LTS1;
+
+	while (true) {
+		switch (state) {
+		case DRM_HDMI_FRL_LTS1:
+			state = drm_connector_hdmi_frl_lts1(connector);
+			break;
+		case DRM_HDMI_FRL_LTS2:
+			state = drm_connector_hdmi_frl_lts2(connector);
+			break;
+		case DRM_HDMI_FRL_LTS3:
+			state = drm_connector_hdmi_frl_lts3(connector);
+			break;
+		case DRM_HDMI_FRL_LTS4:
+			state = drm_connector_hdmi_frl_lts4(connector);
+			break;
+		case DRM_HDMI_FRL_LTSP:
+			state = drm_connector_hdmi_frl_ltsp(connector);
+			break;
+		case DRM_HDMI_FRL_LTSL:
+			drm_connector_hdmi_frl_ltsl(connector);
+			return;
+		default:
+			drm_err(connector->dev,
+				"unexpected FRL FLT state: %d\n", state);
+			return;
+		}
+	}
+}
+
+/**
+ * drm_connector_hdmi_enable_frl - Start the FRL link training state machine
+ * @connector: HDMI connector
+ * @conn_state: connector state
+ *
+ * Schedules the FLT work item. Must be called from within the atomic
+ * enable path after the source-side FRL prerequisites are in place, e.g.
+ * PHY powered, OPMODE set to FRL, etc.
+ */
+int drm_connector_hdmi_enable_frl(struct drm_connector *connector,
+				  const struct drm_connector_state *conn_state)
+{
+	struct drm_connector_hdmi *hdmi = &connector->hdmi;
+	struct drm_device *dev = connector->dev;
+
+	if (!conn_state || !connector->ddc)
+		return -EINVAL;
+
+	if (!drm_connector_hdmi_frl_supported(connector)) {
+		drm_dbg_kms(dev, "Source doesn't support FRL.\n");
+		return -EINVAL;
+	}
+
+	if (!conn_state->hdmi.frl_rate_per_lane || !conn_state->hdmi.frl_lanes) {
+		drm_connector_hdmi_frl_ltsl(connector);
+		return 0;
+	}
+
+	if (!drm_scdc_sink_supports_frl(connector)) {
+		drm_dbg_kms(dev, "Sink doesn't support FRL.\n");
+		return -EINVAL;
+	}
+
+	drm_connector_hdmi_disable_scrambling(connector);
+
+	if (!hdmi->scdc_work_initialized) {
+		INIT_DELAYED_WORK(&hdmi->scdc_work,
+				  drm_connector_hdmi_scdc_work);
+		hdmi->scdc_work_initialized = true;
+	}
+
+	drm_dbg_kms(dev, "Starting FRL\n");
+
+	WRITE_ONCE(hdmi->frl_enabled, true);
+
+	hdmi->scdc_work_data.frl_rate_per_lane = conn_state->hdmi.frl_rate_per_lane;
+	hdmi->scdc_work_data.frl_lanes = conn_state->hdmi.frl_lanes;
+
+	schedule_delayed_work(&connector->hdmi.scdc_work, 0);
+
+	return 0;
+}
+EXPORT_SYMBOL(drm_connector_hdmi_enable_frl);
+
+/**
+ * drm_connector_hdmi_disable_frl - Stop and synchronise the FRL state machine
+ * @connector: HDMI connector
+ *
+ * Cancels any in-flight FLT work and waits for it to complete. Must be
+ * called from within the atomic disable path before tearing down the
+ * source-side FRL configuration.
+ */
+int drm_connector_hdmi_disable_frl(struct drm_connector *connector)
+{
+	struct drm_connector_hdmi *hdmi = &connector->hdmi;
+	struct drm_device *dev = connector->dev;
+
+	if (!drm_connector_hdmi_frl_active(connector))
+		return 0;
+
+	drm_dbg_kms(dev, "Disabling FRL\n");
+
+	WRITE_ONCE(hdmi->frl_enabled, false);
+
+	/*
+	 * A driver may force frl_enabled at init to trigger a disable
+	 * at boot, bypassing the enable path that sets up the work
+	 * item. Only cancel it once it has actually been initialized.
+	 */
+	if (hdmi->scdc_work_initialized)
+		cancel_delayed_work_sync(&hdmi->scdc_work);
+
+	return 0;
+}
+EXPORT_SYMBOL(drm_connector_hdmi_disable_frl);
