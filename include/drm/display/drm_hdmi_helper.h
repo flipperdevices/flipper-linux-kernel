@@ -50,4 +50,7 @@ int
 drm_connector_hdmi_sync_scdc(struct drm_connector *connector, bool plugged,
 			     struct drm_modeset_acquire_ctx *ctx);
 
+int drm_connector_hdmi_enable_frl(struct drm_connector *connector,
+				  const struct drm_connector_state *conn_state);
+int drm_connector_hdmi_disable_frl(struct drm_connector *connector);
 #endif
