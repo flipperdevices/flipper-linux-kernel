@@ -32,6 +32,150 @@
 
 #define hdmi_log(fmt, ...) dev_printk(level, dev, fmt, ##__VA_ARGS__)
 
+/*
+ * Valid HDMI 2.1+ FRL configurations, ordered by increasing total bandwidth
+ * (rate_per_lane * lanes). hdmi_frl_bandwidth_from_clock() relies on this
+ * ordering to return the minimum sufficient bandwidth.
+ */
+static const struct hdmi_frl_config {
+	u8 rate_per_lane;
+	u8 lanes;
+} hdmi_frl_configs[] = {
+	{  3, 3 },
+	{  6, 3 },
+	{  6, 4 },
+	{  8, 4 },
+	{ 10, 4 },
+	{ 12, 4 },
+	{ 16, 4 },
+	{ 20, 4 },
+	{ 24, 4 },
+};
+
+/**
+ * hdmi_is_valid_frl_config() - Check if the FRL lane rate/count combination
+ *                              is valid per the HDMI 2.1+ spec
+ * @rate_per_lane: Per-lane rate, in Gbps
+ * @lanes: Number of FRL lanes
+ *
+ * Returns: true if the rate_per_lane/lanes pair is a valid HDMI 2.1+ FRL
+ * configuration, false otherwise.
+ */
+bool hdmi_is_valid_frl_config(u8 rate_per_lane, u8 lanes)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(hdmi_frl_configs); i++) {
+		if (hdmi_frl_configs[i].rate_per_lane == rate_per_lane &&
+		    hdmi_frl_configs[i].lanes == lanes)
+			return true;
+	}
+
+	return false;
+}
+EXPORT_SYMBOL(hdmi_is_valid_frl_config);
+
+/**
+ * hdmi_frl_config_from_bandwidth() - Decompose an FRL total bandwidth into
+ *                                    its per-lane rate/lane-count components
+ * @frl_rate: Total FRL bandwidth, in Gbps (rate_per_lane * lanes)
+ * @rate_per_lane: Per-lane rate, in Gbps (output)
+ * @lanes: Number of FRL lanes (output)
+ *
+ * Reverses the rate_per_lane*lanes computation for one of the valid HDMI 2.1+
+ * FRL configurations. Since only a few rate_per_lane/lanes combinations are
+ * valid per the HDMI 2.1+ spec, and their products are pairwise distinct,
+ * @frl_rate unambiguously identifies the source pair.
+ *
+ * Returns: 0 on success, or -EINVAL if @frl_rate does not correspond to
+ * a valid HDMI 2.1 FRL+ configuration.
+ */
+int hdmi_frl_config_from_bandwidth(u32 frl_rate, u8 *rate_per_lane, u8 *lanes)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(hdmi_frl_configs); i++) {
+		if (frl_rate == hdmi_frl_configs[i].rate_per_lane * hdmi_frl_configs[i].lanes) {
+			*rate_per_lane = hdmi_frl_configs[i].rate_per_lane;
+			*lanes = hdmi_frl_configs[i].lanes;
+			return 0;
+		}
+	}
+
+	return -EINVAL;
+}
+EXPORT_SYMBOL(hdmi_frl_config_from_bandwidth);
+
+/**
+ * hdmi_frl_bandwidth_range_from_clock() - Find the range of FRL bandwidths
+ *                                         that can carry a mode
+ * @clock: Mode pixel clock, in Hz
+ * @source_min_gbps: Minimum FRL bandwidth the source can drive, in Gbps
+ * @source_max_gbps: Maximum FRL bandwidth the source can drive, in Gbps
+ * @sink_max_gbps: Maximum FRL bandwidth the sink can accept, in Gbps
+ * @min_gbps: Minimum sufficient FRL bandwidth, in Gbps (output)
+ * @max_gbps: Maximum usable FRL bandwidth, in Gbps (output)
+ *
+ * Computes the FRL bandwidth required to carry a mode with the given pixel
+ * clock, assuming 16b/18b encoding over three TMDS channels:
+ *
+ *   rate (bps) = clock (Hz) * 3 (channels) * 8 (bits) * 18 / 16
+ *
+ * and returns the range of valid HDMI 2.1+ FRL configurations that can carry
+ * it within the source and sink capability window
+ * [@source_min_gbps, min(@source_max_gbps, @sink_max_gbps)].
+ *
+ * @min_gbps is the lowest configuration sufficient for the mode; @max_gbps
+ * is the highest configuration permitted by the capabilities, independent of
+ * the mode. Both are valid FRL total bandwidths, and @min_gbps <= @max_gbps.
+ *
+ * Note that this does not account for FRL link layer overhead beyond the
+ * 16b/18b encoding expansion.
+ *
+ * Returns: 0 on success, or -EINVAL if the capability window is empty or no
+ * valid FRL configuration can carry the mode within it.
+ */
+int hdmi_frl_bandwidth_range_from_clock(unsigned long long clock,
+					unsigned int source_min_gbps,
+					unsigned int source_max_gbps,
+					unsigned int sink_max_gbps,
+					unsigned int *min_gbps,
+					unsigned int *max_gbps)
+{
+	unsigned long long mode_frl_bps = clock * 27;
+	unsigned int cap_max_gbps = min(source_max_gbps, sink_max_gbps);
+	unsigned int found_min = 0, found_max = 0;
+	int i;
+
+	if (source_min_gbps > cap_max_gbps)
+		return -EINVAL;
+
+	for (i = 0; i < ARRAY_SIZE(hdmi_frl_configs); i++) {
+		unsigned int gbps = hdmi_frl_configs[i].rate_per_lane *
+				    hdmi_frl_configs[i].lanes;
+
+		if (gbps > cap_max_gbps)
+			break;
+
+		if (gbps < source_min_gbps)
+			continue;
+
+		found_max = gbps;
+
+		if (!found_min && mode_frl_bps <= gbps * 1000000000ULL)
+			found_min = gbps;
+	}
+
+	if (!found_min)
+		return -EINVAL;
+
+	*min_gbps = found_min;
+	*max_gbps = found_max;
+
+	return 0;
+}
+EXPORT_SYMBOL(hdmi_frl_bandwidth_range_from_clock);
+
 static u8 hdmi_infoframe_checksum(const u8 *ptr, size_t size)
 {
 	u8 csum = 0;
