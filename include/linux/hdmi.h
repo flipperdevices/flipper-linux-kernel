@@ -68,6 +68,66 @@ enum hdmi_infoframe_type {
 #define HDMI_1_3_TMDS_CHAR_RATE_MAX_HZ    340000000
 #define HDMI_2_0_TMDS_CHAR_RATE_MAX_HZ    600000000
 
+/* HDMI spec min/max FRL lane rates, in Gbps */
+#define HDMI_2_1_FRL_LANE_RATE_MIN_GBPS		  3
+#define HDMI_2_1_FRL_LANE_RATE_MAX_GBPS		 12
+#define HDMI_2_2_FRL_LANE_RATE_MAX_GBPS		 24
+/* HDMI spec min/max FRL lane counts */
+#define HDMI_2_1_FRL_LANE_COUNT_MIN		  3
+#define HDMI_2_1_FRL_LANE_COUNT_MAX		  4
+/* HDMI spec max TxFFE level */
+#define HDMI_2_1_FRL_FFE_LEVEL_MIN		  0
+#define HDMI_2_1_FRL_FFE_LEVEL_MAX		  3
+
+/**
+ * hdmi_frl_get_max_lane_rate_gbps - Get the maximum FRL per-lane rate
+ *                                   for a given HDMI version
+ * @ver: HDMI specification version
+ *
+ * Returns the maximum Fixed Rate Link (FRL) per-lane data rate, in Gbps,
+ * supported by the given HDMI specification version.
+ *
+ * Return: Maximum FRL lane rate in Gbps for @ver, or 0 if @ver does not
+ * support FRL (i.e. is older than HDMI_VERSION_2_1).
+ */
+static inline u8 hdmi_frl_get_max_lane_rate_gbps(enum hdmi_version ver)
+{
+	if (ver >= HDMI_VERSION_2_2)
+		return HDMI_2_2_FRL_LANE_RATE_MAX_GBPS;
+	else if (ver == HDMI_VERSION_2_1)
+		return HDMI_2_1_FRL_LANE_RATE_MAX_GBPS;
+
+	return 0;
+}
+
+/**
+ * hdmi_frl_get_max_lane_count - Get the maximum number of FRL lanes for
+ *                               a given HDMI version
+ * @ver: HDMI specification version (enum hdmi_version)
+ *
+ * Returns the maximum number of Fixed Rate Link (FRL) lanes supported by
+ * the given HDMI specification version.
+ *
+ * Return: Maximum FRL lane count for @ver, or 0 if @ver does not support
+ * FRL (i.e. is older than HDMI_VERSION_2_1).
+ */
+static inline u8 hdmi_frl_get_max_lane_count(enum hdmi_version ver)
+{
+	if (ver >= HDMI_VERSION_2_1)
+		return HDMI_2_1_FRL_LANE_COUNT_MAX;
+
+	return 0;
+}
+
+bool hdmi_is_valid_frl_config(u8 rate_per_lane, u8 lanes);
+int hdmi_frl_config_from_bandwidth(u32 frl_rate, u8 *rate_per_lane, u8 *lanes);
+int hdmi_frl_bandwidth_range_from_clock(unsigned long long clock,
+					unsigned int source_min_gbps,
+					unsigned int source_max_gbps,
+					unsigned int sink_max_gbps,
+					unsigned int *min_gbps,
+					unsigned int *max_gbps);
+
 #define HDMI_IEEE_OUI 0x000c03
 #define HDMI_FORUM_IEEE_OUI 0xc45dd8
 #define HDMI_INFOFRAME_HEADER_SIZE  4
