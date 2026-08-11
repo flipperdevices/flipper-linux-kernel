@@ -2,11 +2,115 @@
 /* Copyright (c) 2026, Collabora Ltd. */
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/phy/rockchip-usbdp.h>
 #include <linux/pm_runtime.h>
 #include "glue.h"
+#include "io.h"
 
 struct dwc3_rockchip {
 	struct dwc3		dwc;
+	u8			phy_reset_active;
+	u8			phy_reset_pm_ref;
+	struct task_struct	*pm_task;
+};
+
+static void dwc3_rockchip_phy_pre_reset(struct dwc3_rockchip *dwc_rk, int port)
+{
+	struct dwc3 *dwc = &dwc_rk->dwc;
+	bool pm_ref = false;
+	u32 reg;
+	int ret;
+
+	if (dwc_rk->pm_task != current) {
+		ret = pm_runtime_get_if_active(dwc->dev);
+		if (!ret)
+			return;
+
+		pm_ref = ret > 0;
+	}
+
+	/*
+	 * Assert USB3 PHY soft reset within DWC3 before the external
+	 * PHY resets. This disconnects the PIPE interface, preventing
+	 * the DWC3 from interfering with PHY reinitialization and
+	 * avoiding LCPLL lock failures.
+	 */
+	scoped_guard(spinlock_irqsave, &dwc->lock) {
+		dwc_rk->phy_reset_active |= BIT(port);
+		if (pm_ref)
+			dwc_rk->phy_reset_pm_ref |= BIT(port);
+		reg = dwc3_readl(dwc, DWC3_GUSB3PIPECTL(port));
+		reg |= DWC3_GUSB3PIPECTL_PHYSOFTRST;
+		dwc3_writel(dwc, DWC3_GUSB3PIPECTL(port), reg);
+	}
+}
+
+static void dwc3_rockchip_phy_post_reset(struct dwc3_rockchip *dwc_rk, int port)
+{
+	struct dwc3 *dwc = &dwc_rk->dwc;
+	bool pm_ref;
+	u32 reg;
+
+	scoped_guard(spinlock_irqsave, &dwc->lock) {
+		if (!(dwc_rk->phy_reset_active & BIT(port)))
+			return;
+
+		dwc_rk->phy_reset_active &= ~BIT(port);
+		pm_ref = dwc_rk->phy_reset_pm_ref & BIT(port);
+		dwc_rk->phy_reset_pm_ref &= ~BIT(port);
+
+		reg = dwc3_readl(dwc, DWC3_GUSB3PIPECTL(port));
+		reg &= ~DWC3_GUSB3PIPECTL_PHYSOFTRST;
+		dwc3_writel(dwc, DWC3_GUSB3PIPECTL(port), reg);
+	}
+
+	if (pm_ref)
+		pm_runtime_put(dwc->dev);
+}
+
+static void dwc3_rockchip_phy_reset(void *data, int port, bool pre)
+{
+	struct dwc3_rockchip *dwc_rk = data;
+
+	if (pre)
+		dwc3_rockchip_phy_pre_reset(dwc_rk, port);
+	else
+		dwc3_rockchip_phy_post_reset(dwc_rk, port);
+}
+
+static void dwc3_rk_phy_unregister_notifiers(void *data)
+{
+	struct dwc3_rockchip *dwc_rk = data;
+	struct dwc3 *dwc = &dwc_rk->dwc;
+	int i;
+
+	for (i = 0; i < dwc->num_usb3_ports; i++) {
+		struct phy *phy = dwc->usb3_generic_phy[i];
+
+		if (phy && !strcmp(dev_driver_string(phy->dev.parent), "rockchip-usbdp-phy"))
+			rk_udphy_unregister_reset_handler(phy);
+	}
+
+	WARN_ON(dwc_rk->phy_reset_active || dwc_rk->phy_reset_pm_ref);
+}
+
+static int dwc3_rk_phy_register_reset_handler(struct dwc3 *dwc)
+{
+	struct dwc3_rockchip *dwc_rk = container_of(dwc, struct dwc3_rockchip, dwc);
+	int i;
+
+	for (i = 0; i < dwc->num_usb3_ports; i++) {
+		struct phy *phy = dwc->usb3_generic_phy[i];
+
+		if (phy && !strcmp(dev_driver_string(phy->dev.parent), "rockchip-usbdp-phy"))
+			rk_udphy_register_reset_handler(phy, dwc3_rockchip_phy_reset, dwc_rk, i);
+	}
+
+	return devm_add_action_or_reset(dwc->dev, dwc3_rk_phy_unregister_notifiers, dwc_rk);
+}
+
+static struct dwc3_glue_ops dwc3_rockchip_glue_ops = {
+	.post_phy_registration = dwc3_rk_phy_register_reset_handler,
 };
 
 static int dwc3_rockchip_probe(struct platform_device *pdev)
@@ -26,7 +130,7 @@ static int dwc3_rockchip_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	dwc_rk->dwc.dev = &pdev->dev;
-	dwc_rk->dwc.glue_ops = NULL;
+	dwc_rk->dwc.glue_ops = &dwc3_rockchip_glue_ops;
 
 	probe_data.dwc = &dwc_rk->dwc;
 	probe_data.res = res;
@@ -42,12 +146,28 @@ static void dwc3_rockchip_remove(struct platform_device *pdev)
 
 static int dwc3_rockchip_runtime_suspend(struct device *dev)
 {
-	return dwc3_runtime_suspend(dev_get_drvdata(dev));
+	struct dwc3 *dwc = dev_get_drvdata(dev);
+	struct dwc3_rockchip *dwc_rk = container_of(dwc, struct dwc3_rockchip, dwc);
+	int ret;
+
+	dwc_rk->pm_task = current;
+	ret = dwc3_runtime_suspend(dwc);
+	dwc_rk->pm_task = NULL;
+
+	return ret;
 }
 
 static int dwc3_rockchip_runtime_resume(struct device *dev)
 {
-	return dwc3_runtime_resume(dev_get_drvdata(dev));
+	struct dwc3 *dwc = dev_get_drvdata(dev);
+	struct dwc3_rockchip *dwc_rk = container_of(dwc, struct dwc3_rockchip, dwc);
+	int ret;
+
+	dwc_rk->pm_task = current;
+	ret = dwc3_runtime_resume(dwc);
+	dwc_rk->pm_task = NULL;
+
+	return ret;
 }
 
 static int dwc3_rockchip_runtime_idle(struct device *dev)
