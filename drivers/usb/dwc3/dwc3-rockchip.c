@@ -2,11 +2,129 @@
 /* Copyright (c) 2026, Collabora Ltd. */
 #include <linux/module.h>
 #include <linux/platform_device.h>
+#include <linux/phy/rockchip-usbdp.h>
 #include <linux/pm_runtime.h>
 #include "glue.h"
+#include "io.h"
 
 struct dwc3_rockchip {
 	struct dwc3		dwc;
+	u8			phy_reset_active;
+};
+
+static int dwc3_rockchip_phy_pre_reset(struct dwc3_rockchip *dwc_rk, int port)
+{
+	struct dwc3 *dwc = &dwc_rk->dwc;
+	unsigned long flags;
+	u32 reg;
+	int ret;
+
+	/*
+	 * If already suspended, the resume path will reinit GUSB3PIPECTL
+	 * via dwc3_core_init(). A forced resume is not possible as that
+	 * would call phy_init() resulting in a deadlock. Due to the
+	 * phy_init() in the resume path there is also no need to block
+	 * async RPM resume on our side, since the PHY synchronizes it
+	 * for us.
+	 *
+	 * pm_runtime_get_if_active() returns 0 when suspended (skip),
+	 * 1 when active (ref held), or -EINVAL when PM is disabled
+	 * (device always active). In the -EINVAL case PM ref counting
+	 * is a no-op, so the unconditional put in POST_RESET is safe.
+	 */
+	ret = pm_runtime_get_if_active(dwc->dev);
+	if (!ret)
+		return ret;
+
+	/*
+	 * Assert USB3 PHY soft reset within DWC3 before the external
+	 * PHY resets. This disconnects the PIPE interface, preventing
+	 * the DWC3 from interfering with PHY reinitialization and
+	 * avoiding LCPLL lock failures.
+	 */
+	spin_lock_irqsave(&dwc->lock, flags);
+	dwc_rk->phy_reset_active |= BIT(port);
+	reg = dwc3_readl(dwc, DWC3_GUSB3PIPECTL(port));
+	reg |= DWC3_GUSB3PIPECTL_PHYSOFTRST;
+	dwc3_writel(dwc, DWC3_GUSB3PIPECTL(port), reg);
+	spin_unlock_irqrestore(&dwc->lock, flags);
+
+	return 0;
+}
+
+static int dwc3_rockchip_phy_post_reset(struct dwc3_rockchip *dwc_rk, int port)
+{
+	struct dwc3 *dwc = &dwc_rk->dwc;
+	unsigned long flags;
+	u32 reg;
+
+	spin_lock_irqsave(&dwc->lock, flags);
+	if (!(dwc_rk->phy_reset_active & BIT(port))) {
+		spin_unlock_irqrestore(&dwc->lock, flags);
+		return 0;
+	}
+
+	dwc_rk->phy_reset_active &= ~BIT(port);
+
+	/* Restore normal operation */
+	reg = dwc3_readl(dwc, DWC3_GUSB3PIPECTL(port));
+	reg &= ~DWC3_GUSB3PIPECTL_PHYSOFTRST;
+	dwc3_writel(dwc, DWC3_GUSB3PIPECTL(port), reg);
+	spin_unlock_irqrestore(&dwc->lock, flags);
+
+	pm_runtime_put_autosuspend(dwc->dev);
+
+	return 0;
+}
+
+static int dwc3_rockchip_phy_reset(void *data, int port, bool pre)
+{
+	struct dwc3_rockchip *dwc_rk = data;
+
+	if (pre)
+		return dwc3_rockchip_phy_pre_reset(dwc_rk, port);
+	else
+		return dwc3_rockchip_phy_post_reset(dwc_rk, port);
+}
+
+static void dwc3_rk_phy_unregister_notifiers(void *data)
+{
+	struct dwc3_rockchip *dwc_rk = data;
+	struct dwc3 *dwc = &dwc_rk->dwc;
+	int i;
+
+	for (i = 0; i < dwc->num_usb3_ports; i++) {
+		struct phy *phy = dwc->usb3_generic_phy[i];
+
+		if (phy && !strcmp(dev_driver_string(phy->dev.parent), "rockchip-usbdp-phy"))
+			rk_udphy_unregister_reset_handler(phy);
+	}
+
+	/* Release any PM references from in-flight resets */
+	for (i = 0; i < dwc->num_usb3_ports; i++) {
+		if (dwc_rk->phy_reset_active & BIT(i))
+			pm_runtime_put_autosuspend(dwc->dev);
+	}
+	dwc_rk->phy_reset_active = 0;
+}
+
+static int dwc3_rk_phy_register_reset_handler(struct dwc3 *dwc)
+{
+	struct dwc3_rockchip *dwc_rk = container_of(dwc, struct dwc3_rockchip, dwc);
+	int i;
+
+	for (i = 0; i < dwc->num_usb3_ports; i++) {
+		struct phy *phy = dwc->usb3_generic_phy[i];
+
+		if (phy && !strcmp(dev_driver_string(phy->dev.parent), "rockchip-usbdp-phy"))
+			rk_udphy_register_reset_handler(phy, dwc3_rockchip_phy_reset, dwc_rk, i);
+	}
+
+	return devm_add_action_or_reset(dwc->dev, dwc3_rk_phy_unregister_notifiers, dwc_rk);
+}
+
+static struct dwc3_glue_ops dwc3_rockchip_glue_ops = {
+	.post_phy_registration = dwc3_rk_phy_register_reset_handler,
 };
 
 static int dwc3_rockchip_probe(struct platform_device *pdev)
@@ -26,7 +144,7 @@ static int dwc3_rockchip_probe(struct platform_device *pdev)
 		return -ENOMEM;
 
 	dwc_rk->dwc.dev = &pdev->dev;
-	dwc_rk->dwc.glue_ops = NULL;
+	dwc_rk->dwc.glue_ops = &dwc3_rockchip_glue_ops;
 
 	probe_data.dwc = &dwc_rk->dwc;
 	probe_data.res = res;
