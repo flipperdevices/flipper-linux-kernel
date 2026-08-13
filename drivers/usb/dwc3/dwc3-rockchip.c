@@ -10,7 +10,18 @@
 struct dwc3_rockchip {
 	struct dwc3		dwc;
 	u8			phy_reset_active;
+	enum usb_role		role;
 };
+
+static void dwc3_rockchip_vbus_handler(struct dwc3 *dwc, bool present)
+{
+	guard(spinlock_irqsave)(&dwc->lock);
+
+	if (!dwc->gadget || !dwc->gadget_driver)
+		return;
+
+	usb_udc_vbus_handler(dwc->gadget, present);
+}
 
 static void dwc3_rockchip_phy_pre_reset(struct dwc3_rockchip *dwc_rk, int port)
 {
@@ -25,6 +36,8 @@ static void dwc3_rockchip_phy_pre_reset(struct dwc3_rockchip *dwc_rk, int port)
 	 */
 	if (!pm_runtime_active(dwc->dev))
 		return;
+
+	dwc3_rockchip_vbus_handler(dwc, false);
 
 	/*
 	 * Assert USB3 PHY soft reset within DWC3 before the external
@@ -43,6 +56,9 @@ static void dwc3_rockchip_phy_pre_reset(struct dwc3_rockchip *dwc_rk, int port)
 static void dwc3_rockchip_phy_post_reset(struct dwc3_rockchip *dwc_rk, int port)
 {
 	struct dwc3 *dwc = &dwc_rk->dwc;
+	bool gadget_mode = (dwc->current_dr_role == DWC3_GCTL_PRTCAP_DEVICE) ||
+			   ((dwc->current_dr_role == DWC3_GCTL_PRTCAP_OTG) &&
+			   (dwc_rk->role == USB_ROLE_DEVICE));
 	u32 reg;
 
 	scoped_guard(spinlock_irqsave, &dwc->lock) {
@@ -56,6 +72,8 @@ static void dwc3_rockchip_phy_post_reset(struct dwc3_rockchip *dwc_rk, int port)
 		reg &= ~DWC3_GUSB3PIPECTL_PHYSOFTRST;
 		dwc3_writel(dwc, DWC3_GUSB3PIPECTL(port), reg);
 	}
+
+	dwc3_rockchip_vbus_handler(dwc, gadget_mode);
 }
 
 static void dwc3_rockchip_phy_reset(void *data, int port, bool pre)
@@ -99,7 +117,16 @@ static int dwc3_rk_phy_register_reset_handler(struct dwc3 *dwc)
 	return devm_add_action_or_reset(dwc->dev, dwc3_rk_phy_unregister_notifiers, dwc_rk);
 }
 
+static void dwc3_rockchip_set_role(struct dwc3 *dwc, enum usb_role role)
+{
+	struct dwc3_rockchip *dwc_rk = container_of(dwc, struct dwc3_rockchip, dwc);
+
+	dwc_rk->role = role;
+	dwc3_rockchip_vbus_handler(dwc, role == USB_ROLE_DEVICE);
+}
+
 static struct dwc3_glue_ops dwc3_rockchip_glue_ops = {
+	.pre_set_role = dwc3_rockchip_set_role,
 	.post_phy_registration = dwc3_rk_phy_register_reset_handler,
 };
 
