@@ -91,5 +91,6 @@
 &vcc5v0_device_s0 {
 	regulator-min-microvolt = <5200000>;
 	regulator-max-microvolt = <5200000>;
+	enable-active-high;
 	gpios = <&gpio_expander 0xb GPIO_ACTIVE_HIGH>;
 };
