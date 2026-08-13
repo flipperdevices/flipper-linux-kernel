@@ -10,7 +10,16 @@
 struct dwc3_rockchip {
 	struct dwc3		dwc;
 	u8			phy_reset_active;
+	enum usb_role		role;
 };
+
+static void dwc3_rockchip_vbus_handler(struct dwc3 *dwc, bool present)
+{
+	if (!dwc->gadget || !dwc->gadget_driver)
+		return;
+
+	usb_udc_vbus_handler(dwc->gadget, present);
+}
 
 static int dwc3_rockchip_phy_pre_reset(struct dwc3_rockchip *dwc_rk, int port)
 {
@@ -36,6 +45,8 @@ static int dwc3_rockchip_phy_pre_reset(struct dwc3_rockchip *dwc_rk, int port)
 	if (!ret)
 		return ret;
 
+	dwc3_rockchip_vbus_handler(dwc, false);
+
 	/*
 	 * Assert USB3 PHY soft reset within DWC3 before the external
 	 * PHY resets. This disconnects the PIPE interface, preventing
@@ -55,6 +66,8 @@ static int dwc3_rockchip_phy_pre_reset(struct dwc3_rockchip *dwc_rk, int port)
 static int dwc3_rockchip_phy_post_reset(struct dwc3_rockchip *dwc_rk, int port)
 {
 	struct dwc3 *dwc = &dwc_rk->dwc;
+	bool gadget_mode = (dwc->current_dr_role == DWC3_GCTL_PRTCAP_DEVICE) ||
+			   (dwc_rk->role == USB_ROLE_DEVICE);
 	unsigned long flags;
 	u32 reg;
 
@@ -71,6 +84,8 @@ static int dwc3_rockchip_phy_post_reset(struct dwc3_rockchip *dwc_rk, int port)
 	reg &= ~DWC3_GUSB3PIPECTL_PHYSOFTRST;
 	dwc3_writel(dwc, DWC3_GUSB3PIPECTL(port), reg);
 	spin_unlock_irqrestore(&dwc->lock, flags);
+
+	dwc3_rockchip_vbus_handler(dwc, gadget_mode);
 
 	pm_runtime_put_autosuspend(dwc->dev);
 
@@ -123,7 +138,16 @@ static int dwc3_rk_phy_register_reset_handler(struct dwc3 *dwc)
 	return devm_add_action_or_reset(dwc->dev, dwc3_rk_phy_unregister_notifiers, dwc_rk);
 }
 
+static void dwc3_rockchip_set_role(struct dwc3 *dwc, enum usb_role role)
+{
+	struct dwc3_rockchip *dwc_rk = container_of(dwc, struct dwc3_rockchip, dwc);
+
+	dwc_rk->role = role;
+	dwc3_rockchip_vbus_handler(dwc, role == USB_ROLE_DEVICE);
+}
+
 static struct dwc3_glue_ops dwc3_rockchip_glue_ops = {
+	.pre_set_role = dwc3_rockchip_set_role,
 	.post_phy_registration = dwc3_rk_phy_register_reset_handler,
 };
 
