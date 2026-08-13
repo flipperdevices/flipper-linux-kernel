@@ -319,7 +319,7 @@ static void *typec_mux_match(const struct fwnode_handle *fwnode,
  */
 struct typec_mux *fwnode_typec_mux_get(struct fwnode_handle *fwnode)
 {
-	struct typec_mux_dev *mux_devs[TYPEC_MUX_MAX_DEVS];
+	struct typec_mux_dev *mux_devs[TYPEC_MUX_MAX_DEVS] = { };
 	struct typec_mux *mux;
 	int count;
 	int err;
