@@ -145,7 +145,9 @@ static int __pure dw_hdmi_qp_rockchip_bus_fmt_to_reg(u32 bus_fmt)
 	return -EINVAL;
 }
 
-static void dw_hdmi_qp_rockchip_encoder_enable(struct drm_encoder *encoder)
+static void
+dw_hdmi_qp_rockchip_encoder_atomic_enable(struct drm_encoder *encoder,
+					  struct drm_atomic_commit *state)
 {
 	struct rockchip_hdmi_qp *hdmi = to_rockchip_hdmi_qp(encoder);
 	struct drm_crtc *crtc = encoder->crtc;
@@ -246,7 +248,7 @@ dw_hdmi_qp_rockchip_encoder_atomic_check(struct drm_encoder *encoder,
 
 static const struct
 drm_encoder_helper_funcs dw_hdmi_qp_rockchip_encoder_helper_funcs = {
-	.enable		= dw_hdmi_qp_rockchip_encoder_enable,
+	.atomic_enable	= dw_hdmi_qp_rockchip_encoder_atomic_enable,
 	.atomic_check	= dw_hdmi_qp_rockchip_encoder_atomic_check,
 };
 
