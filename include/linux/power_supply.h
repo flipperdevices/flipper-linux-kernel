@@ -864,6 +864,10 @@ extern int power_supply_get_battery_info(struct power_supply *psy,
 					 struct power_supply_battery_info **info_out);
 extern void power_supply_put_battery_info(struct power_supply *psy,
 					  struct power_supply_battery_info *info);
+extern int power_supply_get_battery_info_from_dev(struct device *dev,
+						  struct power_supply_battery_info **info_out);
+extern void power_supply_put_battery_info_from_dev(struct device *dev,
+						   struct power_supply_battery_info *info);
 extern bool power_supply_battery_info_has_prop(struct power_supply_battery_info *info,
 					       enum power_supply_property psp);
 extern int power_supply_battery_info_get_prop(struct power_supply_battery_info *info,
