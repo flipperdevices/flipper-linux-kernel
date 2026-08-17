@@ -1165,38 +1165,38 @@ static const struct bq257xx_chip_info bq25792_chip_info = {
 /**
  * bq257xx_parse_dt() - Parse the device tree for required properties
  * @pdata: driver platform data
- * @psy_cfg: power supply config data
  * @dev: device struct
  *
  * Read the device tree to identify the minimum system voltage, the
  * maximum charge current, the maximum charge voltage, and the maximum
- * input current.
+ * input current. Deliberately keyed off @dev rather than the charger power
+ * supply, so that it can run before the supply is registered.
  *
  * Return: Returns 0 on success or error code on error.
  */
-static int bq257xx_parse_dt(struct bq257xx_chg *pdata,
-		struct power_supply_config *psy_cfg, struct device *dev)
+static int bq257xx_parse_dt(struct bq257xx_chg *pdata, struct device *dev)
 {
 	struct power_supply_battery_info *bat_info;
 	int ret;
 
-	ret = power_supply_get_battery_info(pdata->charger,
-					    &bat_info);
+	ret = power_supply_get_battery_info_from_dev(dev, &bat_info);
 	if (ret)
 		return dev_err_probe(dev, ret,
 				     "Unable to get battery info\n");
 
 	if ((bat_info->voltage_min_design_uv <= 0) ||
 	    (bat_info->constant_charge_voltage_max_uv <= 0) ||
-	    (bat_info->constant_charge_current_max_ua <= 0))
+	    (bat_info->constant_charge_current_max_ua <= 0)) {
+		power_supply_put_battery_info_from_dev(dev, bat_info);
 		return dev_err_probe(dev, -EINVAL,
 				     "Required bat info missing or invalid\n");
+	}
 
 	pdata->vsys_min = bat_info->voltage_min_design_uv;
 	pdata->vbat_max = bat_info->constant_charge_voltage_max_uv;
 	pdata->ichg_max = bat_info->constant_charge_current_max_ua;
 
-	power_supply_put_battery_info(pdata->charger, bat_info);
+	power_supply_put_battery_info_from_dev(dev, bat_info);
 
 	ret = device_property_read_u32(dev,
 				       "input-current-limit-microamp",
@@ -1212,9 +1212,14 @@ static int bq257xx_parse_dt(struct bq257xx_chg *pdata,
  * @pdev: platform device
  *
  * Probe the charger device, allocate driver data structure, select the
- * appropriate chip-specific function pointers, register the power supply,
- * parse device tree properties for battery limits, initialize hardware,
- * and set up the interrupt handler if available.
+ * appropriate chip-specific function pointers, parse device tree properties
+ * for battery limits, initialize hardware, register the power supply, and set
+ * up the interrupt handler if available.
+ *
+ * The power supply is registered only once the hardware is up, because
+ * registering it lets the core call ->external_power_changed() at any time. A
+ * probe failure after that point would have devres free @pdata while such a
+ * callback is still running on it.
  *
  * Return: Returns 0 on success or error code on failure.
  */
@@ -1247,6 +1252,14 @@ static int bq257xx_charger_probe(struct platform_device *pdev)
 
 	platform_set_drvdata(pdev, pdata);
 
+	ret = bq257xx_parse_dt(pdata, dev);
+	if (ret)
+		return ret;
+
+	ret = pdata->chip->bq257xx_hw_init(pdata);
+	if (ret)
+		return dev_err_probe(dev, ret, "Cannot initialize the charger\n");
+
 	psy_cfg.drv_data = pdata;
 	psy_cfg.fwnode = dev_fwnode(dev);
 
@@ -1257,16 +1270,11 @@ static int bq257xx_charger_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(pdata->charger),
 				     "Power supply register charger failed\n");
 
-	ret = bq257xx_parse_dt(pdata, &psy_cfg, dev);
-	if (ret)
-		return ret;
-
-	ret = pdata->chip->bq257xx_hw_init(pdata);
-	if (ret)
-		return dev_err_probe(dev, ret, "Cannot initialize the charger\n");
-
-	platform_set_drvdata(pdev, pdata);
-
+	/*
+	 * Requested after the supply is registered so that devres tears it down
+	 * first, quiescing the interrupt before the supply it reports on goes
+	 * away.
+	 */
 	if (bq->client->irq) {
 		ret = devm_request_threaded_irq(dev, bq->client->irq, NULL,
 						bq257xx_irq_handler_thread,
