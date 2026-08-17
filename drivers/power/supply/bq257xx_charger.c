@@ -1053,7 +1053,9 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 	int ret;
 	int imax = pdata->iindpm_max;
 
-	pdata->chip->bq257xx_get_state(pdata);
+	ret = pdata->chip->bq257xx_get_state(pdata);
+	if (ret)
+		return;
 
 	pdata->supplied = power_supply_am_i_supplied(pdata->charger);
 	if (pdata->supplied < 0)
