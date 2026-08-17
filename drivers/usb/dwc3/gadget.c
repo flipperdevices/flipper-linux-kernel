@@ -2181,9 +2181,22 @@ static int dwc3_gadget_ep_dequeue(struct usb_ep *ep,
 		}
 	}
 
-	dev_err(dwc->dev, "request %p was not queued to %s\n",
-		request, ep->name);
-	ret = -EINVAL;
+	/*
+	 * The request is on none of this endpoint's lists. That is the
+	 * expected state once it has been given back: a function may dequeue
+	 * a request before freeing it, and f_fs does so unconditionally for
+	 * ep0req in functionfs_unbind(). Nothing is queued, which is what the
+	 * caller asked for, so report success. Any other status means the
+	 * request was never queued here or the driver lost track of it, and
+	 * stays an error. So does a completed request handed to the wrong
+	 * endpoint: req->dep is fixed at allocation, and the queue side
+	 * rejects the same mismatch.
+	 */
+	if (req->status != DWC3_REQUEST_STATUS_COMPLETED || req->dep != dep) {
+		dev_err(dwc->dev, "request %p was not queued to %s\n",
+			request, ep->name);
+		ret = -EINVAL;
+	}
 out:
 	spin_unlock_irqrestore(&dwc->lock, flags);
 
