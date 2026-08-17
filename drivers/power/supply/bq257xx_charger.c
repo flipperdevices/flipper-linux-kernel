@@ -1057,7 +1057,7 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 	if (ret)
 		return;
 
-	pdata->supplied = power_supply_am_i_supplied(pdata->charger);
+	pdata->supplied = power_supply_am_i_supplied(psy);
 	if (pdata->supplied < 0)
 		return;
 
