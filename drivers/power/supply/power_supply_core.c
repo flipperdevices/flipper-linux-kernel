@@ -1373,8 +1373,19 @@ int power_supply_property_is_writeable(struct power_supply *psy,
 
 void power_supply_external_power_changed(struct power_supply *psy)
 {
-	if (atomic_read(&psy->use_cnt) <= 0 ||
-			!psy->desc->external_power_changed)
+	if (!psy->desc->external_power_changed)
+		return;
+
+	/*
+	 * Keep power_supply_unregister() from returning, and thus from letting
+	 * the driver's data be freed, while the callback is running. The
+	 * use_cnt check has to happen under the lock as well: on its own it
+	 * only tells us the supply was registered when we looked, not that it
+	 * still is by the time the callback dereferences its driver data.
+	 */
+	guard(rwsem_read)(&psy->epc_sem);
+
+	if (atomic_read(&psy->use_cnt) <= 0)
 		return;
 
 	psy->desc->external_power_changed(psy);
@@ -1621,6 +1632,7 @@ __power_supply_register(struct device *parent,
 	}
 
 	spin_lock_init(&psy->changed_lock);
+	init_rwsem(&psy->epc_sem);
 	init_rwsem(&psy->extensions_sem);
 	INIT_LIST_HEAD(&psy->extensions);
 
@@ -1754,6 +1766,16 @@ void power_supply_unregister(struct power_supply *psy)
 {
 	WARN_ON(atomic_dec_return(&psy->use_cnt));
 	psy->removing = true;
+
+	/*
+	 * use_cnt is now zero, so no new ->external_power_changed() call can
+	 * start. Wait for one that is already running: it may be a *supplier's*
+	 * changed_work, which cancel_work_sync() below does not cover, and it
+	 * may still dereference driver data that the caller is about to free.
+	 */
+	down_write(&psy->epc_sem);
+	up_write(&psy->epc_sem);
+
 	cancel_work_sync(&psy->changed_work);
 	cancel_delayed_work_sync(&psy->deferred_register_work);
 	sysfs_remove_link(&psy->dev.kobj, "powers");
