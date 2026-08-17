@@ -8074,7 +8074,7 @@ static void tcpm_port_unregister_pd(struct tcpm_port *port)
 	for (i = 0; i < port->pd_count; i++) {
 		usb_power_delivery_unregister_capabilities(port->pd_list[i]->sink_cap);
 		usb_power_delivery_unregister_capabilities(port->pd_list[i]->source_cap);
-		devm_kfree(port->dev, port->pd_list[i]);
+		kfree(port->pd_list[i]);
 		port->pd_list[i] = NULL;
 		usb_power_delivery_unregister(port->pds[i]);
 		port->pds[i] = NULL;
@@ -8373,7 +8373,7 @@ static int tcpm_fw_get_caps(struct tcpm_port *port, struct fwnode_handle *fwnode
 	}
 
 	for (i = 0; i < port->pd_count; i++) {
-		port->pd_list[i] = devm_kzalloc(port->dev, sizeof(struct pd_data), GFP_KERNEL);
+		port->pd_list[i] = kzalloc_obj(*port->pd_list[i]);
 		if (!port->pd_list[i]) {
 			ret = -ENOMEM;
 			goto put_capabilities;
