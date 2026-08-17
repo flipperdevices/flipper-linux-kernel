@@ -1287,8 +1287,11 @@ struct dw_hdmi_qp *dw_hdmi_qp_bind(struct platform_device *pdev,
 
 	if (hdmi->no_hpd) {
 		hdmi->bridge.supported_hdmi_ver = HDMI_VERSION_1_4;
-	} else {
+	} else if (!plat_data->phy_ops->set_frl_rate) {
 		hdmi->bridge.supported_hdmi_ver = HDMI_VERSION_2_0;
+		hdmi->bridge.ops |= DRM_BRIDGE_OP_HPD;
+	} else {
+		hdmi->bridge.supported_hdmi_ver = HDMI_VERSION_2_1;
 		hdmi->bridge.ops |= DRM_BRIDGE_OP_HPD;
 		hdmi->bridge.min_frl_rate_per_lane = plat_data->min_frl_rate_per_lane;
 		hdmi->bridge.min_frl_lanes = plat_data->min_frl_lanes;
