@@ -188,6 +188,7 @@ int drm_mode_getencoder(struct drm_device *dev,
 /* drm_connector.c */
 void drm_connector_ida_init(void);
 void drm_connector_ida_destroy(void);
+void drm_connector_oob_hotplug_cleanup(void);
 void drm_connector_unregister_all(struct drm_device *dev);
 int drm_connector_register_all(struct drm_device *dev);
 int drm_connector_set_obj_prop(struct drm_mode_object *obj,
