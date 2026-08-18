@@ -1255,6 +1255,7 @@ static void drm_core_exit(void)
 	drm_sysfs_destroy();
 	WARN_ON(!xa_empty(&drm_minors_xa));
 	drm_connector_ida_destroy();
+	drm_connector_oob_hotplug_cleanup();
 }
 
 static int __init drm_core_init(void)
