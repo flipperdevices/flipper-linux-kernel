@@ -33,6 +33,7 @@
 #include <drm/drm_sysfs.h>
 #include <drm/drm_utils.h>
 
+#include <linux/cleanup.h>
 #include <linux/export.h>
 #include <linux/platform_device.h>
 #include <linux/property.h>
@@ -81,6 +82,22 @@
 static DEFINE_MUTEX(connector_list_lock);
 static LIST_HEAD(connector_list);
 
+/*
+ * List of connector fwnodes with their last out-of-band hotplug status
+ * required to forward them to a connector on registration. This ensures
+ * the connector sees a HPD event, if the event arrived before the DRM
+ * driver was probed (either due to module reload, or because of bad
+ * timing during bootup).
+ */
+struct drm_oob_hotplug_state {
+	struct list_head head;
+	struct fwnode_handle *fwnode;
+	enum drm_connector_status status;
+};
+
+static DEFINE_MUTEX(oob_hotplug_list_lock);
+static LIST_HEAD(oob_hotplug_list);
+
 struct drm_conn_prop_enum_list {
 	int type;
 	const char *name;
@@ -128,6 +145,19 @@ void drm_connector_ida_destroy(void)
 
 	for (i = 0; i < ARRAY_SIZE(drm_connector_enum_list); i++)
 		ida_destroy(&drm_connector_enum_list[i].ida);
+}
+
+void drm_connector_oob_hotplug_cleanup(void)
+{
+	struct drm_oob_hotplug_state *e, *tmp;
+
+	scoped_guard(mutex, &oob_hotplug_list_lock) {
+		list_for_each_entry_safe(e, tmp, &oob_hotplug_list, head) {
+			list_del(&e->head);
+			fwnode_handle_put(e->fwnode);
+			kfree(e);
+		}
+	}
 }
 
 /**
@@ -830,6 +860,36 @@ void drm_connector_cleanup(struct drm_connector *connector)
 EXPORT_SYMBOL(drm_connector_cleanup);
 
 /**
+ * drm_connector_replay_oob_hotplug_event - send cached OOB HPD event
+ * @connector: the connector that should receive the event
+ *
+ * Send the cached out-of-band hotplug as a new out-of-band hotplug event.
+ */
+static void drm_connector_replay_oob_hotplug_event(struct drm_connector *connector)
+{
+	struct fwnode_handle *fwnode = connector->fwnode;
+	enum drm_connector_status status;
+	struct drm_oob_hotplug_state *e;
+	bool found = false;
+
+	if (!fwnode || !connector->funcs->oob_hotplug_event)
+		return;
+
+	scoped_guard(mutex, &oob_hotplug_list_lock) {
+		list_for_each_entry(e, &oob_hotplug_list, head) {
+			if (e->fwnode == fwnode || fwnode->secondary == e->fwnode) {
+				status = e->status;
+				found = true;
+				break;
+			}
+		}
+	}
+
+	if (found)
+		connector->funcs->oob_hotplug_event(connector, status);
+}
+
+/**
  * drm_connector_register - register a connector
  * @connector: the connector to register
  *
@@ -849,6 +909,7 @@ EXPORT_SYMBOL(drm_connector_cleanup);
  */
 int drm_connector_register(struct drm_connector *connector)
 {
+	bool replay_oob_hotplug = false;
 	int ret = 0;
 
 	if (!connector->dev->registered)
@@ -888,6 +949,7 @@ int drm_connector_register(struct drm_connector *connector)
 	mutex_lock(&connector_list_lock);
 	list_add_tail(&connector->global_connector_list_entry, &connector_list);
 	mutex_unlock(&connector_list_lock);
+	replay_oob_hotplug = true;
 	goto unlock;
 
 err_late_register:
@@ -898,6 +960,10 @@ err_debugfs:
 	drm_sysfs_connector_remove(connector);
 unlock:
 	mutex_unlock(&connector->mutex);
+
+	if (replay_oob_hotplug)
+		drm_connector_replay_oob_hotplug_event(connector);
+
 	return ret;
 }
 EXPORT_SYMBOL(drm_connector_register);
@@ -3672,6 +3738,41 @@ struct drm_connector *drm_connector_find_by_fwnode(struct fwnode_handle *fwnode)
 }
 
 /**
+ * drm_connector_record_oob_hotplug_status - Cache OOB hotplug status
+ * @fwnode - fwnode for the DRM connector
+ * @status - out-of-band status info
+ *
+ * Cache the latest out-of-band hotplug status for a fwnode so it can be
+ * (re)played from when the DRM device is (re)registered after this event
+ * arrived.
+ */
+static void drm_connector_record_oob_hotplug_status(struct fwnode_handle *fwnode,
+						    enum drm_connector_status status)
+{
+	struct drm_oob_hotplug_state *e;
+
+	if (!fwnode)
+		return;
+
+	guard(mutex)(&oob_hotplug_list_lock);
+
+	list_for_each_entry(e, &oob_hotplug_list, head) {
+		if (e->fwnode == fwnode) {
+			e->status = status;
+			return;
+		}
+	}
+
+	e = kzalloc(sizeof(*e), GFP_KERNEL);
+	if (!e)
+		return;
+
+	e->fwnode = fwnode_handle_get(fwnode);
+	e->status = status;
+	list_add_tail(&e->head, &oob_hotplug_list);
+}
+
+/**
  * drm_connector_oob_hotplug_event - Report out-of-band hotplug event to connector
  * @connector_fwnode: fwnode_handle to report the event on
  * @status: hot plug detect logical state
@@ -3683,11 +3784,16 @@ struct drm_connector *drm_connector_find_by_fwnode(struct fwnode_handle *fwnode)
  *
  * This function can be used to report these out-of-band events after obtaining
  * a drm_connector reference through calling drm_connector_find_by_fwnode().
+ *
+ * The last status for each fwnode is cached and replayed when a matching DRM
+ * connector device is (re)registered.
  */
 void drm_connector_oob_hotplug_event(struct fwnode_handle *connector_fwnode,
 				     enum drm_connector_status status)
 {
 	struct drm_connector *connector;
+
+	drm_connector_record_oob_hotplug_status(connector_fwnode, status);
 
 	connector = drm_connector_find_by_fwnode(connector_fwnode);
 	if (IS_ERR(connector))
