@@ -86,6 +86,28 @@
 		};
 	};
 
+	nvme-connector {
+		compatible = "pcie-m2-m-connector";
+		vpcie3v3-supply = <&vcc_3v3_pcie>;
+
+		ports {
+			#address-cells = <1>;
+			#size-cells = <0>;
+
+			port@0 {
+				#address-cells = <1>;
+				#size-cells = <0>;
+
+				reg = <0>;
+
+				nvme_ep: endpoint@0 {
+					reg = <0>;
+					remote-endpoint = <&pcie0_ep>;
+				};
+			};
+		};
+	};
+
 	vcc_12v0_dcin: regulator-vcc-12v0-dcin {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc_12v0_dcin";
@@ -825,10 +847,28 @@
 
 &pcie0 {
 	pinctrl-names = "default";
-	pinctrl-0 = <&pcie_reset>;
+	pinctrl-0 = <&pcie0m0_pins>, <&pcie_reset>, <&pcie_wake>;
 	reset-gpios = <&gpio2 RK_PB4 GPIO_ACTIVE_HIGH>;
+	supports-clkreq;
+	wake-gpios = <&gpio0 RK_PD2 GPIO_ACTIVE_LOW>;
 	vpcie3v3-supply = <&vcc_3v3_pcie>;
 	status = "okay";
+
+	pcie@0 {
+		compatible = "pciclass,0604";
+		reg = <0 0 0 0 0>;
+		device_type = "pci";
+		num-lanes = <1>;
+		#address-cells = <3>;
+		#size-cells = <2>;
+		ranges;
+
+		port {
+			pcie0_ep: endpoint {
+				remote-endpoint = <&nvme_ep>;
+			};
+		};
+	};
 };
 
 &pinctrl {
@@ -874,6 +914,9 @@
 		};
 		pcie_reset: pcie-reset {
 			rockchip,pins = <2 RK_PB4 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+		pcie_wake: pcie-wake {
+			rockchip,pins = <0 RK_PD2 RK_FUNC_GPIO &pcfg_pull_up>;
 		};
 	};
 
