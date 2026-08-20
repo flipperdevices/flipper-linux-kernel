@@ -77,7 +77,19 @@ static void fo_set_tx_buffer_data(struct fo_device *fo,
 	clip.y2 = fb->height;
 
 	iosys_map_set_vaddr(&dst, fo->tx_buffer);
-	drm_fb_xrgb8888_to_gray8(&dst, &fo->pitch, src, fb, &clip, &s_plane_state->fmtcnv_state);
+
+	/*
+	 * The panel takes 8-bit greyscale, so an R8 framebuffer is already in the
+	 * transmit format and only needs the row stride applied. XRGB8888 stays
+	 * supported for clients that render colour, including fbdev emulation and
+	 * the Wayland compositors, and is converted per pixel as before.
+	 */
+	if (fb->format->format == DRM_FORMAT_R8)
+		drm_fb_memcpy(&dst, &fo->pitch, src, fb, &clip);
+	else
+		drm_fb_xrgb8888_to_gray8(&dst, &fo->pitch, src, fb, &clip,
+					 &s_plane_state->fmtcnv_state);
+
 	drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);
 }
 
@@ -243,7 +255,18 @@ static const struct of_device_id fo_of_match[] = {
 MODULE_DEVICE_TABLE(of, fo_of_match);
 
 static const u32 fo_formats[] = {
+	/*
+	 * XRGB8888 first: it is what every existing client uses, and fbdev
+	 * emulation picks by depth rather than by this order.
+	 */
 	DRM_FORMAT_XRGB8888,
+	/*
+	 * R8 is the panel's own format. A client that already has greyscale
+	 * pixels avoids expanding them to 32bpp only for this driver to reduce
+	 * them again, which is a 147KB write and a 36864 pixel conversion per
+	 * frame at 256x144.
+	 */
+	DRM_FORMAT_R8,
 };
 
 static int fo_pipe_init(struct drm_device *dev, struct fo_device *fo,
