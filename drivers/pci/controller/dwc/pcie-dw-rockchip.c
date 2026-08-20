@@ -456,6 +456,21 @@ static int rockchip_pcie_host_init(struct dw_pcie_rp *pp)
 	return 0;
 }
 
+static void rockchip_pcie_host_post_init(struct dw_pcie_rp *pp)
+{
+	/*
+	 * During system suspend, the Rockchip RC driver effectively powers
+	 * off the the controller. If the link is in L1SS and the endpoint
+	 * asserts CLKREQ# to exit L1SS, the time required to wake the system
+	 * and restore the PHY/REFCLK may exceed the L1SS exit timing
+	 * (L10_REFCLK_ON + T_COMMONMODE), resulting in Link Down (LDn) and
+	 * a reset of the endpoint. Set this flag to indicate this limitation
+	 * to client drivers so that they can avoid relying on device state
+	 * being preserved during system suspend.
+	 */
+	pp->bridge->broken_l1ss_resume = true;
+}
+
 static void rockchip_pcie_pme_turn_off(struct dw_pcie_rp *pp)
 {
 	struct dw_pcie *pci = to_dw_pcie_from_pp(pp);
@@ -495,6 +510,7 @@ static void rockchip_pcie_pme_turn_off(struct dw_pcie_rp *pp)
 
 static const struct dw_pcie_host_ops rockchip_pcie_host_ops = {
 	.init = rockchip_pcie_host_init,
+	.post_init = rockchip_pcie_host_post_init,
 	.pme_turn_off = rockchip_pcie_pme_turn_off,
 };
 
