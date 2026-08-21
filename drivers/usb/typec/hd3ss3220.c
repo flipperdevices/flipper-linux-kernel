@@ -49,6 +49,9 @@
 #define HD3SS3220_REG_GEN_CTRL_MODE_SELECT_UFP		BIT(4)
 #define HD3SS3220_REG_GEN_CTRL_MODE_SELECT_DRP		(BIT(5) | BIT(4))
 
+/* Minimum time VDD5 has to be stable before VCC33 starts ramping up */
+#define HD3SS3220_TVDD5V_PG_US				2000
+
 struct hd3ss3220 {
 	struct device *dev;
 	struct regmap *regmap;
@@ -358,6 +361,31 @@ static irqreturn_t hd3ss3220_id_isr(int irq, void *dev_id)
 	return IRQ_HANDLED;
 }
 
+/*
+ * Bring both supplies up in the order the datasheet asks for. Whenever the
+ * non-failsafe pins - I2C among them - are pulled up to a rail other than
+ * VDD5, powering VCC33 first lets them back-drive the device, which grounds
+ * the I2C bus and takes both this device and any others on the same bus down
+ */
+static int hd3ss3220_power_up(struct device *dev)
+{
+	int ret;
+
+	ret = devm_regulator_get_enable_optional(dev, "vdd5");
+	if (ret < 0 && ret != -ENODEV)
+		return dev_err_probe(dev, ret, "failed to enable VDD5\n");
+
+	/* Nothing to stagger against unless the board describes VCC33 too */
+	if (!ret && device_property_present(dev, "vcc33-supply"))
+		fsleep(HD3SS3220_TVDD5V_PG_US);
+
+	ret = devm_regulator_get_enable_optional(dev, "vcc33");
+	if (ret < 0 && ret != -ENODEV)
+		return dev_err_probe(dev, ret, "failed to enable VCC33\n");
+
+	return 0;
+}
+
 static int hd3ss3220_probe(struct i2c_client *client)
 {
 	struct typec_capability typec_cap = { };
@@ -378,6 +406,10 @@ static int hd3ss3220_probe(struct i2c_client *client)
 	hd3ss3220->regmap = devm_regmap_init_i2c(client, &config);
 	if (IS_ERR(hd3ss3220->regmap))
 		return PTR_ERR(hd3ss3220->regmap);
+
+	ret = hd3ss3220_power_up(hd3ss3220->dev);
+	if (ret)
+		return ret;
 
 	/* For backward compatibility check the connector child node first */
 	connector = device_get_named_child_node(hd3ss3220->dev, "connector");
