@@ -46,6 +46,7 @@
 	interrupts = <RK_PC0 IRQ_TYPE_LEVEL_LOW>;
 	pinctrl-0 = <&usb_mux_int>;
 	pinctrl-names = "default";
+	vcc33-supply = <&vcc3v3_control>;
 };
 
 &vcc5v0_device_s0 {
