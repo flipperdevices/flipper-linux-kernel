@@ -267,12 +267,15 @@ enum hdmi_spd_sdi {
 	HDMI_SPD_SDI_PMP,
 };
 
+#define HDMI_SPD_INFOFRAME_VENDOR_LEN   8
+#define HDMI_SPD_INFOFRAME_PRODUCT_LEN 16
+
 struct hdmi_spd_infoframe {
 	enum hdmi_infoframe_type type;
 	unsigned char version;
 	unsigned char length;
-	char vendor[8];
-	char product[16];
+	unsigned char vendor[HDMI_SPD_INFOFRAME_VENDOR_LEN] __nonstring;
+	unsigned char product[HDMI_SPD_INFOFRAME_PRODUCT_LEN] __nonstring;
 	enum hdmi_spd_sdi sdi;
 };
 
