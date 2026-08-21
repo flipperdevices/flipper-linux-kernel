@@ -82,6 +82,61 @@ static const struct drm_connector_hdmi_funcs dummy_hdmi_funcs_scrambler = {
 	},
 };
 
+static int accept_frl_configure(struct drm_connector *connector,
+				u8 rate_per_lane, u8 lanes)
+{
+	return 0;
+}
+
+static int accept_frl_set_ltp(struct drm_connector *connector,
+			      u8 ln0, u8 ln1, u8 ln2, u8 ln3)
+{
+	return 0;
+}
+
+static int accept_frl_tx_start(struct drm_connector *connector)
+{
+	return 0;
+}
+
+static int accept_frl_tx_stop(struct drm_connector *connector)
+{
+	return 0;
+}
+
+static int accept_frl_fallback_tmds(struct drm_connector *connector)
+{
+	return 0;
+}
+
+static int accept_frl_set_ffe_level(struct drm_connector *connector, u8 ffe_level)
+{
+	return 0;
+}
+
+static const struct drm_connector_hdmi_funcs dummy_hdmi_funcs_frl = {
+	.vendor = "Vendor",
+	.product = "Product",
+	.supported_hdmi_ver = HDMI_VERSION_2_1,
+	.supported_formats = BIT(DRM_OUTPUT_COLOR_FORMAT_RGB444),
+	.max_bpc = 8,
+	.scrambler_enable = accept_scrambler_enable,
+	.scrambler_disable = accept_scrambler_disable,
+	.frl_configure = accept_frl_configure,
+	.frl_set_ltp = accept_frl_set_ltp,
+	.frl_tx_start = accept_frl_tx_start,
+	.frl_tx_stop = accept_frl_tx_stop,
+	.frl_fallback_tmds = accept_frl_fallback_tmds,
+	.avi = {
+		.clear_infoframe = accept_infoframe_clear_infoframe,
+		.write_infoframe = accept_infoframe_write_infoframe,
+	},
+	.hdmi = {
+		.clear_infoframe = accept_infoframe_clear_infoframe,
+		.write_infoframe = accept_infoframe_write_infoframe,
+	},
+};
+
 static const struct drm_connector_funcs dummy_funcs = {
 	.atomic_destroy_state	= drm_atomic_helper_connector_destroy_state,
 	.atomic_duplicate_state	= drm_atomic_helper_connector_duplicate_state,
@@ -1482,6 +1537,272 @@ KUNIT_ARRAY_PARAM(drm_connector_hdmi_init_scrambler_missing_cb,
 		  drm_connector_hdmi_init_scrambler_missing_cb_tests,
 		  drm_connector_hdmi_init_scrambler_missing_cb_desc);
 
+/*
+ * Test that the registration of an HDMI connector advertising HDMI 2.1 support
+ * succeeds when all the .frl_* callbacks are provided, and that the FRL
+ * rate/lane limits are inferred from the HDMI specification.
+ */
+static void drm_test_connector_hdmi_init_frl_valid(struct kunit *test)
+{
+	struct drm_connector_init_priv *priv = test->priv;
+	struct drm_connector_hdmi *hdmi = &priv->connector.hdmi;
+	int ret;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &dummy_hdmi_funcs_frl,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+	KUNIT_EXPECT_TRUE(test, drm_connector_hdmi_frl_supported(&priv->connector));
+
+	KUNIT_EXPECT_EQ(test, hdmi->min_frl_rate_per_lane,
+			HDMI_2_1_FRL_LANE_RATE_MIN_GBPS);
+	KUNIT_EXPECT_EQ(test, hdmi->max_frl_rate_per_lane,
+			HDMI_2_1_FRL_LANE_RATE_MAX_GBPS);
+	KUNIT_EXPECT_EQ(test, hdmi->min_frl_lanes, HDMI_2_1_FRL_LANE_COUNT_MIN);
+	KUNIT_EXPECT_EQ(test, hdmi->max_frl_lanes, HDMI_2_1_FRL_LANE_COUNT_MAX);
+}
+
+/*
+ * Test that the registration of an HDMI connector not advertising HDMI 2.1
+ * support succeeds, and the connector is not reported as FRL capable.
+ */
+static void drm_test_connector_hdmi_init_frl_unsupported(struct kunit *test)
+{
+	struct drm_connector_init_priv *priv = test->priv;
+	int ret;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &dummy_hdmi_funcs_scrambler,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+	KUNIT_EXPECT_FALSE(test, drm_connector_hdmi_frl_supported(&priv->connector));
+}
+
+enum drm_connector_hdmi_frl_callback {
+	FRL_CALLBACK_CONFIGURE,
+	FRL_CALLBACK_SET_LTP,
+	FRL_CALLBACK_TX_START,
+	FRL_CALLBACK_TX_STOP,
+	FRL_CALLBACK_FALLBACK_TMDS,
+	FRL_CALLBACK_ALL,
+};
+
+struct drm_connector_hdmi_init_frl_callback_case {
+	const char *desc;
+	enum drm_connector_hdmi_frl_callback cb;
+};
+
+/*
+ * Test that the registration of an HDMI connector advertising HDMI 2.1 support
+ * fails when any single .frl_* callback is missing.
+ */
+static void drm_test_connector_hdmi_init_frl_missing_callback(struct kunit *test)
+{
+	const struct drm_connector_hdmi_init_frl_callback_case *params = test->param_value;
+	struct drm_connector_init_priv *priv = test->priv;
+	int ret;
+
+	priv->hdmi_funcs = dummy_hdmi_funcs_frl;
+
+	switch (params->cb) {
+	case FRL_CALLBACK_CONFIGURE:
+		priv->hdmi_funcs.frl_configure = NULL;
+		break;
+	case FRL_CALLBACK_SET_LTP:
+		priv->hdmi_funcs.frl_set_ltp = NULL;
+		break;
+	case FRL_CALLBACK_TX_START:
+		priv->hdmi_funcs.frl_tx_start = NULL;
+		break;
+	case FRL_CALLBACK_TX_STOP:
+		priv->hdmi_funcs.frl_tx_stop = NULL;
+		break;
+	case FRL_CALLBACK_FALLBACK_TMDS:
+		priv->hdmi_funcs.frl_fallback_tmds = NULL;
+		break;
+	case FRL_CALLBACK_ALL:
+		priv->hdmi_funcs.frl_configure = NULL;
+		priv->hdmi_funcs.frl_set_ltp = NULL;
+		priv->hdmi_funcs.frl_tx_start = NULL;
+		priv->hdmi_funcs.frl_tx_stop = NULL;
+		priv->hdmi_funcs.frl_fallback_tmds = NULL;
+		break;
+	}
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &priv->hdmi_funcs,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_LT(test, ret, 0);
+}
+
+static const struct drm_connector_hdmi_init_frl_callback_case
+drm_connector_hdmi_init_frl_callback_tests[] = {
+	{ "frl_configure",	FRL_CALLBACK_CONFIGURE },
+	{ "frl_set_ltp",	FRL_CALLBACK_SET_LTP },
+	{ "frl_tx_start",	FRL_CALLBACK_TX_START },
+	{ "frl_tx_stop",	FRL_CALLBACK_TX_STOP },
+	{ "frl_fallback_tmds",	FRL_CALLBACK_FALLBACK_TMDS },
+	{ "frl_*",		FRL_CALLBACK_ALL },
+};
+
+static void
+drm_connector_hdmi_init_frl_callback_desc(const struct drm_connector_hdmi_init_frl_callback_case *t,
+					  char *desc)
+{
+	strscpy(desc, t->desc, KUNIT_PARAM_DESC_SIZE);
+}
+
+KUNIT_ARRAY_PARAM(drm_connector_hdmi_init_frl_missing_callback,
+		  drm_connector_hdmi_init_frl_callback_tests,
+		  drm_connector_hdmi_init_frl_callback_desc);
+
+/*
+ * Test that the registration of an HDMI connector providing its own FRL
+ * rate/lane limits succeeds, and those limits are left untouched.
+ */
+static void drm_test_connector_hdmi_init_frl_limits_override(struct kunit *test)
+{
+	struct drm_connector_init_priv *priv = test->priv;
+	struct drm_connector_hdmi *hdmi = &priv->connector.hdmi;
+	int ret;
+
+	hdmi->min_frl_rate_per_lane = 6;
+	hdmi->min_frl_lanes = 4;
+	hdmi->max_frl_rate_per_lane = 10;
+	hdmi->max_frl_lanes = 4;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &dummy_hdmi_funcs_frl,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+
+	KUNIT_EXPECT_EQ(test, hdmi->min_frl_rate_per_lane, 6);
+	KUNIT_EXPECT_EQ(test, hdmi->min_frl_lanes, 4);
+	KUNIT_EXPECT_EQ(test, hdmi->max_frl_rate_per_lane, 10);
+	KUNIT_EXPECT_EQ(test, hdmi->max_frl_lanes, 4);
+}
+
+/*
+ * Test that the registration of an HDMI connector providing FRL rate/lane
+ * limits fails when those do not describe a valid capability window.
+ */
+struct drm_connector_hdmi_init_frl_limits_case {
+	const char *desc;
+	u8 min_rate_per_lane;
+	u8 min_lanes;
+	u8 max_rate_per_lane;
+	u8 max_lanes;
+};
+
+static void drm_test_connector_hdmi_init_frl_limits_invalid(struct kunit *test)
+{
+	const struct drm_connector_hdmi_init_frl_limits_case *params = test->param_value;
+	struct drm_connector_init_priv *priv = test->priv;
+	struct drm_connector_hdmi *hdmi = &priv->connector.hdmi;
+	int ret;
+
+	hdmi->min_frl_rate_per_lane = params->min_rate_per_lane;
+	hdmi->min_frl_lanes = params->min_lanes;
+	hdmi->max_frl_rate_per_lane = params->max_rate_per_lane;
+	hdmi->max_frl_lanes = params->max_lanes;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &dummy_hdmi_funcs_frl,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_LT(test, ret, 0);
+}
+
+static const struct drm_connector_hdmi_init_frl_limits_case
+drm_connector_hdmi_init_frl_limits_invalid_tests[] = {
+	{ "rate-max-below-min",	12, 4, 6, 4 },
+	{ "lanes-max-below-min", 6, 4, 6, 3 },
+	{ "min-config-invalid",	 3, 4, 12, 4 },
+	{ "max-config-invalid",	 3, 3, 3, 4 },
+};
+
+static void
+drm_connector_hdmi_init_frl_limits_desc(const struct drm_connector_hdmi_init_frl_limits_case *t,
+					char *desc)
+{
+	strscpy(desc, t->desc, KUNIT_PARAM_DESC_SIZE);
+}
+
+KUNIT_ARRAY_PARAM(drm_connector_hdmi_init_frl_limits_invalid,
+		  drm_connector_hdmi_init_frl_limits_invalid_tests,
+		  drm_connector_hdmi_init_frl_limits_desc);
+
+/*
+ * Test that the registration of an HDMI connector advertising FRL support
+ * succeeds when a maximum TxFFE level is paired with the callback used to
+ * apply it.
+ */
+static void drm_test_connector_hdmi_init_frl_ffe_level_valid(struct kunit *test)
+{
+	struct drm_connector_init_priv *priv = test->priv;
+	int ret;
+
+	priv->hdmi_funcs = dummy_hdmi_funcs_frl;
+	priv->hdmi_funcs.frl_set_ffe_level = accept_frl_set_ffe_level;
+	priv->connector.hdmi.max_ffe_level = 3;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &priv->hdmi_funcs,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_EQ(test, ret, 0);
+}
+
+/*
+ * Test that the registration of an HDMI connector advertising FRL support
+ * fails when a maximum TxFFE level is provided without the callback used to
+ * apply it.
+ */
+static void drm_test_connector_hdmi_init_frl_ffe_level_no_callback(struct kunit *test)
+{
+	struct drm_connector_init_priv *priv = test->priv;
+	int ret;
+
+	priv->connector.hdmi.max_ffe_level = 3;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &dummy_hdmi_funcs_frl,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_LT(test, ret, 0);
+}
+
+/*
+ * Test that the registration of an HDMI connector advertising FRL support
+ * fails when the TxFFE callback is provided without a maximum level.
+ */
+static void drm_test_connector_hdmi_init_frl_ffe_level_no_max(struct kunit *test)
+{
+	struct drm_connector_init_priv *priv = test->priv;
+	int ret;
+
+	priv->hdmi_funcs = dummy_hdmi_funcs_frl;
+	priv->hdmi_funcs.frl_set_ffe_level = accept_frl_set_ffe_level;
+
+	ret = drmm_connector_hdmi_init(&priv->drm, &priv->connector,
+				       &dummy_funcs,
+				       &priv->hdmi_funcs,
+				       DRM_MODE_CONNECTOR_HDMIA,
+				       &priv->ddc);
+	KUNIT_EXPECT_LT(test, ret, 0);
+}
+
 static struct kunit_case drmm_connector_hdmi_init_tests[] = {
 	KUNIT_CASE(drm_test_connector_hdmi_init_valid),
 	KUNIT_CASE(drm_test_connector_hdmi_init_bpc_8),
@@ -1516,6 +1837,16 @@ static struct kunit_case drmm_connector_hdmi_init_tests[] = {
 	KUNIT_CASE(drm_test_connector_hdmi_init_scrambler_unsupported),
 	KUNIT_CASE_PARAM(drm_test_connector_hdmi_init_scrambler_missing_cb,
 			 drm_connector_hdmi_init_scrambler_missing_cb_gen_params),
+	KUNIT_CASE(drm_test_connector_hdmi_init_frl_valid),
+	KUNIT_CASE(drm_test_connector_hdmi_init_frl_unsupported),
+	KUNIT_CASE_PARAM(drm_test_connector_hdmi_init_frl_missing_callback,
+			 drm_connector_hdmi_init_frl_missing_callback_gen_params),
+	KUNIT_CASE(drm_test_connector_hdmi_init_frl_limits_override),
+	KUNIT_CASE_PARAM(drm_test_connector_hdmi_init_frl_limits_invalid,
+			 drm_connector_hdmi_init_frl_limits_invalid_gen_params),
+	KUNIT_CASE(drm_test_connector_hdmi_init_frl_ffe_level_valid),
+	KUNIT_CASE(drm_test_connector_hdmi_init_frl_ffe_level_no_callback),
+	KUNIT_CASE(drm_test_connector_hdmi_init_frl_ffe_level_no_max),
 	{ }
 };
 
