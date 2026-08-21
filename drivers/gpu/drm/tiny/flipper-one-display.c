@@ -210,7 +210,18 @@ static const struct drm_connector_funcs fo_connector_funcs = {
 };
 
 static const struct drm_mode_config_funcs fo_mode_config_funcs = {
-	.fb_create = drm_gem_fb_create,
+	/*
+	 * With dirty, so a framebuffer carries drm_atomic_helper_dirtyfb and a
+	 * client that has written into one can ask for it to be sent. The panel
+	 * has no scanout of its own: a frame reaches it only when a commit walks
+	 * the plane, so a client with no way to ask for a commit cannot show
+	 * anything. fbdev emulation is one such client, and it decides which of
+	 * its two paths to take by whether this hook exists, taking the deferred
+	 * variant that flushes on a timer only when it does. Without it the
+	 * console draws into a buffer nothing ever pushes, and the panel keeps
+	 * showing whatever was on it when the last DRM master left.
+	 */
+	.fb_create = drm_gem_fb_create_with_dirty,
 	.atomic_check = drm_atomic_helper_check,
 	.atomic_commit = drm_atomic_helper_commit,
 };
@@ -252,6 +263,15 @@ static int fo_pipe_init(struct drm_device *dev, struct fo_device *fo,
 				       DRM_PLANE_TYPE_PRIMARY, NULL);
 	if (ret)
 		return ret;
+
+	/*
+	 * The clips are advertised rather than acted on: fo_plane_atomic_update
+	 * sends the whole transmit buffer whatever the damage says, since the
+	 * controller wants full rows and the buffer is 37 kB. What the property
+	 * buys is the other half of the dirty path above, so a client that
+	 * reports damage is not refused.
+	 */
+	drm_plane_enable_fb_damage_clips(plane);
 
 	drm_crtc_helper_add(crtc, &fo_crtc_helper_funcs);
 	ret = drm_crtc_init_with_planes(dev, crtc, plane, NULL,
