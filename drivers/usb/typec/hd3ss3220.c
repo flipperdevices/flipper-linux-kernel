@@ -371,16 +371,17 @@ static int hd3ss3220_power_up(struct device *dev)
 {
 	int ret;
 
-	ret = devm_regulator_get_enable_optional(dev, "vdd5");
-	if (ret < 0 && ret != -ENODEV)
+	ret = devm_regulator_get_enable(dev, "vdd5");
+	if (ret)
 		return dev_err_probe(dev, ret, "failed to enable VDD5\n");
 
-	/* Nothing to stagger against unless the board describes VCC33 too */
-	if (!ret && device_property_present(dev, "vcc33-supply"))
+	/* Nothing to stagger against unless the board describes both rails */
+	if (device_property_present(dev, "vdd5-supply") &&
+	    device_property_present(dev, "vcc33-supply"))
 		fsleep(HD3SS3220_TVDD5V_PG_US);
 
-	ret = devm_regulator_get_enable_optional(dev, "vcc33");
-	if (ret < 0 && ret != -ENODEV)
+	ret = devm_regulator_get_enable(dev, "vcc33");
+	if (ret)
 		return dev_err_probe(dev, ret, "failed to enable VCC33\n");
 
 	return 0;
