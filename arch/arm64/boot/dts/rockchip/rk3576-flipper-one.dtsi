@@ -1174,6 +1174,8 @@
 	usbmux: usb-mux@47 {
 		compatible = "ti,hd3ss3220";
 		reg = <0x47>;
+		vcc33-supply = <&vcc3v3_control>;
+		vdd5-supply = <&vcc5v0_device_s0>;
 
 		ports {
 			#address-cells = <1>;
