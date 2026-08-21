@@ -271,6 +271,7 @@ static int dw_dp_rockchip_runtime_resume(struct device *dev)
 
 static const struct dev_pm_ops dw_dp_pm_ops = {
 	RUNTIME_PM_OPS(dw_dp_rockchip_runtime_suspend, dw_dp_rockchip_runtime_resume, NULL)
+	SET_LATE_SYSTEM_SLEEP_PM_OPS(pm_runtime_force_suspend, pm_runtime_force_resume)
 };
 
 static const struct rockchip_dw_dp_plat_data rk3588_dp_plat_data = {
