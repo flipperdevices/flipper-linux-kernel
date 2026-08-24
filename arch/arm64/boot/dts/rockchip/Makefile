@@ -347,8 +347,12 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-no-graphics.dtb
 rk3576-flipper-one-no-graphics-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-no-graphics.dtbo
 
-dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-sata.dtb
-rk3576-flipper-one-sata-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b0c1-sata.dtb
+rk3576-flipper-one-rev-f0b0c1-sata-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
+	rk3576-flipper-one-sata.dtbo
+
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b1c2-sata.dtb
+rk3576-flipper-one-rev-f0b1c2-sata-dtbs := rk3576-flipper-one-rev-f0b1c2.dtb \
 	rk3576-flipper-one-sata.dtbo
 
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-uart2.dtb
