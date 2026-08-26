@@ -1322,6 +1322,10 @@
 	status = "okay";
 };
 
+&pd_npu {
+	domain-supply = <&vdd_npu_s0>;
+};
+
 &pinctrl {
 	camera {
 		cam_pdn: cam-pdn {
@@ -1468,6 +1472,15 @@
 			rockchip,pins = <1 RK_PC7 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
+};
+
+&rknn_core_0 {
+	npu-supply = <&vdd_npu_s0>;
+	status = "okay";
+};
+
+&rknn_mmu_0 {
+	status = "okay";
 };
 
 &sai0 {
