@@ -96,6 +96,10 @@
 	pinctrl-0 = <&cpu_int>;
 };
 
+&nau8822 {
+	vddspk-supply = <&vcc5v0_sys_s5>;
+};
+
 &pinctrl {
 	sim {
 		sim_cd: sim-cd {
