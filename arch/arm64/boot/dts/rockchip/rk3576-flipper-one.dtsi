@@ -1135,7 +1135,6 @@
 		reg = <0x45>;
 		#io-channel-cells = <1>;
 		label = "vcc8v4_sys";
-		shunt-resistor = <4000>;
 		vs-supply = <&vcc3v3_control>;
 	};
 

@@ -31,6 +31,10 @@
 	vin-supply = <&vcc5v0_device_s0>;
 };
 
+&ina_sys {
+	shunt-resistor = <4000>;
+};
+
 &mcu {
 	pinctrl-names = "default";
 	pinctrl-0 = <&audio_headset_int &cpu_int>;
