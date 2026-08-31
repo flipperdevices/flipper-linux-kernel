@@ -125,6 +125,10 @@
 	vcc5v0_device_s0: regulator-vcc5v0-device-s0 {
 		compatible = "regulator-fixed";
 		regulator-name = "vcc5v0_device";
+		/*
+		 *AP62600 soft-start, 47nF on SS/TR: CSS[nF] = 8.33 x tSS[ms]
+		 */
+		startup-delay-us = <7000>;
 		vin-supply = <&vcc8v4_sys>;
 	};
 

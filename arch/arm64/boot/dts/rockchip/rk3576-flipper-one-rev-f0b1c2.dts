@@ -11,11 +11,6 @@
 	model = "Flipper One rev. F0B1C2";
 	compatible = "flipper,one-rev-f0b1c2", "rockchip,rk3576";
 
-	/*
-	 * Gated off vcc5v0_device_s0 by a MOSFET whose gate is RC delayed, so
-	 * that the mux sees VCC33 rise the prescribed time after VDD5. Shares
-	 * the enable line with vcc5v0_device_s0 as that is what drives it.
-	 */
 	vcc3v3_usb_mux: regulator-vcc3v3-usb-mux {
 		compatible = "regulator-fixed";
 		enable-active-high;
@@ -23,7 +18,16 @@
 		regulator-min-microvolt = <3300000>;
 		regulator-max-microvolt = <3300000>;
 		gpios = <&gpio_expander 0xb GPIO_ACTIVE_HIGH>;
-		startup-delay-us = <200000>;
+		/*
+		 * Actually enabled by vcc5v0_device_s0 via an RC-delayed MOSFET
+		 * gate, but DT has to model them as two parallel regulators
+		 * sharing the same enable pin, so this delay spans the whole
+		 * chain: the AP62600 soft-start (5.6ms) and then the RC-delayed
+		 * MOSFET gate it feeds (6.9ms). The RC also provides the
+		 * HD3SS3220's tVDD5V_PG >= 2ms VDD5-before-VCC33 ordering, and
+		 * cuts the I2C connection from the mux until VDD5 is up
+		 */
+		startup-delay-us = <15000>;
 		vin-supply = <&vcc3v3_control>;
 	};
 
