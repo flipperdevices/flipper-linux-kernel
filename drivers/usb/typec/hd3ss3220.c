@@ -52,6 +52,9 @@
 /* Minimum time VDD5 has to be stable before VCC33 starts ramping up */
 #define HD3SS3220_TVDD5V_PG_US				2000
 
+#define HD3SS3220_READY_POLL_US				5000
+#define HD3SS3220_READY_TIMEOUT_US			250000
+
 struct hd3ss3220 {
 	struct device *dev;
 	struct regmap *regmap;
@@ -387,6 +390,28 @@ static int hd3ss3220_power_up(struct device *dev)
 	return 0;
 }
 
+/*
+ * Both supplies being up does not mean the device can be talked to yet: it
+ * stays silent on the bus for some tens of milliseconds afterwards, and the
+ * datasheet puts no figure on that. Wait for it to start answering rather than
+ * settle on a delay that merely happens to work.
+ */
+static int hd3ss3220_wait_ready(struct hd3ss3220 *hd3ss3220)
+{
+	unsigned int val;
+	int ret, err;
+
+	ret = read_poll_timeout(regmap_read, err, !err, HD3SS3220_READY_POLL_US,
+				HD3SS3220_READY_TIMEOUT_US, false,
+				hd3ss3220->regmap, HD3SS3220_REG_CN_STAT_CTRL,
+				&val);
+	if (ret)
+		return dev_err_probe(hd3ss3220->dev, err,
+				     "device not responding\n");
+
+	return 0;
+}
+
 static int hd3ss3220_probe(struct i2c_client *client)
 {
 	struct typec_capability typec_cap = { };
@@ -409,6 +434,10 @@ static int hd3ss3220_probe(struct i2c_client *client)
 		return PTR_ERR(hd3ss3220->regmap);
 
 	ret = hd3ss3220_power_up(hd3ss3220->dev);
+	if (ret)
+		return ret;
+
+	ret = hd3ss3220_wait_ready(hd3ss3220);
 	if (ret)
 		return ret;
 
