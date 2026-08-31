@@ -36,6 +36,10 @@
 	pinctrl-0 = <&audio_headset_int &cpu_int>;
 };
 
+&nau8822 {
+	vddspk-supply = <&vcca_3v3_s0>;
+};
+
 &usbc0 {
 	interrupt-parent = <&gpio_expander>;
 	interrupts = <3 IRQ_TYPE_LEVEL_LOW>;
