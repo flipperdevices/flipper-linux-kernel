@@ -530,8 +530,7 @@
 		gpio-controller;
 		#gpio-cells = <2>;
 		pinctrl-names = "default";
-		pinctrl-0 = <&pmic_pins>, <&rk806_dvs1_null>,
-			    <&rk806_dvs2_null>, <&rk806_dvs3_null>;
+		pinctrl-0 = <&pmic_pins>;
 		system-power-controller;
 
 		vcc1-supply = <&vcc5v0_sys_s5>;
