@@ -32,6 +32,8 @@ struct nvmem_device {
 	struct gpio_desc	*wp_gpio;
 	struct nvmem_layout	*layout;
 	void *priv;
+	const struct bin_attribute *sysfs_cells_attrs;
+	const struct bin_attribute **sysfs_cells_pattrs;
 	bool			sysfs_cells_populated;
 };
 

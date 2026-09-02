@@ -33,6 +33,7 @@ struct nvmem_cell_entry {
 	int			nbits;
 	nvmem_cell_post_process_t read_post_process;
 	void			*priv;
+	struct nvmem_layout	*layout;
 	struct device_node	*np;
 	struct nvmem_device	*nvmem;
 	struct list_head	node;
@@ -509,12 +510,43 @@ static int nvmem_populate_sysfs_cells(struct nvmem_device *nvmem)
 	if (ret)
 		goto unlock_mutex;
 
+	nvmem->sysfs_cells_attrs = attrs;
+	nvmem->sysfs_cells_pattrs = pattrs;
 	nvmem->sysfs_cells_populated = true;
 
 unlock_mutex:
 	mutex_unlock(&nvmem_mutex);
 
 	return ret;
+}
+
+static void nvmem_destroy_sysfs_cells(struct nvmem_device *nvmem)
+{
+	struct attribute_group group = {
+		.name	= "cells",
+	};
+	unsigned int i;
+
+	guard(mutex)(&nvmem_mutex);
+
+	if (!nvmem->sysfs_cells_populated)
+		return;
+
+	/*
+	 * Removing the group waits for any read in flight, after which nothing
+	 * refers to the cell entries through their attributes any more.
+	 */
+	device_remove_group(&nvmem->dev, &group);
+
+	for (i = 0; nvmem->sysfs_cells_pattrs[i]; i++)
+		devm_kfree(&nvmem->dev, nvmem->sysfs_cells_pattrs[i]->attr.name);
+
+	devm_kfree(&nvmem->dev, nvmem->sysfs_cells_attrs);
+	devm_kfree(&nvmem->dev, nvmem->sysfs_cells_pattrs);
+
+	nvmem->sysfs_cells_attrs = NULL;
+	nvmem->sysfs_cells_pattrs = NULL;
+	nvmem->sysfs_cells_populated = false;
 }
 
 #else /* CONFIG_NVMEM_SYSFS */
@@ -524,8 +556,18 @@ static int nvmem_sysfs_setup_compat(struct nvmem_device *nvmem,
 {
 	return -ENOSYS;
 }
+
 static void nvmem_sysfs_remove_compat(struct nvmem_device *nvmem,
 				      const struct nvmem_config *config)
+{
+}
+
+static int nvmem_populate_sysfs_cells(struct nvmem_device *nvmem)
+{
+	return 0;
+}
+
+static void nvmem_destroy_sysfs_cells(struct nvmem_device *nvmem)
 {
 }
 
@@ -565,6 +607,15 @@ static void nvmem_device_remove_all_cells(const struct nvmem_device *nvmem)
 
 	list_for_each_entry_safe(cell, p, &nvmem->cells, node)
 		nvmem_cell_entry_drop(cell);
+}
+
+static void nvmem_device_remove_layout_cells(struct nvmem_layout *layout)
+{
+	struct nvmem_cell_entry *cell, *p;
+
+	list_for_each_entry_safe(cell, p, &layout->nvmem->cells, node)
+		if (cell->layout == layout)
+			nvmem_cell_entry_drop(cell);
 }
 
 static void nvmem_cell_entry_add(struct nvmem_cell_entry *cell)
@@ -841,33 +892,84 @@ static int nvmem_add_cells_from_legacy_of(struct nvmem_device *nvmem)
 	return nvmem_add_cells_from_dt(nvmem, nvmem->dev.of_node);
 }
 
+/**
+ * nvmem_layout_register() - Register a layout and populate its cells
+ *
+ * @layout: nvmem layout, as handed to the layout driver's probe callback
+ *
+ * Runs the layout's add_cells() callback and takes ownership of the cells it
+ * adds, so that nvmem_layout_unregister() can drop them again. Meant to be
+ * called by a layout driver from its probe callback.
+ *
+ * Return: 0 on success, a negative error code otherwise.
+ */
 int nvmem_layout_register(struct nvmem_layout *layout)
 {
+	struct nvmem_device *nvmem = layout->nvmem;
+	struct nvmem_cell_entry *cell;
+	struct list_head *pos, *last;
 	int ret;
 
 	if (!layout->add_cells)
 		return -EINVAL;
 
+	scoped_guard(mutex, &nvmem_mutex)
+		last = nvmem->cells.prev;
+
 	/* Populate the cells */
 	ret = layout->add_cells(layout);
-	if (ret)
-		return ret;
 
-#ifdef CONFIG_NVMEM_SYSFS
-	ret = nvmem_populate_sysfs_cells(layout->nvmem);
+	/*
+	 * Claim whatever the layout has just appended, including on failure, so
+	 * that it can be dropped again when the layout goes away. Cells added
+	 * by anyone else, before or after this, are left alone.
+	 */
+	scoped_guard(mutex, &nvmem_mutex) {
+		for (pos = last->next; pos != &nvmem->cells; pos = pos->next) {
+			cell = list_entry(pos, struct nvmem_cell_entry, node);
+			cell->layout = layout;
+		}
+	}
+
 	if (ret) {
-		nvmem_device_remove_all_cells(layout->nvmem);
+		nvmem_device_remove_layout_cells(layout);
 		return ret;
 	}
-#endif
+
+	ret = nvmem_populate_sysfs_cells(nvmem);
+	if (ret) {
+		nvmem_device_remove_all_cells(nvmem);
+		return ret;
+	}
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(nvmem_layout_register);
 
+/**
+ * nvmem_layout_unregister() - Unregister a layout and drop its cells
+ *
+ * @layout: nvmem layout to unregister
+ *
+ * Drops the cells which nvmem_layout_register() has populated, as they refer
+ * to the layout driver and must not outlive it. Meant to be called by a layout
+ * driver from its remove callback.
+ */
 void nvmem_layout_unregister(struct nvmem_layout *layout)
 {
-	/* Keep the API even with an empty stub in case we need it later */
+	struct nvmem_device *nvmem = layout->nvmem;
+
+	/*
+	 * The cells this layout added hold a read_post_process callback, and
+	 * possibly private data, belonging to the layout driver, which may be a
+	 * module on its way out. Drop them, taking their sysfs attributes down
+	 * first as those point at the cells, then publish what remains again.
+	 */
+	nvmem_destroy_sysfs_cells(nvmem);
+	nvmem_device_remove_layout_cells(layout);
+
+	if (nvmem_populate_sysfs_cells(nvmem))
+		dev_warn(&nvmem->dev, "failed to rebuild cell attributes\n");
 }
 EXPORT_SYMBOL_GPL(nvmem_layout_unregister);
 
