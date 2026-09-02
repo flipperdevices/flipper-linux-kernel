@@ -36,6 +36,8 @@ struct nvmem_device {
 	struct nvmem_layout	*layout;
 	struct nvmem_operations	*ops;
 	void *priv;
+	const struct bin_attribute *sysfs_cells_attrs;
+	const struct bin_attribute **sysfs_cells_pattrs;
 	bool			sysfs_cells_populated;
 };
 
