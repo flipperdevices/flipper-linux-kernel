@@ -437,6 +437,79 @@ drm_hdmi_acr_get_n_cts(unsigned long long tmds_char_rate,
 }
 EXPORT_SYMBOL(drm_hdmi_acr_get_n_cts);
 
+struct drm_hdmi_acr_frl_n_entry {
+	unsigned int frl_rate_per_lane;
+	unsigned int n_32k;
+	unsigned int n_44k1;
+	unsigned int n_48k;
+};
+
+static const struct drm_hdmi_acr_frl_n_entry hdmi_acr_frl_n[] = {
+	{ .frl_rate_per_lane = 3,  .n_32k = 4224, .n_44k1 = 5292, .n_48k = 5760, },
+	{ .frl_rate_per_lane = 6,  .n_32k = 4032, .n_44k1 = 5292, .n_48k = 6048, },
+	{ .frl_rate_per_lane = 8,  .n_32k = 4032, .n_44k1 = 3969, .n_48k = 6048, },
+	{ .frl_rate_per_lane = 10, .n_32k = 3456, .n_44k1 = 3969, .n_48k = 5184, },
+	{ .frl_rate_per_lane = 12, .n_32k = 3072, .n_44k1 = 3969, .n_48k = 4752, },
+};
+
+/**
+ * drm_hdmi_acr_get_frl_n_cts() - get N and CTS values for ACR in FRL mode
+ *
+ * @frl_rate_per_lane: FRL bit rate per lane (Gbps) as used by the HDMI connector
+ * @sample_rate: audio sample rate
+ * @out_n: a pointer to write the N value
+ * @out_cts: a pointer to write the CTS value
+ *
+ * Get the N and CTS values when the link operates in Fixed Rate Link (FRL)
+ * mode. This follows the HDMI 2.1 Section 9.2.2 "Recommended N and Expected
+ * CTS Values in FRL Mode".
+ *
+ * Note, @sample_rate corresponds to the Fs value, see HDMI 1.4b sections
+ * 7.2.4 - 7.2.6 on how to select Fs for non-L-PCM formats.
+ */
+void
+drm_hdmi_acr_get_frl_n_cts(unsigned int frl_rate_per_lane,
+			   unsigned int sample_rate,
+			   unsigned int *out_n,
+			   unsigned int *out_cts)
+{
+	const struct drm_hdmi_acr_frl_n_entry *entry = NULL;
+	unsigned int n, mult, i;
+
+	for (i = 0; i < ARRAY_SIZE(hdmi_acr_frl_n); i++) {
+		if (hdmi_acr_frl_n[i].frl_rate_per_lane == frl_rate_per_lane) {
+			entry = &hdmi_acr_frl_n[i];
+			break;
+		}
+	}
+
+	/*
+	 * Don't change the order, 192 kHz is divisible by 48k and 32k, but it
+	 * should use 48k entry.
+	 */
+	if (entry && sample_rate % 48000 == 0) {
+		n = entry->n_48k;
+		mult = sample_rate / 48000;
+	} else if (entry && sample_rate % 44100 == 0) {
+		n = entry->n_44k1;
+		mult = sample_rate / 44100;
+	} else if (entry && sample_rate % 32000 == 0) {
+		n = entry->n_32k;
+		mult = sample_rate / 32000;
+	} else {
+		/* Recommended optimal value, HDMI 1.4b, Section 7.2.1 */
+		n = 128 * sample_rate / 1000;
+		mult = 1;
+	}
+
+	n *= mult;
+
+	*out_n = n;
+	*out_cts = DIV_ROUND_CLOSEST_ULL(frl_rate_per_lane * 1000000000ULL * n,
+					 18ULL * 128 * sample_rate);
+}
+EXPORT_SYMBOL(drm_hdmi_acr_get_frl_n_cts);
+
 /**
  * drm_hdmi_mode_needs_scrambling() - Check if an HDMI mode requires scrambling
  * @mode: Display mode to check
