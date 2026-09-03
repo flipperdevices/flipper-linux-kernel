@@ -29,6 +29,7 @@ struct syscon {
 	struct regmap *regmap;
 	struct reset_control *reset;
 	struct list_head list;
+	struct lock_class_key lock_key;
 };
 
 static const struct regmap_config syscon_regmap_config = {
@@ -47,6 +48,7 @@ static struct syscon *of_syscon_register(struct device_node *np, bool check_res)
 	struct regmap_config syscon_config = syscon_regmap_config;
 	struct resource res;
 	struct reset_control *reset;
+	char *name;
 	resource_size_t res_size;
 
 	WARN_ON(!mutex_is_locked(&syscon_list_lock));
@@ -103,22 +105,26 @@ static struct syscon *of_syscon_register(struct device_node *np, bool check_res)
 		goto err_regmap;
 	}
 
-	syscon_config.name = kasprintf(GFP_KERNEL, "%pOFn@%pa", np, &res.start);
-	if (!syscon_config.name) {
+	name = kasprintf(GFP_KERNEL, "%pOFn@%pa", np, &res.start);
+	if (!name) {
 		ret = -ENOMEM;
 		goto err_regmap;
 	}
+	syscon_config.name = name;
 	syscon_config.reg_stride = reg_io_width;
 	syscon_config.val_bits = reg_io_width * 8;
 	syscon_config.max_register = res_size - reg_io_width;
 	if (!syscon_config.max_register)
 		syscon_config.max_register_is_0 = true;
 
-	regmap = regmap_init_mmio(NULL, base, &syscon_config);
-	kfree(syscon_config.name);
+	lockdep_register_key(&syscon->lock_key);
+	regmap = __regmap_init_mmio_clk(NULL, NULL, base, &syscon_config,
+					&syscon->lock_key, name);
 	if (IS_ERR(regmap)) {
 		pr_err("regmap init failed\n");
 		ret = PTR_ERR(regmap);
+		lockdep_unregister_key(&syscon->lock_key);
+		kfree(name);
 		goto err_regmap;
 	}
 
@@ -160,6 +166,8 @@ err_attach_clk:
 		clk_put(clk);
 err_clk:
 	regmap_exit(regmap);
+	lockdep_unregister_key(&syscon->lock_key);
+	kfree(name);
 err_regmap:
 	iounmap(base);
 	return ERR_PTR(ret);
