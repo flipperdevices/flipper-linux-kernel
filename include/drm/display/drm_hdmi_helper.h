@@ -36,6 +36,12 @@ drm_hdmi_acr_get_n_cts(unsigned long long tmds_char_rate,
 		       unsigned int *out_n,
 		       unsigned int *out_cts);
 
+void
+drm_hdmi_acr_get_frl_n_cts(unsigned int frl_rate_per_lane,
+			   unsigned int sample_rate,
+			   unsigned int *out_n,
+			   unsigned int *out_cts);
+
 bool
 drm_hdmi_mode_needs_scrambling(const struct drm_display_mode *mode,
 			       unsigned int bpc, enum drm_output_color_format fmt);
