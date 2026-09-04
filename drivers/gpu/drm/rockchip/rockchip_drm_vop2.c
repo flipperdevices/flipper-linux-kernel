@@ -3014,6 +3014,8 @@ static int vop2_bind(struct device *dev, struct device *master, void *data)
 		return dev_err_probe(drm->dev, PTR_ERR(vop2->axi_rst),
 				     "failed to get axi reset\n");
 
+	vop2_reset_assert_deassert(vop2, vop2->axi_rst);
+
 	vop2->irq = platform_get_irq(pdev, 0);
 	if (vop2->irq < 0)
 		return dev_err_probe(drm->dev, vop2->irq, "cannot find irq for vop2\n");
