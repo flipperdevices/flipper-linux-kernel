@@ -339,6 +339,39 @@ rockchip_usb2phy_clk480m_clkout_ctl(struct clk_hw *hw, struct regmap **base,
 	}
 }
 
+static int rockchip_usb2phy_clk480m_leave_suspend(struct clk_hw *hw)
+{
+	struct rockchip_usb2phy *rphy = container_of(hw, struct rockchip_usb2phy, clk480m_hw);
+	bool relock = false;
+	int ret, i;
+
+	/* Limit to single port; it's unclear how multi-port should be handled */
+	if (rphy->phy_cfg->num_ports > 1)
+		return 0;
+
+	for (i = 0; i < rphy->phy_cfg->num_ports; i++) {
+		struct rockchip_usb2phy_port *rport = &rphy->ports[i];
+		const struct rockchip_usb2phy_port_cfg *port_cfg = rport->port_cfg;
+
+		if (!rport->phy || !port_cfg || !port_cfg->phy_sus.enable)
+			continue;
+		if (property_enabled(rphy->grf, &port_cfg->phy_sus)) {
+			property_enable(rphy->grf, &port_cfg->phy_sus,
+					false);
+			relock = true;
+		}
+	}
+
+	if (relock) {
+		ret = rockchip_usb2phy_reset(rphy);
+		if (ret)
+			return ret;
+		usleep_range(1500, 2000);
+	}
+
+	return 0;
+}
+
 static int rockchip_usb2phy_clk480m_prepare(struct clk_hw *hw)
 {
 	const struct usb2phy_reg *clkout_ctl;
@@ -346,6 +379,10 @@ static int rockchip_usb2phy_clk480m_prepare(struct clk_hw *hw)
 	int ret;
 
 	rockchip_usb2phy_clk480m_clkout_ctl(hw, &base, &clkout_ctl);
+
+	ret = rockchip_usb2phy_clk480m_leave_suspend(hw);
+	if (ret)
+		return ret;
 
 	/* turn on 480m clk output if it is off */
 	if (!property_enabled(base, clkout_ctl)) {
