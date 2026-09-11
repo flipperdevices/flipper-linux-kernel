@@ -69,13 +69,6 @@
 &gpio1 {
 	pinctrl-names = "default";
 	pinctrl-0 = <&sim_sel>;
-
-	sim-sel-hog {
-		gpios = <RK_PC0 GPIO_ACTIVE_HIGH>;
-		output-high;
-		line-name = "Force physical SIM instead of eSIM";
-		gpio-hog;
-	};
 };
 
 &gpio2 {
@@ -111,7 +104,7 @@
 		};
 
 		sim_sel: sim-sel {
-			rockchip,pins = <1 RK_PC0 RK_FUNC_GPIO &pcfg_pull_none>;
+			rockchip,pins = <1 RK_PC0 RK_FUNC_GPIO &pcfg_output_high>;
 		};
 	};
 
