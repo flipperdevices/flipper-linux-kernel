@@ -77,7 +77,11 @@ static void fo_set_tx_buffer_data(struct fo_device *fo,
 	clip.y2 = fb->height;
 
 	iosys_map_set_vaddr(&dst, fo->tx_buffer);
-	drm_fb_xrgb8888_to_gray8(&dst, &fo->pitch, src, fb, &clip, &s_plane_state->fmtcnv_state);
+	if (fb->format->format == DRM_FORMAT_Y8)
+		drm_fb_memcpy(&dst, &fo->pitch, src, fb, &clip);
+	else
+		drm_fb_xrgb8888_to_gray8(&dst, &fo->pitch, src, fb, &clip, &s_plane_state->fmtcnv_state);
+
 	drm_gem_fb_end_cpu_access(fb, DMA_FROM_DEVICE);
 }
 
@@ -233,6 +237,7 @@ MODULE_DEVICE_TABLE(of, fo_of_match);
 
 static const u32 fo_formats[] = {
 	DRM_FORMAT_XRGB8888,
+	DRM_FORMAT_Y8,
 };
 
 static int fo_pipe_init(struct drm_device *dev, struct fo_device *fo,
