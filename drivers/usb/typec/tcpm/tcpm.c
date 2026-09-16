@@ -3912,6 +3912,16 @@ static void tcpm_pd_ctrl_request(struct tcpm_port *port,
 		case SRC_READY:
 		case SNK_READY:
 			if (port->vdm_state > VDM_STATE_READY) {
+				if (port->ams == DISCOVER_IDENTITY) {
+					if (rx_sop_type == TCPC_TX_SOP) {
+						tcpm_update_vdm_discovery_state(port,
+								VDM_DISCOVERY_COMPLETE);
+					} else if (rx_sop_type == TCPC_TX_SOP_PRIME) {
+						tcpm_update_vdm_discovery_state(port,
+								VDM_DISCOVERY_CABLE_IDENT);
+						mod_vdm_discovery_delayed_work(port, 0);
+					}
+				}
 				port->vdm_state = VDM_STATE_DONE;
 				if (tcpm_vdm_ams(port))
 					tcpm_ams_finish(port);
