@@ -507,8 +507,18 @@ static irqreturn_t rk3x_i2c_irq(int irqno, void *dev_id)
 
 		ipd &= ~REG_INT_NAKRCV;
 
-		if (!(i2c->msg->flags & I2C_M_IGNORE_NAK))
+		/*
+		 * rk3x_i2c_stop() moves us to STATE_STOP and arms the STOP
+		 * interrupt. The remaining pending bits belong to the state we
+		 * just left, so stop processing them here: dispatching them
+		 * into rk3x_i2c_handle_stop() would report a bogus "unexpected
+		 * irq in STOP", replace -ENXIO with -EIO and clear the pending
+		 * bits of the STOP we are waiting for.
+		 */
+		if (!(i2c->msg->flags & I2C_M_IGNORE_NAK)) {
 			rk3x_i2c_stop(i2c, -ENXIO);
+			goto out;
+		}
 	}
 
 	/* is there anything left to handle? */
