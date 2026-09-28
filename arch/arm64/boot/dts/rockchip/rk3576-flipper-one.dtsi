@@ -1472,6 +1472,15 @@
 	};
 };
 
+&reboot_mode {
+	ddr-supply = <&vdd_ddr_s0>;
+	ddr2-supply = <&vdd2_ddr_s3>;
+	ddr-pll-supply = <&vdda_ddr_pll_s0>;
+	ddrq-supply = <&vddq_ddr_s0>;
+	logic-supply = <&vdd_logic_s0>;
+	npu-supply = <&vdd_npu_s0>;
+};
+
 &sai0 {
 	/* Serial audio for M.2 WWAN */
 	pinctrl-names = "default";
