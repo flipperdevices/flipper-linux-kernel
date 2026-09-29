@@ -34,6 +34,7 @@ enum bq27xxx_chip {
 	BQ27621,
 	BQ27Z561,
 	BQ28Z610,
+	BQ28Z620,
 	BQ34Z100,
 	BQ78Z100,
 };
