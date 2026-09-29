@@ -1200,7 +1200,7 @@
 	};
 
 	gauge: fuel-gauge@55 {
-		compatible = "ti,bq28z610"; /* really bq28z620: tbc if we need a new compatible */
+		compatible = "ti,bq28z620";
 		reg = <0x55>;
 		monitored-battery = <&battery>;
 	};
