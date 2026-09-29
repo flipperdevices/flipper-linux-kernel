@@ -11,6 +11,7 @@
 #include <linux/reboot.h>
 #include <linux/regmap.h>
 #include <linux/regulator/consumer.h>
+#include <linux/slab.h>
 #include <linux/mfd/syscon.h>
 #include <linux/reboot-mode.h>
 
@@ -58,6 +59,7 @@ static void syscon_reboot_mode_put_supplies(void *data)
 	struct syscon_reboot_mode *syscon_rbm = data;
 
 	regulator_bulk_free(syscon_rbm->num_supplies, syscon_rbm->supplies);
+	kfree(syscon_rbm->supplies);
 }
 
 static int syscon_reboot_mode_probe(struct platform_device *pdev)
