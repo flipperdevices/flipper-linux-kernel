@@ -41,6 +41,12 @@
 #define TXBUFFER_BASE 0x100
 #define RXBUFFER_BASE 0x200
 
+/* Registers present on some SoCs only */
+#define REG_SCL_OE_DB  0x24  /* target clock stretching debounce */
+#define REG_ST         0x220 /* SCL/SDA line status */
+#define REG_DBGCTRL    0x224 /* SCL glitch filter, clock stretching detection */
+#define REG_CON1       0x228 /* automatic STOP control */
+
 /* REG_CON bits */
 #define REG_CON_EN        BIT(0)
 enum {
@@ -65,6 +71,10 @@ enum {
 
 /* REG_MRXADDR bits */
 #define REG_MRXADDR_VALID(x) BIT(24 + (x)) /* [x*8+7:x*8] of MRX[R]ADDR valid */
+
+/* REG_ST bits */
+#define REG_ST_SDA        BIT(0) /* 1: SDA is high */
+#define REG_ST_SCL        BIT(1) /* 1: SCL is high */
 
 /* REG_IEN/REG_IPD bits */
 #define REG_INT_BTF       BIT(0) /* a byte was transmitted */
@@ -163,11 +173,13 @@ enum rk3x_i2c_state {
  * struct rk3x_i2c_soc_data - SOC-specific data
  * @grf_offset: offset inside the grf regmap for setting the i2c type
  * @calc_timings: Callback function for i2c timing information calculated
+ * @has_bus_status: REG_ST reports the SCL/SDA line levels
  */
 struct rk3x_i2c_soc_data {
 	int grf_offset;
 	int (*calc_timings)(unsigned long, struct i2c_timings *,
 			    struct rk3x_i2c_calced_timings *);
+	bool has_bus_status;
 };
 
 /**
@@ -181,6 +193,7 @@ struct rk3x_i2c_soc_data {
  * @clk_rate_nb: i2c clk rate change notify
  * @irq: irq number
  * @t: I2C known timing information
+ * @rinfo: bus recovery information, filled in by the I2C core from firmware
  * @lock: spinlock for the i2c bus
  * @wait: the waitqueue to wait for i2c transfer
  * @busy: the condition for the event to wait for
@@ -206,6 +219,7 @@ struct rk3x_i2c {
 
 	/* Settings */
 	struct i2c_timings t;
+	struct i2c_bus_recovery_info rinfo;
 
 	/* Synchronization & notification */
 	spinlock_t lock;
@@ -1066,6 +1080,60 @@ static int rk3x_i2c_wait_xfer_poll(struct rk3x_i2c *i2c)
 	return !i2c->busy;
 }
 
+/*
+ * A target that lost track of the framing may be left driving SDA low, e.g.
+ * waiting for a clock to shift out an ACK. The controller cannot generate a
+ * START then, and the target takes the next bytes on the bus as data for
+ * itself. Clock the target out and issue a STOP before starting a transfer.
+ */
+static bool rk3x_i2c_sda_held_low(struct rk3x_i2c *i2c, bool polling)
+{
+	struct i2c_bus_recovery_info *bri = i2c->adap.bus_recovery_info;
+	u32 st;
+
+	if (i2c->soc_data->has_bus_status) {
+		clk_enable(i2c->clk);
+		clk_enable(i2c->pclk);
+		st = i2c_readl(i2c, REG_ST);
+		clk_disable(i2c->pclk);
+		clk_disable(i2c->clk);
+
+		return !(st & REG_ST_SDA);
+	}
+
+	/* Reading the recovery GPIO may sleep */
+	if (polling || !bri || !bri->get_sda)
+		return false;
+
+	return !bri->get_sda(&i2c->adap);
+}
+
+/*
+ * Polling transfers come in through .xfer_atomic, which the I2C core only uses
+ * when the caller cannot sleep.
+ */
+static int rk3x_i2c_clear_bus(struct rk3x_i2c *i2c, bool polling)
+{
+	int ret;
+
+	if (!rk3x_i2c_sda_held_low(i2c, polling))
+		return 0;
+
+	/* Recovery switches pinctrl states, which may sleep */
+	if (polling || !i2c->adap.bus_recovery_info) {
+		dev_warn_ratelimited(i2c->dev, "SDA held low, cannot recover the bus\n");
+		return 0;
+	}
+
+	dev_warn_ratelimited(i2c->dev, "SDA held low, recovering the bus\n");
+
+	ret = i2c_recover_bus(&i2c->adap);
+	if (ret)
+		dev_err_ratelimited(i2c->dev, "bus recovery failed: %d\n", ret);
+
+	return ret;
+}
+
 static int rk3x_i2c_xfer_common(struct i2c_adapter *adap,
 				struct i2c_msg *msgs, int num, bool polling)
 {
@@ -1075,6 +1143,10 @@ static int rk3x_i2c_xfer_common(struct i2c_adapter *adap,
 	u32 val;
 	int ret = 0;
 	int i;
+
+	ret = rk3x_i2c_clear_bus(i2c, polling);
+	if (ret)
+		return ret;
 
 	spin_lock_irqsave(&i2c->lock, flags);
 
@@ -1210,6 +1282,12 @@ static const struct rk3x_i2c_soc_data rk3399_soc_data = {
 	.calc_timings = rk3x_i2c_v1_calc_timings,
 };
 
+static const struct rk3x_i2c_soc_data rk3576_soc_data = {
+	.grf_offset = -1,
+	.calc_timings = rk3x_i2c_v1_calc_timings,
+	.has_bus_status = true,
+};
+
 static const struct of_device_id rk3x_i2c_match[] = {
 	{
 		.compatible = "rockchip,rv1108-i2c",
@@ -1238,6 +1316,10 @@ static const struct of_device_id rk3x_i2c_match[] = {
 	{
 		.compatible = "rockchip,rk3399-i2c",
 		.data = &rk3399_soc_data
+	},
+	{
+		.compatible = "rockchip,rk3576-i2c",
+		.data = &rk3576_soc_data
 	},
 	{},
 };
@@ -1271,6 +1353,8 @@ static int rk3x_i2c_probe(struct platform_device *pdev)
 	i2c->adap.dev.of_node = np;
 	i2c->adap.algo_data = i2c;
 	i2c->adap.dev.parent = &pdev->dev;
+	/* The core picks up recovery GPIOs and pinctrl states, if described */
+	i2c->adap.bus_recovery_info = &i2c->rinfo;
 
 	i2c->dev = &pdev->dev;
 
