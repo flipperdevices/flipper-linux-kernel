@@ -899,6 +899,11 @@
 
 &i2c2 {
 	clock-frequency = <400000>;
+	pinctrl-0 = <&i2c2m0_xfer>;
+	pinctrl-1 = <&i2c2m0_recovery>;
+	pinctrl-names = "default", "gpio";
+	scl-gpios = <&gpio0 RK_PB7 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
+	sda-gpios = <&gpio0 RK_PC0 (GPIO_ACTIVE_HIGH | GPIO_OPEN_DRAIN)>;
 	status = "okay";
 
 	gpio_expander: gpio@20 {
@@ -1366,6 +1371,16 @@
 	i2c0 {
 		i2c0_sda_pullup: i2c0-sda-pullup {
 			rockchip,pins = <0 RK_PC5 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	i2c2 {
+		i2c2m0_recovery: i2c2m0-recovery {
+			rockchip,pins =
+				/* i2c2_scl_m0 */
+				<0 RK_PB7 RK_FUNC_GPIO &pcfg_pull_none>,
+				/* i2c2_sda_m0 */
+				<0 RK_PC0 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 
