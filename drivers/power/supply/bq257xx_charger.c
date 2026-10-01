@@ -56,6 +56,7 @@ struct bq257xx_chip_info {
  * @charger: power supply device
  * @online: charger input is present
  * @charging: charger is actively charging the battery
+ * @full: charging has terminated with the battery full
  * @fast_charge: charger is in fast charge mode
  * @pre_charge: charger is in pre-charge mode
  * @overvoltage: overvoltage fault detected
@@ -76,6 +77,7 @@ struct bq257xx_chg {
 	struct device *dev;
 	bool online;
 	bool charging;
+	bool full;
 	bool fast_charge;
 	bool pre_charge;
 	bool overvoltage;
@@ -193,7 +195,9 @@ static int bq25792_get_state(struct bq257xx_chg *pdata)
 	if (ret)
 		return ret;
 
-	pdata->charging = reg & BQ25792_REG1C_CHG_STAT_MASK;
+	reg = FIELD_GET(BQ25792_REG1C_CHG_STAT_MASK, reg);
+	pdata->full = reg == BQ25792_CHG_STAT_TERM_DONE;
+	pdata->charging = reg != BQ25792_CHG_STAT_NOT_CHARGING && !pdata->full;
 
 	ret = regmap_read(pdata->bq->regmap, BQ25792_REG20_FAULT_STATUS_0, &reg);
 	if (ret)
@@ -947,6 +951,8 @@ static int bq257xx_get_charger_property(struct power_supply *psy,
 			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
 		else if (pdata->charging)
 			val->intval = POWER_SUPPLY_STATUS_CHARGING;
+		else if (pdata->full)
+			val->intval = POWER_SUPPLY_STATUS_FULL;
 		else
 			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
 		break;
