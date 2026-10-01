@@ -1212,7 +1212,7 @@
 		reg = <0x6b>;
 		input-current-limit-microamp = <3300000>;
 		interrupt-parent = <&gpio_expander>;
-		interrupts = <2 IRQ_TYPE_LEVEL_LOW>;
+		interrupts = <2 IRQ_TYPE_EDGE_FALLING>;
 		monitored-battery = <&battery>;
 		power-supplies = <&usbc0>;
 
