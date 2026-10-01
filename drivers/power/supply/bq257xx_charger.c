@@ -9,6 +9,7 @@
 #include <linux/i2c.h>
 #include <linux/interrupt.h>
 #include <linux/mfd/bq257xx.h>
+#include <linux/mutex.h>
 #include <linux/platform_device.h>
 #include <linux/power_supply.h>
 #include <linux/property.h>
@@ -67,6 +68,11 @@ struct bq257xx_chip_info {
  * @oc_fault: charger reports over current fault
  * @usb_type: USB type reported from parent power supply
  * @supplied: Status of parent power supply
+ * @lock: protects the device state and notified_* fields
+ * @notified_status: status last reported to userspace
+ * @notified_health: health last reported to userspace
+ * @notified_online: online state last reported to userspace
+ * @notified_usb_type: USB type last reported to userspace
  * @iindpm_max: maximum input current limit (uA)
  * @vbat_max: maximum charge voltage (uV)
  * @ichg_max: maximum charge current (uA)
@@ -88,6 +94,11 @@ struct bq257xx_chg {
 	bool oc_fault;
 	int usb_type;
 	int supplied;
+	struct mutex lock;
+	int notified_status;
+	int notified_health;
+	bool notified_online;
+	int notified_usb_type;
 	u32 iindpm_max;
 	u32 vbat_max;
 	u32 ichg_max;
@@ -889,6 +900,73 @@ static void bq25792_hw_shutdown(struct bq257xx_chg *pdata)
 }
 
 /**
+ * bq257xx_status() - Derive the power supply status from the device state
+ * @pdata: driver platform data
+ *
+ * Return: Returns the POWER_SUPPLY_STATUS_* value for the last read state.
+ */
+static int bq257xx_status(struct bq257xx_chg *pdata)
+{
+	if (!pdata->online)
+		return POWER_SUPPLY_STATUS_DISCHARGING;
+	if (pdata->charging)
+		return POWER_SUPPLY_STATUS_CHARGING;
+	if (pdata->full)
+		return POWER_SUPPLY_STATUS_FULL;
+	return POWER_SUPPLY_STATUS_NOT_CHARGING;
+}
+
+/**
+ * bq257xx_health() - Derive the power supply health from the device state
+ * @pdata: driver platform data
+ *
+ * Return: Returns the POWER_SUPPLY_HEALTH_* value for the last read state.
+ */
+static int bq257xx_health(struct bq257xx_chg *pdata)
+{
+	if (pdata->overvoltage)
+		return POWER_SUPPLY_HEALTH_OVERVOLTAGE;
+	if (pdata->oc_fault)
+		return POWER_SUPPLY_HEALTH_OVERCURRENT;
+	return POWER_SUPPLY_HEALTH_GOOD;
+}
+
+/**
+ * bq257xx_notify_changes() - Notify userspace if anything it sees changed
+ * @pdata: driver platform data
+ *
+ * Many charger events, such as entering or leaving a regulation loop or a
+ * temperature range, leave every reported property as it was. Only call
+ * power_supply_changed() when one of them differs from what was reported
+ * last, to spare userspace from re-reading all properties on each event.
+ */
+static void bq257xx_notify_changes(struct bq257xx_chg *pdata)
+{
+	int status, health;
+
+	scoped_guard(mutex, &pdata->lock) {
+		if (pdata->chip->bq257xx_get_state(pdata))
+			return;
+
+		status = bq257xx_status(pdata);
+		health = bq257xx_health(pdata);
+
+		if (status == pdata->notified_status &&
+		    health == pdata->notified_health &&
+		    pdata->online == pdata->notified_online &&
+		    pdata->usb_type == pdata->notified_usb_type)
+			return;
+
+		pdata->notified_status = status;
+		pdata->notified_health = health;
+		pdata->notified_online = pdata->online;
+		pdata->notified_usb_type = pdata->usb_type;
+	}
+
+	power_supply_changed(pdata->charger);
+}
+
+/**
  * bq257xx_set_charger_property() - Set a power supply property
  * @psy: power supply device
  * @prop: power supply property to set
@@ -943,29 +1021,19 @@ static int bq257xx_get_charger_property(struct power_supply *psy,
 	struct bq257xx_chg *pdata = power_supply_get_drvdata(psy);
 	int ret = 0;
 
+	guard(mutex)(&pdata->lock);
+
 	ret = pdata->chip->bq257xx_get_state(pdata);
 	if (ret)
 		return ret;
 
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
-		if (!pdata->online)
-			val->intval = POWER_SUPPLY_STATUS_DISCHARGING;
-		else if (pdata->charging)
-			val->intval = POWER_SUPPLY_STATUS_CHARGING;
-		else if (pdata->full)
-			val->intval = POWER_SUPPLY_STATUS_FULL;
-		else
-			val->intval = POWER_SUPPLY_STATUS_NOT_CHARGING;
+		val->intval = bq257xx_status(pdata);
 		break;
 
 	case POWER_SUPPLY_PROP_HEALTH:
-		if (pdata->overvoltage)
-			val->intval = POWER_SUPPLY_HEALTH_OVERVOLTAGE;
-		else if (pdata->oc_fault)
-			val->intval = POWER_SUPPLY_HEALTH_OVERCURRENT;
-		else
-			val->intval = POWER_SUPPLY_HEALTH_GOOD;
+		val->intval = bq257xx_health(pdata);
 		break;
 
 	case POWER_SUPPLY_PROP_MANUFACTURER:
@@ -1062,8 +1130,6 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 	int ret;
 	int imax = pdata->iindpm_max;
 
-	pdata->chip->bq257xx_get_state(pdata);
-
 	pdata->supplied = power_supply_am_i_supplied(psy);
 	if (pdata->supplied <= 0)
 		goto out;
@@ -1096,7 +1162,7 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 	}
 
 out:
-	power_supply_changed(psy);
+	bq257xx_notify_changes(pdata);
 }
 
 /**
@@ -1235,6 +1301,7 @@ static int bq257xx_charger_probe(struct platform_device *pdev)
 	struct bq257xx_device *bq = dev_get_drvdata(pdev->dev.parent);
 	struct bq257xx_chg *pdata;
 	struct power_supply_config psy_cfg = { };
+	int ret;
 
 	device_set_of_node_from_dev(dev, pdev->dev.parent);
 
@@ -1244,6 +1311,10 @@ static int bq257xx_charger_probe(struct platform_device *pdev)
 
 	pdata->bq = bq;
 	pdata->dev = dev;
+
+	ret = devm_mutex_init(dev, &pdata->lock);
+	if (ret)
+		return ret;
 
 	switch (bq->type) {
 	case BQ25703A:
