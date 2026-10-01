@@ -22,6 +22,8 @@ struct bq257xx_chg;
  * struct bq257xx_chip_info - chip specific routines
  * @default_iindpm_uA: default input current limit in microamps
  * @irq_flags: interrupt trigger type
+ * @reapply_limits: input changes reset the limits, so program them on each
+ *		    event instead of only when the input current target changes
  * @bq257xx_hw_init: init function for hw
  * @bq257xx_hw_shutdown: shutdown function for hw
  * @bq257xx_get_state: get and update state of hardware
@@ -38,6 +40,7 @@ struct bq257xx_chg;
 struct bq257xx_chip_info {
 	int default_iindpm_uA;
 	unsigned long irq_flags;
+	bool reapply_limits;
 	int (*bq257xx_hw_init)(struct bq257xx_chg *pdata);
 	void (*bq257xx_hw_shutdown)(struct bq257xx_chg *pdata);
 	int (*bq257xx_get_state)(struct bq257xx_chg *pdata);
@@ -68,11 +71,13 @@ struct bq257xx_chip_info {
  * @oc_fault: charger reports over current fault
  * @usb_type: USB type reported from parent power supply
  * @supplied: Status of parent power supply
- * @lock: protects the device state and notified_* fields
+ * @lock: protects the device state, notified_* and iindpm_* fields
  * @notified_status: status last reported to userspace
  * @notified_health: health last reported to userspace
  * @notified_online: online state last reported to userspace
  * @notified_usb_type: USB type last reported to userspace
+ * @iindpm_target: input current limit requested from the device (uA)
+ * @iindpm_set: input current limit the device took for it, read back (uA)
  * @iindpm_max: maximum input current limit (uA)
  * @vbat_max: maximum charge voltage (uV)
  * @ichg_max: maximum charge current (uA)
@@ -99,6 +104,8 @@ struct bq257xx_chg {
 	int notified_health;
 	bool notified_online;
 	int notified_usb_type;
+	int iindpm_target;
+	int iindpm_set;
 	u32 iindpm_max;
 	u32 vbat_max;
 	u32 ichg_max;
@@ -1112,16 +1119,43 @@ static int bq257xx_property_is_writeable(struct power_supply *psy,
 }
 
 /**
+ * bq257xx_apply_iindpm() - Program the input current limit if it is off
+ * @pdata: driver platform data
+ * @iindpm: input current limit to program in uA
+ *
+ * Input source detection at plug-in may replace the input current limit on
+ * its own, so write the requested limit whenever it differs from the last
+ * request or the device no longer holds the value it took for it.
+ */
+static void bq257xx_apply_iindpm(struct bq257xx_chg *pdata, int iindpm)
+{
+	int cur;
+
+	guard(mutex)(&pdata->lock);
+
+	if (pdata->chip->bq257xx_get_iindpm(pdata, &cur))
+		return;
+
+	if (iindpm == pdata->iindpm_target && cur == pdata->iindpm_set)
+		return;
+
+	if (pdata->chip->bq257xx_set_iindpm(pdata, iindpm))
+		return;
+
+	pdata->iindpm_target = iindpm;
+	pdata->chip->bq257xx_get_iindpm(pdata, &pdata->iindpm_set);
+}
+
+/**
  * bq257xx_external_power_changed() - Handler for external power change
  * @psy: Power supply data
  *
  * When the external power into the charger is changed, check the USB
  * type so that it can be reported. Additionally, update the max input
- * current and max charging current to the value reported if it is a
- * USB PD charger, otherwise use the default value. Note that each time
- * a charger is removed the max charge current register is erased, so
- * it must be set again each time the input changes or the device will
- * not charge.
+ * current to the value reported if it is a USB PD charger, otherwise use
+ * the default value. Chips that erase their limits when the input changes
+ * get the max charge current and voltage programmed again as well, or they
+ * would not charge.
  */
 static void bq257xx_external_power_changed(struct power_supply *psy)
 {
@@ -1155,10 +1189,12 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 			imax = val.intval;
 	}
 
-	if (pdata->supplied) {
+	if (pdata->chip->reapply_limits) {
 		pdata->chip->bq257xx_set_ichg(pdata, pdata->ichg_max);
 		pdata->chip->bq257xx_set_iindpm(pdata, imax);
 		pdata->chip->bq257xx_set_vbatreg(pdata, pdata->vbat_max);
+	} else {
+		bq257xx_apply_iindpm(pdata, imax);
 	}
 
 out:
@@ -1253,6 +1289,7 @@ static const struct bq257xx_chip_info bq25703_chip_info = {
 		.default_iindpm_uA = BQ25703_IINDPM_DEFAULT_UA,
 		/* CHRG_OK is a level that follows the input presence */
 		.irq_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
+		.reapply_limits = true,
 		.bq257xx_hw_init = &bq25703_hw_init,
 		.bq257xx_hw_shutdown = &bq25703_hw_shutdown,
 		.bq257xx_get_state = &bq25703_get_state,
