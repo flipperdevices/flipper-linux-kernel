@@ -1057,17 +1057,14 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 	pdata->chip->bq257xx_get_state(pdata);
 
 	pdata->supplied = power_supply_am_i_supplied(psy);
-	if (pdata->supplied < 0)
-		return;
-
-	if (pdata->supplied == 0)
+	if (pdata->supplied <= 0)
 		goto out;
 
 	ret = power_supply_get_property_from_supplier(psy,
 						      POWER_SUPPLY_PROP_USB_TYPE,
 						      &val);
 	if (ret)
-		return;
+		goto out;
 
 	pdata->usb_type = val.intval;
 
@@ -1078,7 +1075,7 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 							      POWER_SUPPLY_PROP_CURRENT_MAX,
 							      &val);
 		if (ret)
-			return;
+			goto out;
 
 		if (val.intval)
 			imax = val.intval;
