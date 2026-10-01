@@ -20,6 +20,7 @@ struct bq257xx_chg;
 /**
  * struct bq257xx_chip_info - chip specific routines
  * @default_iindpm_uA: default input current limit in microamps
+ * @irq_flags: interrupt trigger type
  * @bq257xx_hw_init: init function for hw
  * @bq257xx_hw_shutdown: shutdown function for hw
  * @bq257xx_get_state: get and update state of hardware
@@ -35,6 +36,7 @@ struct bq257xx_chg;
  */
 struct bq257xx_chip_info {
 	int default_iindpm_uA;
+	unsigned long irq_flags;
 	int (*bq257xx_hw_init)(struct bq257xx_chg *pdata);
 	void (*bq257xx_hw_shutdown)(struct bq257xx_chg *pdata);
 	int (*bq257xx_get_state)(struct bq257xx_chg *pdata);
@@ -1183,6 +1185,8 @@ static const struct power_supply_desc bq257xx_power_supply_desc = {
 
 static const struct bq257xx_chip_info bq25703_chip_info = {
 		.default_iindpm_uA = BQ25703_IINDPM_DEFAULT_UA,
+		/* CHRG_OK is a level that follows the input presence */
+		.irq_flags = IRQF_TRIGGER_RISING | IRQF_TRIGGER_FALLING,
 		.bq257xx_hw_init = &bq25703_hw_init,
 		.bq257xx_hw_shutdown = &bq25703_hw_shutdown,
 		.bq257xx_get_state = &bq25703_get_state,
@@ -1199,6 +1203,8 @@ static const struct bq257xx_chip_info bq25703_chip_info = {
 
 static const struct bq257xx_chip_info bq25792_chip_info = {
 		.default_iindpm_uA = BQ25792_IINDPM_DEFAULT_UA,
+		/* INT is an active low pulse per event */
+		.irq_flags = IRQF_TRIGGER_FALLING,
 		.bq257xx_hw_init = &bq25792_hw_init,
 		.bq257xx_hw_shutdown = &bq25792_hw_shutdown,
 		.bq257xx_get_state = &bq25792_get_state,
@@ -1265,8 +1271,7 @@ static int bq257xx_charger_probe(struct platform_device *pdev)
 	if (bq->client->irq) {
 		return devm_request_threaded_irq(dev, bq->client->irq, NULL,
 						 bq257xx_irq_handler_thread,
-						 IRQF_TRIGGER_RISING |
-						 IRQF_TRIGGER_FALLING |
+						 pdata->chip->irq_flags |
 						 IRQF_ONESHOT,
 						 dev_name(&bq->client->dev), pdata);
 	}
