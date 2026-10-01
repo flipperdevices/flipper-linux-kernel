@@ -18,6 +18,13 @@
 /* Forward declaration of driver data. */
 struct bq257xx_chg;
 
+/* Parts of the device state for bq257xx_get_state() to read */
+#define BQ257XX_STATE_ONLINE	BIT(0)
+#define BQ257XX_STATE_CHARGE	BIT(1)
+#define BQ257XX_STATE_FAULTS	BIT(2)
+#define BQ257XX_STATE_ALL	(BQ257XX_STATE_ONLINE | BQ257XX_STATE_CHARGE | \
+				 BQ257XX_STATE_FAULTS)
+
 /**
  * struct bq257xx_chip_info - chip specific routines
  * @default_iindpm_uA: default input current limit in microamps
@@ -26,7 +33,7 @@ struct bq257xx_chg;
  *		    event instead of only when the input current target changes
  * @bq257xx_hw_init: init function for hw
  * @bq257xx_hw_shutdown: shutdown function for hw
- * @bq257xx_get_state: get and update state of hardware
+ * @bq257xx_get_state: update the BQ257XX_STATE_* parts of the hardware state
  * @bq257xx_get_ichg: get maximum charge current (in uA)
  * @bq257xx_set_ichg: set maximum charge current (in uA)
  * @bq257xx_get_vbatreg: get maximum charge voltage (in uV)
@@ -43,7 +50,7 @@ struct bq257xx_chip_info {
 	bool reapply_limits;
 	int (*bq257xx_hw_init)(struct bq257xx_chg *pdata);
 	void (*bq257xx_hw_shutdown)(struct bq257xx_chg *pdata);
-	int (*bq257xx_get_state)(struct bq257xx_chg *pdata);
+	int (*bq257xx_get_state)(struct bq257xx_chg *pdata, unsigned int what);
 	int (*bq257xx_get_ichg)(struct bq257xx_chg *pdata, int *intval);
 	int (*bq257xx_set_ichg)(struct bq257xx_chg *pdata, int ichg);
 	int (*bq257xx_get_vbatreg)(struct bq257xx_chg *pdata, int *intval);
@@ -162,14 +169,16 @@ static int bq25792_write16(struct bq257xx_chg *pdata, unsigned int reg, u16 val)
 /**
  * bq25703_get_state() - Get the current state of the device
  * @pdata: driver platform data
+ * @what: BQ257XX_STATE_* parts of the state to update
  *
  * Get the current state of the charger. Check if the charger is
  * powered, what kind of charge state (if any) the device is in,
- * and if there are any active faults.
+ * and if there are any active faults. All of it comes from a single
+ * register, so update everything whatever was asked for.
  *
  * Return: Returns 0 on success, or error on failure to read device.
  */
-static int bq25703_get_state(struct bq257xx_chg *pdata)
+static int bq25703_get_state(struct bq257xx_chg *pdata, unsigned int what)
 {
 	unsigned int reg;
 	int ret;
@@ -193,38 +202,49 @@ static int bq25703_get_state(struct bq257xx_chg *pdata)
 /**
  * bq25792_get_state() - Get the current state of the device
  * @pdata: driver platform data
+ * @what: BQ257XX_STATE_* parts of the state to update
  *
- * Get the current state of the BQ25792 charger by reading status
- * registers. Updates the online, charging, overvoltage, and fault
- * status fields in the driver data structure.
+ * Get the current state of the BQ25792 charger by reading the status
+ * registers that hold the requested parts. Updates the online, charging,
+ * overvoltage, and fault status fields in the driver data structure.
  *
  * Return: Returns 0 on success or error on failure to read device.
  */
-static int bq25792_get_state(struct bq257xx_chg *pdata)
+static int bq25792_get_state(struct bq257xx_chg *pdata, unsigned int what)
 {
 	unsigned int reg;
 	int ret;
 
-	ret = regmap_read(pdata->bq->regmap, BQ25792_REG1B_CHARGER_STATUS_0, &reg);
-	if (ret)
-		return ret;
+	if (what & BQ257XX_STATE_ONLINE) {
+		ret = regmap_read(pdata->bq->regmap,
+				  BQ25792_REG1B_CHARGER_STATUS_0, &reg);
+		if (ret)
+			return ret;
 
-	pdata->online = reg & BQ25792_REG1B_PG_STAT;
+		pdata->online = reg & BQ25792_REG1B_PG_STAT;
+	}
 
-	ret = regmap_read(pdata->bq->regmap, BQ25792_REG1C_CHARGER_STATUS_1, &reg);
-	if (ret)
-		return ret;
+	if (what & BQ257XX_STATE_CHARGE) {
+		ret = regmap_read(pdata->bq->regmap,
+				  BQ25792_REG1C_CHARGER_STATUS_1, &reg);
+		if (ret)
+			return ret;
 
-	reg = FIELD_GET(BQ25792_REG1C_CHG_STAT_MASK, reg);
-	pdata->full = reg == BQ25792_CHG_STAT_TERM_DONE;
-	pdata->charging = reg != BQ25792_CHG_STAT_NOT_CHARGING && !pdata->full;
+		reg = FIELD_GET(BQ25792_REG1C_CHG_STAT_MASK, reg);
+		pdata->full = reg == BQ25792_CHG_STAT_TERM_DONE;
+		pdata->charging = reg != BQ25792_CHG_STAT_NOT_CHARGING &&
+				  !pdata->full;
+	}
 
-	ret = regmap_read(pdata->bq->regmap, BQ25792_REG20_FAULT_STATUS_0, &reg);
-	if (ret)
-		return ret;
+	if (what & BQ257XX_STATE_FAULTS) {
+		ret = regmap_read(pdata->bq->regmap,
+				  BQ25792_REG20_FAULT_STATUS_0, &reg);
+		if (ret)
+			return ret;
 
-	pdata->overvoltage = reg & BQ25792_REG20_OVERVOLTAGE_MASK;
-	pdata->oc_fault = reg & BQ25792_REG20_OVERCURRENT_MASK;
+		pdata->overvoltage = reg & BQ25792_REG20_OVERVOLTAGE_MASK;
+		pdata->oc_fault = reg & BQ25792_REG20_OVERCURRENT_MASK;
+	}
 
 	return 0;
 }
@@ -338,6 +358,10 @@ static int bq25703_get_cur(struct bq257xx_chg *pdata, int *intval)
 {
 	unsigned int reg;
 	int ret;
+
+	ret = bq25703_get_state(pdata, BQ257XX_STATE_ONLINE);
+	if (ret)
+		return ret;
 
 	ret = regmap_read(pdata->bq->regmap, BQ25703_ADCIBAT_CHG, &reg);
 	if (ret < 0)
@@ -952,7 +976,7 @@ static void bq257xx_notify_changes(struct bq257xx_chg *pdata)
 	int status, health;
 
 	scoped_guard(mutex, &pdata->lock) {
-		if (pdata->chip->bq257xx_get_state(pdata))
+		if (pdata->chip->bq257xx_get_state(pdata, BQ257XX_STATE_ALL))
 			return;
 
 		status = bq257xx_status(pdata);
@@ -1030,16 +1054,21 @@ static int bq257xx_get_charger_property(struct power_supply *psy,
 
 	guard(mutex)(&pdata->lock);
 
-	ret = pdata->chip->bq257xx_get_state(pdata);
-	if (ret)
-		return ret;
-
 	switch (psp) {
 	case POWER_SUPPLY_PROP_STATUS:
+		ret = pdata->chip->bq257xx_get_state(pdata, BQ257XX_STATE_ONLINE |
+							    BQ257XX_STATE_CHARGE);
+		if (ret)
+			return ret;
+
 		val->intval = bq257xx_status(pdata);
 		break;
 
 	case POWER_SUPPLY_PROP_HEALTH:
+		ret = pdata->chip->bq257xx_get_state(pdata, BQ257XX_STATE_FAULTS);
+		if (ret)
+			return ret;
+
 		val->intval = bq257xx_health(pdata);
 		break;
 
@@ -1048,6 +1077,10 @@ static int bq257xx_get_charger_property(struct power_supply *psy,
 		break;
 
 	case POWER_SUPPLY_PROP_ONLINE:
+		ret = pdata->chip->bq257xx_get_state(pdata, BQ257XX_STATE_ONLINE);
+		if (ret)
+			return ret;
+
 		val->intval = pdata->online;
 		break;
 
