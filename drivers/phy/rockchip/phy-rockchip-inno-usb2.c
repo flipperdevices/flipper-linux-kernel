@@ -343,7 +343,7 @@ static int rockchip_usb2phy_set_suspend(struct rockchip_usb2phy *rphy, struct ro
 {
 	int ret;
 
-	ret = property_enable(rphy->grf, &rport->port_cfg->phy_sus, !do_suspend);
+	ret = property_enable(rphy->grf, &rport->port_cfg->phy_sus, do_suspend);
 	if (ret)
 		return ret;
 
