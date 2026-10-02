@@ -1189,9 +1189,11 @@ static void bq257xx_apply_iindpm(struct bq257xx_chg *pdata, int iindpm)
  * When the external power into the charger is changed, check the USB
  * type so that it can be reported. Additionally, update the max input
  * current to the value the supplier reports, or to the USB default if it
- * reports none. Chips that erase their limits when the input changes
- * get the max charge current and voltage programmed again as well, or they
- * would not charge.
+ * reports none. Fall back to the USB default while the supplier is offline
+ * too. A new source then starts from a limit it can deliver, until the
+ * supplier reports what it offers. Chips that erase their limits when the
+ * input changes get the max charge current and voltage programmed again as
+ * well, or they would not charge.
  */
 static void bq257xx_external_power_changed(struct power_supply *psy)
 {
@@ -1201,6 +1203,8 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 	int imax;
 
 	pdata->supplied = power_supply_am_i_supplied(psy);
+	if (!pdata->supplied && !pdata->chip->reapply_limits)
+		bq257xx_apply_iindpm(pdata, BQ257XX_USB_DEFAULT_UA);
 	if (pdata->supplied <= 0)
 		goto out;
 
