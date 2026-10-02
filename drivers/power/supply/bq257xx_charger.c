@@ -25,6 +25,9 @@ struct bq257xx_chg;
 #define BQ257XX_STATE_ALL	(BQ257XX_STATE_ONLINE | BQ257XX_STATE_CHARGE | \
 				 BQ257XX_STATE_FAULTS)
 
+/* Input current available from a USB 2.0 port without negotiation */
+#define BQ257XX_USB_DEFAULT_UA	500000
+
 /**
  * struct bq257xx_chip_info - chip specific routines
  * @default_iindpm_uA: default input current limit in microamps
@@ -1185,8 +1188,8 @@ static void bq257xx_apply_iindpm(struct bq257xx_chg *pdata, int iindpm)
  *
  * When the external power into the charger is changed, check the USB
  * type so that it can be reported. Additionally, update the max input
- * current to the value reported if it is a USB PD charger, otherwise use
- * the default value. Chips that erase their limits when the input changes
+ * current to the value the supplier reports, or to the USB default if it
+ * reports none. Chips that erase their limits when the input changes
  * get the max charge current and voltage programmed again as well, or they
  * would not charge.
  */
@@ -1195,7 +1198,7 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 	struct bq257xx_chg *pdata = power_supply_get_drvdata(psy);
 	union power_supply_propval val;
 	int ret;
-	int imax = pdata->iindpm_max;
+	int imax;
 
 	pdata->supplied = power_supply_am_i_supplied(psy);
 	if (pdata->supplied <= 0)
@@ -1209,18 +1212,13 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 
 	pdata->usb_type = val.intval;
 
-	if ((pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD) ||
-	    (pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD_DRP) ||
-	    (pdata->usb_type == POWER_SUPPLY_USB_TYPE_PD_PPS)) {
-		ret = power_supply_get_property_from_supplier(psy,
-							      POWER_SUPPLY_PROP_CURRENT_MAX,
-							      &val);
-		if (ret)
-			goto out;
+	ret = power_supply_get_property_from_supplier(psy,
+						      POWER_SUPPLY_PROP_CURRENT_MAX,
+						      &val);
+	if (ret)
+		goto out;
 
-		if (val.intval)
-			imax = val.intval;
-	}
+	imax = val.intval ?: BQ257XX_USB_DEFAULT_UA;
 
 	if (pdata->chip->reapply_limits) {
 		pdata->chip->bq257xx_set_ichg(pdata, pdata->ichg_max);
