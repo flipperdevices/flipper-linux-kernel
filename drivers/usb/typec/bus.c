@@ -144,7 +144,9 @@ int typec_altmode_enter(struct typec_altmode *adev, u32 *vdo)
 		return ret;
 
 	/* Enter Mode */
-	return pdev->ops->enter(pdev, vdo);
+	ret = pdev->ops->enter(pdev, vdo);
+	dev_info(&pdev->dev, "Enter AltMode: %d", ret);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(typec_altmode_enter);
 
@@ -172,7 +174,9 @@ int typec_altmode_exit(struct typec_altmode *adev)
 		return ret;
 
 	/* Exit Mode command */
-	return pdev->ops->exit(pdev);
+	ret = pdev->ops->exit(pdev);
+	dev_info(&pdev->dev, "Exit AltMode: %d", ret);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(typec_altmode_exit);
 
@@ -260,6 +264,7 @@ int typec_cable_altmode_enter(struct typec_altmode *adev, enum typec_plug_index 
 {
 	struct altmode *partner = to_altmode(adev)->partner;
 	struct typec_altmode *pdev;
+	int ret;
 
 	if (!adev || adev->active)
 		return 0;
@@ -275,7 +280,9 @@ int typec_cable_altmode_enter(struct typec_altmode *adev, enum typec_plug_index 
 	if (!pdev->cable_ops || !pdev->cable_ops->enter)
 		return -EOPNOTSUPP;
 
-	return pdev->cable_ops->enter(pdev, sop, vdo);
+	ret = pdev->cable_ops->enter(pdev, sop, vdo);
+	dev_info(&pdev->dev, "Enter Cable AltMode: %d", ret);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(typec_cable_altmode_enter);
 
@@ -290,6 +297,7 @@ int typec_cable_altmode_exit(struct typec_altmode *adev, enum typec_plug_index s
 {
 	struct altmode *partner = to_altmode(adev)->partner;
 	struct typec_altmode *pdev;
+	int ret;
 
 	if (!adev || !adev->active)
 		return 0;
@@ -302,7 +310,9 @@ int typec_cable_altmode_exit(struct typec_altmode *adev, enum typec_plug_index s
 	if (!pdev->cable_ops || !pdev->cable_ops->exit)
 		return -EOPNOTSUPP;
 
-	return pdev->cable_ops->exit(pdev, sop);
+	ret = pdev->cable_ops->exit(pdev, sop);
+	dev_info(&pdev->dev, "Exit Cable AltMode: %d", ret);
+	return ret;
 }
 EXPORT_SYMBOL_GPL(typec_cable_altmode_exit);
 
