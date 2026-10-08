@@ -2446,8 +2446,8 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 	cmd_type = PD_VDO_CMDT(p[0]);
 	cmd = PD_VDO_CMD(p[0]);
 
-	tcpm_log(port, "Rx VDM cmd 0x%x type %d cmd %d len %d",
-		 p[0], cmd_type, cmd, cnt);
+	tcpm_log(port, "Rx VDM cmd 0x%x type %d cmd %d len %d rx_sop_type %d",
+		 p[0], cmd_type, cmd, cnt, rx_sop_type);
 
 	switch (rx_sop_type) {
 	case TCPC_TX_SOP_PRIME:
@@ -2568,8 +2568,10 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 		 * if SOP' Discover Identity prior to explicit contract.
 		 */
 		if (IS_ERR_OR_NULL(port->partner) &&
-		    !(rx_sop_type == TCPC_TX_SOP_PRIME && cmd == CMD_DISCOVER_IDENT))
+		    !(rx_sop_type == TCPC_TX_SOP_PRIME && cmd == CMD_DISCOVER_IDENT)) {
+			tcpm_log(port, "ignore message as we are not connected");
 			break;
+		}
 
 		tcpm_ams_finish(port);
 
@@ -2705,14 +2707,22 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 			*response_tx_sop_type = rx_sop_type;
 			if (rx_sop_type == TCPC_TX_SOP) {
 				if (adev && pdev) {
+					tcpm_log(port, "CMD_ENTER_MODE ack with TCPC_TX_SOP");
 					typec_altmode_update_active(pdev, true);
 					*adev_action = ADEV_QUEUE_VDM_SEND_EXIT_MODE_ON_FAIL;
+				} else {
+					tcpm_log(port, "CMD_ENTER_MODE ack ignored with TCPC_TX_SOP");
 				}
 			} else if (rx_sop_type == TCPC_TX_SOP_PRIME) {
 				if (adev && pdev_prime) {
+					tcpm_log(port, "CMD_ENTER_MODE ack with TCPC_TX_SOP_PRIME");
 					typec_altmode_update_active(pdev_prime, true);
 					*adev_action = ADEV_QUEUE_VDM_SEND_EXIT_MODE_ON_FAIL;
+				} else {
+					tcpm_log(port, "CMD_ENTER_MODE ack ignored with TCPC_TX_SOP_PRIME");
 				}
+			} else {
+				tcpm_log(port, "CMD_ENTER_MODE ack is ignored");
 			}
 			return 0;
 		case CMD_EXIT_MODE:
