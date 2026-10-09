@@ -2436,6 +2436,7 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 	struct typec_port *typec = port->typec_port;
 	struct typec_altmode *pdev, *pdev_prime;
 	struct pd_mode_data *modep, *modep_prime;
+	u16 svid, mode;
 	int svdm_version;
 	int rlen = 0;
 	int cmd_type;
@@ -2449,13 +2450,20 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 	tcpm_log(port, "Rx VDM cmd 0x%x type %d cmd %d len %d rx_sop_type %d adev=%s",
 		 p[0], cmd_type, cmd, cnt, rx_sop_type, adev ? dev_name(&adev->dev) : "none");
 
+	svid = PD_VDO_VID(p[0]);
+	mode = PD_VDO_OPOS(p[0]);
+	if (svid == 0 && mode == 1) {
+		svid = 0xff01;
+		mode = 1;
+	}
+
 	switch (rx_sop_type) {
 	case TCPC_TX_SOP_PRIME:
 		modep_prime = &port->mode_data_prime;
 		pdev_prime = typec_match_altmode(port->plug_prime_altmode,
 						 ALTMODE_DISCOVERY_MAX,
-						 PD_VDO_VID(p[0]),
-						 PD_VDO_OPOS(p[0]));
+						 svid,
+						 mode);
 		svdm_version = typec_get_cable_svdm_version(typec);
 		/*
 		 * Update SVDM version if cable was discovered before port partner.
@@ -2468,8 +2476,8 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 		modep = &port->mode_data;
 		pdev = typec_match_altmode(port->partner_altmode,
 					   ALTMODE_DISCOVERY_MAX,
-					   PD_VDO_VID(p[0]),
-					   PD_VDO_OPOS(p[0]));
+					   svid,
+					   mode);
 		svdm_version = typec_get_negotiated_svdm_version(typec);
 		if (svdm_version < 0)
 			return 0;
@@ -2478,8 +2486,8 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 		modep = &port->mode_data;
 		pdev = typec_match_altmode(port->partner_altmode,
 					   ALTMODE_DISCOVERY_MAX,
-					   PD_VDO_VID(p[0]),
-					   PD_VDO_OPOS(p[0]));
+					   svid,
+					   mode);
 		svdm_version = typec_get_negotiated_svdm_version(typec);
 		if (svdm_version < 0)
 			return 0;
@@ -2810,12 +2818,19 @@ static void tcpm_handle_vdm_request(struct tcpm_port *port,
 	u32 response[8] = { };
 	int i, rlen = 0;
 	enum tcpm_transmit_type response_tx_sop_type = TCPC_TX_SOP;
+	u16 svid, mode;
 
 	for (i = 0; i < cnt; i++)
 		p[i] = le32_to_cpu(payload[i]);
 
+	svid = PD_VDO_VID(p[0]);
+	mode = PD_VDO_OPOS(p[0]);
+	if (svid == 0 && mode == 1) {
+		svid = 0xff01;
+		mode = 1;
+	}
 	adev = typec_match_altmode(port->port_altmode, ALTMODE_DISCOVERY_MAX,
-				   PD_VDO_VID(p[0]), PD_VDO_OPOS(p[0]));
+				   svid, mode);
 
 	if (!adev) {
 		tcpm_log(port, "missing local port AltMode for %x %x", PD_VDO_VID(p[0]), PD_VDO_OPOS(p[0]));
