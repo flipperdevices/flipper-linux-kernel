@@ -2495,7 +2495,7 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 	}
 
 	tcpm_log(port, "Rx VDM pdev=%s pdev_prime=%s",
-		 pdev ? dev_name(&pdev->dev) : "none", pdev ? dev_name(&pdev_prime->dev) : "none");
+		 pdev ? dev_name(&pdev->dev) : "none", pdev_prime ? dev_name(&pdev_prime->dev) : "none");
 
 
 	switch (cmd_type) {
