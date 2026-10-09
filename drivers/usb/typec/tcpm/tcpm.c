@@ -2817,6 +2817,14 @@ static void tcpm_handle_vdm_request(struct tcpm_port *port,
 	adev = typec_match_altmode(port->port_altmode, ALTMODE_DISCOVERY_MAX,
 				   PD_VDO_VID(p[0]), PD_VDO_OPOS(p[0]));
 
+	if (!adev) {
+		tcpm_log(port, "missing local port AltMode for %x %x", PD_VDO_VID(p[0]), PD_VDO_OPOS(p[0]));
+		for (i = 0; i < ALTMODE_DISCOVERY_MAX; i++) {
+			if (port->port_altmode[i])
+				tcpm_log(port, "Port AltMode[%d]: svid=%x mode=%x %s", i, port->port_altmode[i]->svid, port->port_altmode[i]->mode, port->port_altmode[i]->desc);
+		}
+	}
+
 	if (port->vdm_state == VDM_STATE_BUSY) {
 		/* If UFP responded busy retry after timeout */
 		if (PD_VDO_CMDT(p[0]) == CMDT_RSP_BUSY) {
