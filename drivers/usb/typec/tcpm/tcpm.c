@@ -2446,8 +2446,8 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 	cmd_type = PD_VDO_CMDT(p[0]);
 	cmd = PD_VDO_CMD(p[0]);
 
-	tcpm_log(port, "Rx VDM cmd 0x%x type %d cmd %d len %d rx_sop_type %d",
-		 p[0], cmd_type, cmd, cnt, rx_sop_type);
+	tcpm_log(port, "Rx VDM cmd 0x%x type %d cmd %d len %d rx_sop_type %d adev=%s",
+		 p[0], cmd_type, cmd, cnt, rx_sop_type, adev ? dev_name(&adev->dev) : "none");
 
 	switch (rx_sop_type) {
 	case TCPC_TX_SOP_PRIME:
@@ -2485,6 +2485,10 @@ static int tcpm_pd_svdm(struct tcpm_port *port, struct typec_altmode *adev,
 			return 0;
 		break;
 	}
+
+	tcpm_log(port, "Rx VDM pdev=%s pdev_prime=%s",
+		 pdev ? dev_name(&pdev->dev) : "none", pdev ? dev_name(&pdev_prime->dev) : "none");
+
 
 	switch (cmd_type) {
 	case CMDT_INIT:
