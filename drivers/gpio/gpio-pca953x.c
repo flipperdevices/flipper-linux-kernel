@@ -232,6 +232,7 @@ struct pca953x_chip {
 	DECLARE_BITMAP(irq_trig_fall, MAX_LINE);
 	DECLARE_BITMAP(irq_trig_level_high, MAX_LINE);
 	DECLARE_BITMAP(irq_trig_level_low, MAX_LINE);
+	bool irq_level_enabled;
 #endif
 	atomic_t wakeup_path;
 
@@ -814,139 +815,6 @@ static void pca953x_setup_gpio(struct pca953x_chip *chip, int gpios)
 }
 
 #ifdef CONFIG_GPIO_PCA953X_IRQ
-static void pca953x_irq_mask(struct irq_data *d)
-{
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct pca953x_chip *chip = gpiochip_get_data(gc);
-	irq_hw_number_t hwirq = irqd_to_hwirq(d);
-
-	clear_bit(hwirq, chip->irq_mask);
-	gpiochip_disable_irq(gc, hwirq);
-}
-
-static void pca953x_irq_unmask(struct irq_data *d)
-{
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct pca953x_chip *chip = gpiochip_get_data(gc);
-	irq_hw_number_t hwirq = irqd_to_hwirq(d);
-
-	gpiochip_enable_irq(gc, hwirq);
-	set_bit(hwirq, chip->irq_mask);
-}
-
-static int pca953x_irq_set_wake(struct irq_data *d, unsigned int on)
-{
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct pca953x_chip *chip = gpiochip_get_data(gc);
-
-	if (on)
-		atomic_inc(&chip->wakeup_path);
-	else
-		atomic_dec(&chip->wakeup_path);
-
-	return irq_set_irq_wake(chip->client->irq, on);
-}
-
-static void pca953x_irq_bus_lock(struct irq_data *d)
-{
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct pca953x_chip *chip = gpiochip_get_data(gc);
-
-	mutex_lock(&chip->irq_lock);
-}
-
-static void pca953x_irq_bus_sync_unlock(struct irq_data *d)
-{
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct pca953x_chip *chip = gpiochip_get_data(gc);
-	DECLARE_BITMAP(irq_mask, MAX_LINE);
-	DECLARE_BITMAP(reg_direction, MAX_LINE);
-	int level;
-
-	guard(mutex)(&chip->i2c_lock);
-
-	if (chip->driver_data & PCA_PCAL) {
-		DECLARE_BITMAP(latched_inputs, MAX_LINE);
-
-		/* Enable latch on edge-triggered interrupt-enabled inputs */
-		bitmap_or(latched_inputs, chip->irq_trig_fall, chip->irq_trig_raise, gc->ngpio);
-		bitmap_and(latched_inputs, latched_inputs, chip->irq_mask, gc->ngpio);
-		pca953x_write_regs(chip, PCAL953X_IN_LATCH, latched_inputs);
-
-		bitmap_complement(irq_mask, chip->irq_mask, gc->ngpio);
-
-		/* Unmask enabled interrupts */
-		pca953x_write_regs(chip, PCAL953X_INT_MASK, irq_mask);
-	}
-
-	/* Switch direction to input if needed */
-	pca953x_read_regs(chip, chip->regs->direction, reg_direction);
-
-	bitmap_or(irq_mask, chip->irq_trig_fall, chip->irq_trig_raise, gc->ngpio);
-	bitmap_or(irq_mask, irq_mask, chip->irq_trig_level_high, gc->ngpio);
-	bitmap_or(irq_mask, irq_mask, chip->irq_trig_level_low, gc->ngpio);
-
-	/* Look for any newly setup interrupt */
-	for_each_andnot_bit(level, irq_mask, reg_direction, gc->ngpio)
-		pca953x_gpio_direction_input_unlocked(&chip->gpio_chip, level);
-
-	mutex_unlock(&chip->irq_lock);
-}
-
-static int pca953x_irq_set_type(struct irq_data *d, unsigned int type)
-{
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct pca953x_chip *chip = gpiochip_get_data(gc);
-	struct device *dev = &chip->client->dev;
-	irq_hw_number_t hwirq = irqd_to_hwirq(d);
-
-	if (!(type & IRQ_TYPE_SENSE_MASK)) {
-		dev_err(dev, "irq %d: unsupported type %d\n", d->irq, type);
-		return -EINVAL;
-	}
-
-	assign_bit(hwirq, chip->irq_trig_fall, type & IRQ_TYPE_EDGE_FALLING);
-	assign_bit(hwirq, chip->irq_trig_raise, type & IRQ_TYPE_EDGE_RISING);
-	assign_bit(hwirq, chip->irq_trig_level_low, type & IRQ_TYPE_LEVEL_LOW);
-	assign_bit(hwirq, chip->irq_trig_level_high, type & IRQ_TYPE_LEVEL_HIGH);
-
-	return 0;
-}
-
-static void pca953x_irq_shutdown(struct irq_data *d)
-{
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
-	struct pca953x_chip *chip = gpiochip_get_data(gc);
-	irq_hw_number_t hwirq = irqd_to_hwirq(d);
-
-	clear_bit(hwirq, chip->irq_trig_raise);
-	clear_bit(hwirq, chip->irq_trig_fall);
-	clear_bit(hwirq, chip->irq_trig_level_low);
-	clear_bit(hwirq, chip->irq_trig_level_high);
-
-	pca953x_irq_mask(d);
-}
-
-static void pca953x_irq_print_chip(struct irq_data *data, struct seq_file *p)
-{
-	struct gpio_chip *gc = irq_data_get_irq_chip_data(data);
-
-	seq_puts(p, dev_name(gc->parent));
-}
-
-static const struct irq_chip pca953x_irq_chip = {
-	.irq_mask		= pca953x_irq_mask,
-	.irq_unmask		= pca953x_irq_unmask,
-	.irq_set_wake		= pca953x_irq_set_wake,
-	.irq_bus_lock		= pca953x_irq_bus_lock,
-	.irq_bus_sync_unlock	= pca953x_irq_bus_sync_unlock,
-	.irq_set_type		= pca953x_irq_set_type,
-	.irq_shutdown		= pca953x_irq_shutdown,
-	.irq_print_chip		= pca953x_irq_print_chip,
-	.flags			= IRQCHIP_IMMUTABLE,
-	GPIOCHIP_IRQ_RESOURCE_HELPERS,
-};
-
 static bool pca953x_irq_pending(struct pca953x_chip *chip, unsigned long *pending)
 {
 	struct gpio_chip *gc = &chip->gpio_chip;
@@ -1049,6 +917,165 @@ static irqreturn_t pca953x_irq_handler(int irq, void *devid)
 
 	return IRQ_RETVAL(ret);
 }
+
+static void pca953x_irq_mask(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct pca953x_chip *chip = gpiochip_get_data(gc);
+	irq_hw_number_t hwirq = irqd_to_hwirq(d);
+
+	clear_bit(hwirq, chip->irq_mask);
+	gpiochip_disable_irq(gc, hwirq);
+}
+
+static void pca953x_irq_unmask(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct pca953x_chip *chip = gpiochip_get_data(gc);
+	irq_hw_number_t hwirq = irqd_to_hwirq(d);
+
+	gpiochip_enable_irq(gc, hwirq);
+	set_bit(hwirq, chip->irq_mask);
+}
+
+static void pca953x_irq_enable(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct pca953x_chip *chip = gpiochip_get_data(gc);
+	irq_hw_number_t hwirq = irqd_to_hwirq(d);
+
+	pca953x_irq_unmask(d);
+
+	if (test_bit(hwirq, chip->irq_trig_level_low) ||
+	    test_bit(hwirq, chip->irq_trig_level_high))
+		chip->irq_level_enabled = true;
+}
+
+static int pca953x_irq_set_wake(struct irq_data *d, unsigned int on)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct pca953x_chip *chip = gpiochip_get_data(gc);
+
+	if (on)
+		atomic_inc(&chip->wakeup_path);
+	else
+		atomic_dec(&chip->wakeup_path);
+
+	return irq_set_irq_wake(chip->client->irq, on);
+}
+
+static void pca953x_irq_bus_lock(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct pca953x_chip *chip = gpiochip_get_data(gc);
+
+	mutex_lock(&chip->irq_lock);
+}
+
+static void pca953x_irq_bus_sync_unlock(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct pca953x_chip *chip = gpiochip_get_data(gc);
+	DECLARE_BITMAP(irq_mask, MAX_LINE);
+	DECLARE_BITMAP(reg_direction, MAX_LINE);
+	bool level_enabled;
+	int level;
+
+	scoped_guard(mutex, &chip->i2c_lock) {
+		if (chip->driver_data & PCA_PCAL) {
+			DECLARE_BITMAP(latched_inputs, MAX_LINE);
+
+			/* Enable latch on edge-triggered interrupt-enabled inputs */
+			bitmap_or(latched_inputs, chip->irq_trig_fall,
+				  chip->irq_trig_raise, gc->ngpio);
+			bitmap_and(latched_inputs, latched_inputs, chip->irq_mask, gc->ngpio);
+			pca953x_write_regs(chip, PCAL953X_IN_LATCH, latched_inputs);
+
+			bitmap_complement(irq_mask, chip->irq_mask, gc->ngpio);
+
+			/* Unmask enabled interrupts */
+			pca953x_write_regs(chip, PCAL953X_INT_MASK, irq_mask);
+		}
+
+		/* Switch direction to input if needed */
+		pca953x_read_regs(chip, chip->regs->direction, reg_direction);
+
+		bitmap_or(irq_mask, chip->irq_trig_fall, chip->irq_trig_raise, gc->ngpio);
+		bitmap_or(irq_mask, irq_mask, chip->irq_trig_level_high, gc->ngpio);
+		bitmap_or(irq_mask, irq_mask, chip->irq_trig_level_low, gc->ngpio);
+
+		/* Look for any newly setup interrupt */
+		for_each_andnot_bit(level, irq_mask, reg_direction, gc->ngpio)
+			pca953x_gpio_direction_input_unlocked(&chip->gpio_chip, level);
+	}
+
+	level_enabled = chip->irq_level_enabled;
+	chip->irq_level_enabled = false;
+
+	mutex_unlock(&chip->irq_lock);
+
+	/*
+	 * The chip only interrupts on input changes, so a level-triggered line
+	 * that is already active when enabled would go unnoticed.
+	 */
+	if (level_enabled)
+		pca953x_irq_handler(chip->client->irq, chip);
+}
+
+static int pca953x_irq_set_type(struct irq_data *d, unsigned int type)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct pca953x_chip *chip = gpiochip_get_data(gc);
+	struct device *dev = &chip->client->dev;
+	irq_hw_number_t hwirq = irqd_to_hwirq(d);
+
+	if (!(type & IRQ_TYPE_SENSE_MASK)) {
+		dev_err(dev, "irq %d: unsupported type %d\n", d->irq, type);
+		return -EINVAL;
+	}
+
+	assign_bit(hwirq, chip->irq_trig_fall, type & IRQ_TYPE_EDGE_FALLING);
+	assign_bit(hwirq, chip->irq_trig_raise, type & IRQ_TYPE_EDGE_RISING);
+	assign_bit(hwirq, chip->irq_trig_level_low, type & IRQ_TYPE_LEVEL_LOW);
+	assign_bit(hwirq, chip->irq_trig_level_high, type & IRQ_TYPE_LEVEL_HIGH);
+
+	return 0;
+}
+
+static void pca953x_irq_shutdown(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct pca953x_chip *chip = gpiochip_get_data(gc);
+	irq_hw_number_t hwirq = irqd_to_hwirq(d);
+
+	clear_bit(hwirq, chip->irq_trig_raise);
+	clear_bit(hwirq, chip->irq_trig_fall);
+	clear_bit(hwirq, chip->irq_trig_level_low);
+	clear_bit(hwirq, chip->irq_trig_level_high);
+
+	pca953x_irq_mask(d);
+}
+
+static void pca953x_irq_print_chip(struct irq_data *data, struct seq_file *p)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(data);
+
+	seq_puts(p, dev_name(gc->parent));
+}
+
+static const struct irq_chip pca953x_irq_chip = {
+	.irq_mask		= pca953x_irq_mask,
+	.irq_unmask		= pca953x_irq_unmask,
+	.irq_enable		= pca953x_irq_enable,
+	.irq_set_wake		= pca953x_irq_set_wake,
+	.irq_bus_lock		= pca953x_irq_bus_lock,
+	.irq_bus_sync_unlock	= pca953x_irq_bus_sync_unlock,
+	.irq_set_type		= pca953x_irq_set_type,
+	.irq_shutdown		= pca953x_irq_shutdown,
+	.irq_print_chip		= pca953x_irq_print_chip,
+	.flags			= IRQCHIP_IMMUTABLE,
+	GPIOCHIP_IRQ_RESOURCE_HELPERS,
+};
 
 static int pca953x_irq_setup(struct pca953x_chip *chip, int irq_base)
 {
