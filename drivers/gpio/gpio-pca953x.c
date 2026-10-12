@@ -232,6 +232,7 @@ struct pca953x_chip {
 	DECLARE_BITMAP(irq_trig_fall, MAX_LINE);
 	DECLARE_BITMAP(irq_trig_level_high, MAX_LINE);
 	DECLARE_BITMAP(irq_trig_level_low, MAX_LINE);
+	bool irq_level_recheck;
 #endif
 	atomic_t wakeup_path;
 
@@ -834,6 +835,19 @@ static void pca953x_irq_unmask(struct irq_data *d)
 	set_bit(hwirq, chip->irq_mask);
 }
 
+static void pca953x_irq_enable(struct irq_data *d)
+{
+	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
+	struct pca953x_chip *chip = gpiochip_get_data(gc);
+	irq_hw_number_t hwirq = irqd_to_hwirq(d);
+
+	pca953x_irq_unmask(d);
+
+	if (test_bit(hwirq, chip->irq_trig_level_low) ||
+	    test_bit(hwirq, chip->irq_trig_level_high))
+		chip->irq_level_recheck = true;
+}
+
 static int pca953x_irq_set_wake(struct irq_data *d, unsigned int on)
 {
 	struct gpio_chip *gc = irq_data_get_irq_chip_data(d);
@@ -899,6 +913,15 @@ static void pca953x_irq_bus_sync_unlock(struct irq_data *d)
 		pca953x_gpio_direction_input_unlocked(&chip->gpio_chip, level);
 
 out:
+	/*
+	 * The chip only interrupts on input changes, so a level-triggered line
+	 * that is already active when enabled would go unnoticed.
+	 */
+	if (chip->irq_level_recheck) {
+		chip->irq_level_recheck = false;
+		irq_wake_thread(chip->client->irq, chip);
+	}
+
 	mutex_unlock(&chip->irq_lock);
 }
 
@@ -918,6 +941,9 @@ static int pca953x_irq_set_type(struct irq_data *d, unsigned int type)
 	assign_bit(hwirq, chip->irq_trig_raise, type & IRQ_TYPE_EDGE_RISING);
 	assign_bit(hwirq, chip->irq_trig_level_low, type & IRQ_TYPE_LEVEL_LOW);
 	assign_bit(hwirq, chip->irq_trig_level_high, type & IRQ_TYPE_LEVEL_HIGH);
+
+	if ((type & IRQ_TYPE_LEVEL_MASK) && test_bit(hwirq, chip->irq_mask))
+		chip->irq_level_recheck = true;
 
 	return 0;
 }
@@ -946,6 +972,7 @@ static void pca953x_irq_print_chip(struct irq_data *data, struct seq_file *p)
 static const struct irq_chip pca953x_irq_chip = {
 	.irq_mask		= pca953x_irq_mask,
 	.irq_unmask		= pca953x_irq_unmask,
+	.irq_enable		= pca953x_irq_enable,
 	.irq_set_wake		= pca953x_irq_set_wake,
 	.irq_bus_lock		= pca953x_irq_bus_lock,
 	.irq_bus_sync_unlock	= pca953x_irq_bus_sync_unlock,
