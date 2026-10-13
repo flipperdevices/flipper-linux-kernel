@@ -1080,7 +1080,7 @@ static const struct regulator_ops rk816_buck1_2_ops_ranges = {
 	.set_voltage_time_sel	= regulator_set_voltage_time_sel,
 	.enable			= regulator_enable_regmap,
 	.disable		= regulator_disable_regmap,
-	.is_enabled		= regulator_is_enabled_regmap,
+	.is_enabled		= rk8xx_is_enabled_wmsk_regmap,
 	.set_mode		= rk8xx_set_mode,
 	.get_mode		= rk8xx_get_mode,
 	.set_suspend_mode	= rk8xx_set_suspend_mode,
@@ -1098,13 +1098,21 @@ static const struct regulator_ops rk816_buck4_ops_ranges = {
 	.set_voltage_time_sel	= regulator_set_voltage_time_sel,
 	.enable			= regulator_enable_regmap,
 	.disable		= regulator_disable_regmap,
-	.is_enabled		= regulator_is_enabled_regmap,
+	.is_enabled		= rk8xx_is_enabled_wmsk_regmap,
 	.set_mode		= rk8xx_set_mode,
 	.get_mode		= rk8xx_get_mode,
 	.set_suspend_mode	= rk8xx_set_suspend_mode,
 	.set_suspend_voltage	= rk808_set_suspend_voltage_range,
 	.set_suspend_enable	= rk816_set_suspend_enable,
 	.set_suspend_disable	= rk816_set_suspend_disable,
+};
+
+static const struct regulator_ops rk816_switch_ops = {
+	.enable			= regulator_enable_regmap,
+	.disable		= regulator_disable_regmap,
+	.is_enabled		= rk8xx_is_enabled_wmsk_regmap,
+	.set_suspend_enable	= rk808_set_suspend_enable,
+	.set_suspend_disable	= rk808_set_suspend_disable,
 };
 
 static const struct regulator_ops rk816_reg_ops = {
@@ -1780,7 +1788,7 @@ static const struct regulator_desc rk816_reg[] = {
 		.of_match = of_match_ptr("dcdc3"),
 		.regulators_node = of_match_ptr("regulators"),
 		.id = RK816_ID_DCDC3,
-		.ops = &rk808_switch_ops,
+		.ops = &rk816_switch_ops,
 		.type = REGULATOR_VOLTAGE,
 		.n_voltages = 1,
 		.enable_reg = RK816_DCDC_EN_REG1,
