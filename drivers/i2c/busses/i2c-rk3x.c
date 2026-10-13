@@ -1207,6 +1207,16 @@ static int rk3x_i2c_xfer_common(struct i2c_adapter *adap,
 		}
 	}
 
+	/*
+	 * Do not leave the controller enabled between transfers. It keeps
+	 * tracking the bus while enabled, and if the lines collapse under it,
+	 * e.g. as an unpowered target clamps them, its state machine wedges
+	 * driving SDA low until it is disabled. This also gets it out of
+	 * whatever state it was stuck in when a transfer timed out.
+	 */
+	val = i2c_readl(i2c, REG_CON) & REG_CON_TUNING_MASK;
+	i2c_writel(i2c, val, REG_CON);
+
 	clk_disable(i2c->pclk);
 	clk_disable(i2c->clk);
 
