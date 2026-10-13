@@ -975,7 +975,7 @@ static const struct regulator_ops rk806_ops_nldo = {
 
 	.enable			= regulator_enable_regmap,
 	.disable		= regulator_disable_regmap,
-	.is_enabled		= regulator_is_enabled_regmap,
+	.is_enabled		= rk8xx_is_enabled_wmsk_regmap,
 
 	.set_ramp_delay		= regulator_set_ramp_delay_regmap,
 
@@ -994,7 +994,7 @@ static const struct regulator_ops rk806_ops_pldo = {
 
 	.enable			= regulator_enable_regmap,
 	.disable		= regulator_disable_regmap,
-	.is_enabled		= regulator_is_enabled_regmap,
+	.is_enabled		= rk8xx_is_enabled_wmsk_regmap,
 
 	.set_ramp_delay		= regulator_set_ramp_delay_regmap,
 
