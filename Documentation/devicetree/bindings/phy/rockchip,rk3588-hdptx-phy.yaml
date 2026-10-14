@@ -46,6 +46,17 @@ properties:
     minItems: 4
     maxItems: 7
 
+  avdd-0v75-supply:
+    description:
+      Supply for the 0.75V digital and analog power pins of the PHY, i.e.
+      VDD_0V75 and AVDD_0V75 on RK3588, AVDDD0V75 and AVDDC0V75 on RK3576.
+
+  vddio-1v8-supply:
+    description:
+      Supply for the 1.8V common and I/O power pins of the PHY, i.e.
+      VDD_CMN_1V8 and VDD_IO_1V8 on RK3588, AVDDCMN1V8 and AVDDIO1V8 on
+      RK3576.
+
   rockchip,grf:
     $ref: /schemas/types.yaml#/definitions/phandle
     description: Some PHY related data is accessed through GRF regs.
@@ -115,6 +126,8 @@ examples:
                  <&cru SRST_HDPTX0_LANE>, <&cru SRST_HDPTX0_ROPLL>,
                  <&cru SRST_HDPTX0_LCPLL>;
         reset-names = "phy", "apb", "init", "cmn", "lane", "ropll", "lcpll";
+        avdd-0v75-supply = <&avdd_0v75_s0>;
+        vddio-1v8-supply = <&avcc_1v8_s0>;
         rockchip,grf = <&hdptxphy_grf>;
       };
     };
