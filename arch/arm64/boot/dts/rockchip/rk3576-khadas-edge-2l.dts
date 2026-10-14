@@ -139,6 +139,8 @@
 };
 
 &hdptxphy {
+	avdd-0v75-supply = <&vdda0v75_hdmi_s0>;
+	vddio-1v8-supply = <&vcca_1v8_s0>;
 	status = "okay";
 };
 
