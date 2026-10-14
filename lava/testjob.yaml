@@ -263,6 +263,148 @@ actions:
         name: v4l2
         path: inline/v4l2.yaml
 {{ /if }}
+{{ #if job.LAVA_TEST_V4L2_COMPLIANCE }}
+  - test:
+      timeout:
+        minutes: 10
+      definitions:
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: v4l2-compliance-hdmirx
+            description: "Run v4l2-compliance on the HDMI RX capture device (HDMI TX looped back to HDMI RX)"
+            os:
+              - debian
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - modprobe synopsys-hdmirx || true
+              - |
+                node=""
+                for d in /sys/class/video4linux/video*; do
+                  if [ "$(cat $d/name)" = "stream_hdmirx" ]; then node=/dev/$(basename $d); break; fi
+                done
+                echo "HDMIRX node: ${node}"
+                if [ -z "$node" ]; then lava-test-case hdmirx-node-found --result fail; exit 0; fi
+                lava-test-case hdmirx-node-found --result pass
+                v4l2-ctl -d $node --all || true
+                v4l2-ctl -d $node --query-dv-timings || true
+                v4l2-compliance -d $node -s 2>&1 | tee /tmp/v4l2-compliance.log
+                # v4l2-compliance prints "Total for <drv> device <node>: N, Succeeded: N, Failed: N, Warnings: N"
+                if grep -q "Failed: 0," /tmp/v4l2-compliance.log; then
+                  lava-test-case v4l2-compliance-hdmirx --result pass
+                else
+                  lava-test-case v4l2-compliance-hdmirx --result fail
+                fi
+        from: inline
+        name: v4l2-compliance-hdmirx
+        path: inline/v4l2-compliance-hdmirx.yaml
+{{ /if }}
+{{ #if job.LAVA_TEST_CEC }}
+  - test:
+      timeout:
+        minutes: 10
+      definitions:
+      - repository:
+          metadata:
+            format: Lava-Test Test Definition 1.0
+            name: cec-hdmirx-loopback
+            description: "Run cec-compliance between the HDMI RX and HDMI TX CEC adapters in both directions (HDMI TX looped back to HDMI RX)"
+            os:
+              - debian
+            scope:
+              - functional
+            environment:
+              - lava-test-shell
+          run:
+            steps:
+              - |
+                cec_find() { for d in /dev/cec*; do cec-ctl -d $d | grep -q "Driver Name[[:space:]]*: $1\$" && echo $d; done; true; }
+                                RX=$(cec_find snps_hdmirx | head -n1)
+                echo "HDMI RX CEC: ${RX}"
+                if [ -z "$RX" ]; then lava-test-case cec-rx-found --result fail; exit 0; fi
+                lava-test-case cec-rx-found --result pass
+                # the TX looped back to the RX is the one whose DRM connector is connected
+                # prints "<card> <connector name>" if the DRM connector of this CEC adapter is connected
+                tx_connected() {
+                  cec-ctl -d $1 | sed -n 's/^.*DRM Connector Info[[:space:]]*:[[:space:]]*card \([0-9]*\), connector \([0-9]*\).*$/\1 \2/p' | {
+                    read card conn
+                    for c in /sys/class/drm/card${card}-*; do
+                      [ "$(cat $c/connector_id)" = "$conn" ] && [ "$(cat $c/status)" = "connected" ] && echo "$card ${c#/sys/class/drm/card${card}-}"
+                    done
+                  } || true
+                }
+                TX=""
+                for d in $(cec_find dwhdmiqp-rockchip); do
+                  echo "TX candidate $d: $(cec-ctl -d $d | grep -E 'Adapter Name|DRM Connector Info' | tr -s ' \t' ' ' | tr '\n' ' ') connected=$(tx_connected $d)"
+                  if [ -n "$(tx_connected $d)" ]; then
+                    # both HDMI outputs have a CEC adapter, only one is cabled to the RX
+                    if [ -n "$TX" ]; then echo "more than one TX connected"; TX=""; break; fi
+                    TX=$d
+                    TXCONN=$(tx_connected $d)
+                  fi
+                done
+                if [ -n "$TX" ] && [ "$(cec-ctl -d $TX | sed -n 's/^[[:space:]]*Physical Address[[:space:]]*:[[:space:]]*//p')" = "f.f.f.f" ]; then
+                  # TX can't read the RX EDID over DDC, so it never gets a CEC physical address.
+                  # Override the connector EDID with the RX default EDID (physical address 1.0.0.0).
+                  set -- $TXCONN
+                  printf '\000\377\377\377\377\377\377\000\061\330\064\022\000\000\000\000\042\032\001\003\200\140\066\170\017\356\221\243\124\114\231\046\017\120\124\057\317\000\061\131\105\131\201\200\201\100\220\100\225\000\251\100\263\000\004\164\000\060\362\160\132\200\260\130\212\000\300\034\062\000\000\036\000\000\000\375\000\030\125\030\207\036\000\012\040\040\040\040\040\040\000\000\000\374\000\150\144\155\151\055\064\153\055\063\060\060\012\040\000\000\000\020\000\000\000\000\000\000\000\000\000\000\000\000\000\000\001\305\002\003\100\361\117\137\136\135\020\037\004\023\042\041\040\005\024\002\021\001\043\011\007\007\203\001\000\000\155\003\014\000\020\000\000\074\041\000\140\001\002\003\147\330\135\304\001\000\000\000\342\000\312\343\005\000\000\343\006\001\000\342\015\137\243\146\000\240\360\160\037\200\060\040\065\000\300\034\062\000\000\036\032\066\200\240\160\070\037\100\060\040\065\000\300\034\062\000\000\032\032\035\000\200\121\320\034\040\100\200\065\000\300\034\062\000\000\034\000\000\000\000\000\000\000\000\000\241' > /tmp/rx-edid.bin
+                  cat /tmp/rx-edid.bin > /sys/kernel/debug/dri/$1/$2/edid_override
+                  echo detect > /sys/class/drm/card$1-$2/status
+                  sleep 3
+                fi
+                cec-ctl -d $TX | grep -i "Physical Address"
+                echo "HDMI TX CEC: ${TX}"
+                if [ -z "$TX" ]; then lava-test-case cec-tx-found --result fail; exit 0; fi
+                lava-test-case cec-tx-found --result pass
+                # $1 test name, $2/$3 compliance dev/type, $4/$5 follower dev/type, $6 follower logical address
+                run_dir() {
+                  cec-ctl -d $2 --clear > /dev/null; cec-ctl -d $4 --clear > /dev/null
+                  # pre-start the follower side first, so it is running before the compliance side starts talking
+                  cec-ctl -d $4 --$5 -S
+                  cec-follower -d $4 > /tmp/cec-follower-$1.log 2>&1 < /dev/null &
+                  fpid=$!
+                  sleep 2
+                  cec-ctl -d $2 --$3 -S
+                  for d in $2 $4; do cec-ctl -d $d | grep -E "Logical Address Mask|Logical Addresses"; done
+                  timeout 300 cec-compliance -d $2 -r$6 > /tmp/cec-compliance-$1.log 2>&1 < /dev/null || true
+                  cat /tmp/cec-compliance-$1.log
+                  kill $fpid || true; wait $fpid 2>/dev/null || true
+                  echo "---- cec-follower log ($1)"; cat /tmp/cec-follower-$1.log
+                  # summary line: "Total for <drv> device <dev>: N, Succeeded: N, Failed: N, Warnings: N"
+                  if grep -q "^Total for .*Failed: 0," /tmp/cec-compliance-$1.log; then
+                    lava-test-case $1 --result pass
+                  else
+                    lava-test-case $1 --result fail
+                  fi
+                  cec-ctl -d $2 --clear > /dev/null; cec-ctl -d $4 --clear > /dev/null
+                }
+                run_dir cec-compliance-rx-tv-to-tx-playback $RX tv $TX playback 4
+                # adapter API test only needs the other adapter configured as a remote device, no follower
+                adapter_test() {
+                  cec-ctl -d $2 --clear > /dev/null; cec-ctl -d $3 --clear > /dev/null
+                  cec-ctl -d $3 --$5 -S
+                  cec-ctl -d $2 --$4 -S
+                  timeout 120 cec-compliance -d $2 -A > /tmp/cec-adapter-$1.log 2>&1 < /dev/null || true
+                }
+                adapter_test rx $RX $TX tv playback
+                adapter_test tx $TX $RX playback tv
+                for side in rx tx; do
+                  echo "---- cec-compliance -A ($side)"; cat /tmp/cec-adapter-$side.log
+                  if grep -q "^Total for .*Failed: 0," /tmp/cec-adapter-$side.log; then
+                    lava-test-case cec-compliance-adapter-$side --result pass
+                  else
+                    lava-test-case cec-compliance-adapter-$side --result fail
+                  fi
+                done
+                cec-ctl -d $RX --clear > /dev/null; cec-ctl -d $TX --clear > /dev/null
+        from: inline
+        name: cec-hdmirx-loopback
+        path: inline/cec-hdmirx-loopback.yaml
+{{ /if }}
 {{ #if job.LAVA_TEST_DMESG }}
   - test:
       definitions:

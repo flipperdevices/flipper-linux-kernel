@@ -278,6 +278,20 @@ lava media codec test:
         DEVTYPE:
         - rk3588-rock-5b
 
+lava hdmirx test:
+  extends: ".lava test"
+  allow_failure: true
+  parallel:
+    matrix:
+      - LAVA_TEST_V4L2_COMPLIANCE: 1
+        LAVA_TEST: v4l2-compliance hdmirx
+        DEVTYPE:
+        - rk3588-rock-5b
+      - LAVA_TEST_CEC: 1
+        LAVA_TEST: cec hdmirx loopback
+        DEVTYPE:
+        - rk3588-rock-5b
+
 lava dmesg warning check:
   extends: ".lava test"
   allow_failure: true
