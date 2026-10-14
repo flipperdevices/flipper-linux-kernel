@@ -339,8 +339,8 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-dp-4k-hdmi-2.5k.dtb
 rk3576-flipper-one-dp-4k-hdmi-2.5k-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-dp-4k-hdmi-2.5k.dtbo
 
-dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-i2c2-free.dtb
-rk3576-flipper-one-i2c2-free-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b0c1-i2c2-free.dtb
+rk3576-flipper-one-rev-f0b0c1-i2c2-free-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-flipper-one-i2c2-free.dtbo
 
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-no-graphics.dtb
