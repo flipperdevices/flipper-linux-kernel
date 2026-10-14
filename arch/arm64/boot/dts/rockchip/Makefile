@@ -359,8 +359,8 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b0c1-uart2.dtb
 rk3576-flipper-one-rev-f0b0c1-uart2-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-flipper-one-uart2.dtbo
 
-dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-uart6.dtb
-rk3576-flipper-one-uart6-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b0c1-uart6.dtb
+rk3576-flipper-one-rev-f0b0c1-uart6-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-flipper-one-uart6.dtbo
 
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-nanopi-m5-no-graphics.dtb
