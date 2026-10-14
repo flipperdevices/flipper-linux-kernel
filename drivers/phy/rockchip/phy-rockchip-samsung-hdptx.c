@@ -20,6 +20,7 @@
 #include <linux/pm_runtime.h>
 #include <linux/rational.h>
 #include <linux/regmap.h>
+#include <linux/regulator/consumer.h>
 #include <linux/reset.h>
 
 #define GRF_HDPTX_CON0			0x00
@@ -418,6 +419,7 @@ struct rk_hdptx_phy {
 	struct clk_bulk_data *clks;
 	int nr_clks;
 	struct reset_control_bulk_data rsts[RST_MAX];
+	struct regulator_bulk_data *supplies;
 
 	/* clk provider */
 	struct clk_hw hw;
@@ -428,6 +430,11 @@ struct rk_hdptx_phy {
 	/* used for dp mode */
 	unsigned int link_rate;
 	unsigned int lanes;
+};
+
+static const struct regulator_bulk_data rk_hdptx_phy_supplies[] = {
+	{ .supply = "avdd-0v75" },
+	{ .supply = "vddio-1v8" },
 };
 
 static const struct lcpll_config rk_hdptx_frl_lcpll_cfg[] = {
@@ -2204,7 +2211,29 @@ static int rk_hdptx_phy_validate(struct phy *phy, enum phy_mode mode,
 	return rk_hdptx_phy_verify_dp_config(hdptx, &opts->dp);
 }
 
+/*
+ * Consumers may depend on the PHY supplies beyond the PHY being in use, so
+ * keep the supplies enabled while the PHY is initialized as well.
+ */
+static int rk_hdptx_phy_init(struct phy *phy)
+{
+	struct rk_hdptx_phy *hdptx = phy_get_drvdata(phy);
+
+	return regulator_bulk_enable(ARRAY_SIZE(rk_hdptx_phy_supplies),
+				     hdptx->supplies);
+}
+
+static int rk_hdptx_phy_exit(struct phy *phy)
+{
+	struct rk_hdptx_phy *hdptx = phy_get_drvdata(phy);
+
+	return regulator_bulk_disable(ARRAY_SIZE(rk_hdptx_phy_supplies),
+				      hdptx->supplies);
+}
+
 static const struct phy_ops rk_hdptx_phy_ops = {
+	.init      = rk_hdptx_phy_init,
+	.exit      = rk_hdptx_phy_exit,
 	.power_on  = rk_hdptx_phy_power_on,
 	.power_off = rk_hdptx_phy_power_off,
 	.set_mode = rk_hdptx_phy_set_mode,
@@ -2501,6 +2530,7 @@ static int rk_hdptx_phy_runtime_suspend(struct device *dev)
 	dev_dbg(hdptx->dev, "suspend\n");
 
 	clk_bulk_disable_unprepare(hdptx->nr_clks, hdptx->clks);
+	regulator_bulk_disable(ARRAY_SIZE(rk_hdptx_phy_supplies), hdptx->supplies);
 
 	return 0;
 }
@@ -2512,9 +2542,19 @@ static int rk_hdptx_phy_runtime_resume(struct device *dev)
 
 	dev_dbg(hdptx->dev, "resume\n");
 
+	ret = regulator_bulk_enable(ARRAY_SIZE(rk_hdptx_phy_supplies),
+				    hdptx->supplies);
+	if (ret) {
+		dev_err(hdptx->dev, "Failed to enable supplies: %d\n", ret);
+		return ret;
+	}
+
 	ret = clk_bulk_prepare_enable(hdptx->nr_clks, hdptx->clks);
-	if (ret)
+	if (ret) {
 		dev_err(hdptx->dev, "Failed to enable clocks: %d\n", ret);
+		regulator_bulk_disable(ARRAY_SIZE(rk_hdptx_phy_supplies),
+				       hdptx->supplies);
+	}
 
 	return ret;
 }
@@ -2579,6 +2619,11 @@ static int rk_hdptx_phy_probe(struct platform_device *pdev)
 	ret = devm_reset_control_bulk_get_exclusive(dev, RST_MAX, hdptx->rsts);
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to get resets\n");
+
+	ret = devm_regulator_bulk_get_const(dev, ARRAY_SIZE(rk_hdptx_phy_supplies),
+					    rk_hdptx_phy_supplies, &hdptx->supplies);
+	if (ret)
+		return dev_err_probe(dev, ret, "Failed to get supplies\n");
 
 	hdptx->grf = syscon_regmap_lookup_by_phandle(dev->of_node,
 						     "rockchip,grf");
