@@ -831,21 +831,40 @@ static int dw_hdmi_qp_rockchip_bind(struct device *dev, struct device *master,
 	drm_encoder_helper_add(encoder, &dw_hdmi_qp_rockchip_encoder_helper_funcs);
 	ret = drmm_encoder_init(drm, encoder, NULL, DRM_MODE_ENCODER_TMDS, NULL);
 	if (ret)
-		return dev_err_probe(dev, ret, "Failed to init encoder\n");
+		return dev_err_probe(hdmi->dev, ret, "Failed to init encoder");
+
+	platform_set_drvdata(pdev, hdmi);
+
+	/*
+	 * The controller relies on supplies of the PHY for more than the
+	 * link itself: without them, its DDC and register accesses fail even
+	 * while the PHY is powered off. Keep the PHY initialized while bound.
+	 */
+	ret = phy_init(hdmi->phy);
+	if (ret)
+		return dev_err_probe(hdmi->dev, ret, "Failed to init phy\n");
 
 	hdmi->hdmi = dw_hdmi_qp_bind(pdev, encoder, &plat_data);
-	if (IS_ERR(hdmi->hdmi))
-		return dev_err_probe(dev, PTR_ERR(hdmi->hdmi),
-				     "Failed to bind dw-hdmi-qp\n");
+	if (IS_ERR(hdmi->hdmi)) {
+		ret = dev_err_probe(dev, PTR_ERR(hdmi->hdmi),
+				    "Failed to bind dw-hdmi-qp\n");
+		goto err_phy_exit;
+	}
 
 	connector = drm_bridge_connector_init(drm, encoder);
-	if (IS_ERR(connector))
-		return dev_err_probe(dev, PTR_ERR(connector),
-				     "Failed to init bridge connector\n");
+	if (IS_ERR(connector)) {
+		ret = dev_err_probe(dev, PTR_ERR(connector),
+				    "Failed to init bridge connector\n");
+		goto err_phy_exit;
+	}
 
 	platform_set_drvdata(pdev, hdmi);
 
 	return 0;
+
+err_phy_exit:
+	phy_exit(hdmi->phy);
+	return ret;
 }
 
 static void dw_hdmi_qp_rockchip_unbind(struct device *dev,
@@ -857,6 +876,7 @@ static void dw_hdmi_qp_rockchip_unbind(struct device *dev,
 	dev_set_drvdata(dev, NULL);
 
 	cancel_delayed_work_sync(&hdmi->hpd_work);
+	phy_exit(hdmi->phy);
 }
 
 static const struct component_ops dw_hdmi_qp_rockchip_ops = {
