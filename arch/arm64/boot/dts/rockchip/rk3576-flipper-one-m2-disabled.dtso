@@ -1,0 +1,137 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * DT-overlay to keep the M.2 slot completely unpowered.
+ *
+ * The base device tree powers the slot at boot, and the kernel keeps it on:
+ * vcc3v3_m2 is an always-on regulator whose enable pin (M2_PWREN, GPIO0_B1)
+ * drives the 3.3 V load switch feeding the connector. This overlay is the
+ * "M.2 Power OFF" setting. Like every DT change, it takes effect on the next boot.
+ *
+ * Switching off the 3.3 V rail alone is not enough for a clean "off": the SoC
+ * would keep several control lines high into the unpowered module, and a
+ * module can draw current through the protection diodes on its I/O pins
+ * (back-powering). That would skew power measurements and is not good for
+ * the module either. So besides cutting the rail, every control line the
+ * kernel would otherwise drive high is held low:
+ *
+ *   Signal                 M.2 pin  SoC pin   Base DT state         Here
+ *   3.3 V rail enable      -        GPIO0_B1  high (regulator)      low
+ *   FULL_CARD_POWER_OFF#   6        GPIO2_B3  high (gpio-hog)       low
+ *   RESET#                 67       GPIO3_C0  high (gpio-hog)       low
+ *   PERST#                 50       GPIO1_C3  driven by pcie0       low
+ *   W_DISABLE1#            8        GPIO2_B4  high (rfkill-gpio)    low
+ *   W_DISABLE2#            26       GPIO4_A0  high (rfkill-gpio)    low
+ *
+ * (Pin 26 is listed as GPIO_10 in the M.2 pinout docs; W_DISABLE2# is the
+ * other name the M.2 spec gives this pin.)
+ *
+ * All the "#" signals are active low, so low means "asserted": the card is
+ * told to be off, in reset, with radios disabled. That is consistent with a
+ * card that has no power.
+ *
+ * Every line is held low by a gpio-hog. A hog is owned by the kernel, so
+ * nothing in userspace can switch the slot back on by accident, and
+ * `gpioinfo` shows each line with the name given here.
+ */
+
+/dts-v1/;
+/plugin/;
+
+#include <dt-bindings/gpio/gpio.h>
+#include <dt-bindings/pinctrl/rockchip.h>
+
+/*
+ * The regulator owns M2_PWREN in the base DT and is always-on. A disabled
+ * node is never probed, so the pin is free for the hog on &gpio0 below.
+ */
+&vcc3v3_m2 {
+	status = "disabled";
+};
+
+/*
+ * pcie0 takes its 3.3 V supply from vcc3v3_m2. Left enabled, it would wait
+ * forever for a regulator that never appears. With the slot off there is
+ * nothing to train a link with anyway, and a disabled controller also skips
+ * the link-up timeout at boot and leaves the PCIe PHY unpowered. This also
+ * frees PERST# for the hog on &gpio1.
+ */
+&pcie0 {
+	status = "disabled";
+};
+
+/*
+ * The two rfkill switches drive W_DISABLE1#/W_DISABLE2# high while the radios
+ * are unblocked. With no module powered there is no radio to switch, so the
+ * switches go away (they disappear from `rfkill list`). That frees both pins
+ * for the hogs below.
+ */
+&{/rfkill-m2-wdisable1} {
+	status = "disabled";
+};
+
+&{/rfkill-m2-wdisable2} {
+	status = "disabled";
+};
+
+/* 3.3 V load switch enable: low = rail off. */
+&gpio0 {
+	m2-pwren-off-hog {
+		gpio-hog;
+		gpios = <RK_PB1 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "M2_PWREN (M.2 disabled)";
+	};
+};
+
+/* PERST#: low = PCIe reset asserted. */
+&gpio1 {
+	m2-perst-off-hog {
+		gpio-hog;
+		gpios = <RK_PC3 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "M2_PERST# (M.2 disabled)";
+	};
+};
+
+&gpio2 {
+	/*
+	 * This hog exists in the base DT as
+	 *     gpios = <RK_PB3 GPIO_ACTIVE_LOW>; output-low;
+	 * where "logical low" on an active-low line is "physical high", which
+	 * keeps the card powered. An overlay cannot delete the base "output-low",
+	 * but it can replace "gpios": with the flag flipped to ACTIVE_HIGH, the
+	 * same "output-low" now means "physical low".
+	 */
+	m2-poweroff-hog {
+		gpio-hog;	/* already set in the base DT; repeated so dtc checks this node as a hog */
+		gpios = <RK_PB3 GPIO_ACTIVE_HIGH>;
+		line-name = "M2_FULL_CARD_POWER_OFF# (M.2 disabled)";
+	};
+
+	/* W_DISABLE1#: low = main radio (WWAN) disabled. */
+	m2-wdisable1-off-hog {
+		gpio-hog;
+		gpios = <RK_PB4 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "M2_W_DISABLE1# (M.2 disabled)";
+	};
+};
+
+/* RESET#: same flag flip as m2-poweroff-hog above. */
+&gpio3 {
+	m2-reset-hog {
+		gpio-hog;	/* already set in the base DT; repeated so dtc checks this node as a hog */
+		gpios = <RK_PC0 GPIO_ACTIVE_HIGH>;
+		line-name = "M2_RESET# (M.2 disabled)";
+	};
+};
+
+/* W_DISABLE2#: low = second radio (GNSS on modems) disabled. */
+&gpio4 {
+	m2-wdisable2-off-hog {
+		gpio-hog;
+		gpios = <RK_PA0 GPIO_ACTIVE_HIGH>;
+		output-low;
+		line-name = "M2_W_DISABLE2# (M.2 disabled)";
+	};
+};
