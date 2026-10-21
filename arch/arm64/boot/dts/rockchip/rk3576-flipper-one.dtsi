@@ -271,10 +271,11 @@
 		shutdown-gpios = <&gpio2 RK_PB4 GPIO_ACTIVE_HIGH>;
 	};
 
+	/* M.2 is B-keyed, so W_DISABLE2# is GNSS disable on WWAN cards */
 	rfkill-m2-wdisable2 {
 		compatible = "rfkill-gpio";
-		radio-type = "wwan";
-		label = "M.2 WWAN (WDISABLE2)";
+		radio-type = "gps";
+		label = "M.2 GNSS (WDISABLE2)";
 		pinctrl-0 = <&m2b_w_disable2>;
 		pinctrl-names = "default";
 		shutdown-gpios = <&gpio4 RK_PA0 GPIO_ACTIVE_HIGH>;
