@@ -182,6 +182,10 @@ dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b1c2.dtb
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-i2c2-free.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-i2c3.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-i2c4.dtbo
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-pwm2ch4.dtbo
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-pwm2ch5.dtbo
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-pwm2ch6.dtbo
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-pwm2ch7.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-sata.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-uart2.dtbo
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-uart5.dtbo
@@ -357,6 +361,22 @@ rk3576-flipper-one-rev-f0b1c2-i2c4-dtbs := rk3576-flipper-one-rev-f0b1c2.dtb \
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-no-graphics.dtb
 rk3576-flipper-one-no-graphics-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
 	rk3576-no-graphics.dtbo
+
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b1c2-pwm2ch4.dtb
+rk3576-flipper-one-rev-f0b1c2-pwm2ch4-dtbs := rk3576-flipper-one-rev-f0b1c2.dtb \
+	rk3576-flipper-one-pwm2ch4.dtbo
+
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b1c2-pwm2ch5.dtb
+rk3576-flipper-one-rev-f0b1c2-pwm2ch5-dtbs := rk3576-flipper-one-rev-f0b1c2.dtb \
+	rk3576-flipper-one-pwm2ch5.dtbo
+
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b1c2-pwm2ch6.dtb
+rk3576-flipper-one-rev-f0b1c2-pwm2ch6-dtbs := rk3576-flipper-one-rev-f0b1c2.dtb \
+	rk3576-flipper-one-pwm2ch6.dtbo
+
+dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b1c2-pwm2ch7.dtb
+rk3576-flipper-one-rev-f0b1c2-pwm2ch7-dtbs := rk3576-flipper-one-rev-f0b1c2.dtb \
+	rk3576-flipper-one-pwm2ch7.dtbo
 
 dtb-$(CONFIG_ARCH_ROCKCHIP) += rk3576-flipper-one-rev-f0b0c1-sata.dtb
 rk3576-flipper-one-rev-f0b0c1-sata-dtbs := rk3576-flipper-one-rev-f0b0c1.dtb \
