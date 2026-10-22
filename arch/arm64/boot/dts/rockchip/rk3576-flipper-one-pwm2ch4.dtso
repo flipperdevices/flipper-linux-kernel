@@ -1,0 +1,13 @@
+// SPDX-License-Identifier: (GPL-2.0+ OR MIT)
+/*
+ * DT-overlay to enable PWM2 channel 4 on the GPIO header on Flipper One
+ */
+
+/dts-v1/;
+/plugin/;
+
+&pwm2_8ch_4 {
+	pinctrl-names = "default";
+	pinctrl-0 = <&pwm2m1_ch4>;
+	status = "okay";
+};
