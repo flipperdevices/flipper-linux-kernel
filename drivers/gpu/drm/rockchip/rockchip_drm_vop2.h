@@ -24,14 +24,24 @@
 
 #define VOP2_VP_FEATURE_OUTPUT_10BIT        BIT(0)
 
+/*
+ * The maximum output width of a single video port. Modes wider than
+ * this are driven by splicing two video ports together.
+ */
+#define VOP2_MAX_VP_OUTPUT_WIDTH	4096
+
 #define VOP2_FEATURE_HAS_SYS_GRF	BIT(0)
 #define VOP2_FEATURE_HAS_VO0_GRF	BIT(1)
 #define VOP2_FEATURE_HAS_VO1_GRF	BIT(2)
 #define VOP2_FEATURE_HAS_VOP_GRF	BIT(3)
 #define VOP2_FEATURE_HAS_SYS_PMU	BIT(4)
+/* splice two windows and two VPs to support resolutions > 4096 */
+#define VOP2_FEATURE_SPLICE		BIT(5)
 
 #define WIN_FEATURE_AFBDC		BIT(0)
 #define WIN_FEATURE_CLUSTER		BIT(1)
+/* Left window in splice mode */
+#define WIN_FEATURE_SPLICE_LEFT		BIT(6)
 
 /*
  *  the delay number of a window in different mode.
@@ -180,6 +190,13 @@ struct vop2_win_data {
 	const char *name;
 	unsigned int phys_id;
 
+	/**
+	 * @splice_win_id: phy id of the window driving the right half of
+	 * this window in splice mode. Only valid for windows with
+	 * %WIN_FEATURE_SPLICE_LEFT.
+	 */
+	u8 splice_win_id;
+
 	u32 base;
 	u32 possible_vp_mask;
 	enum drm_plane_type type;
@@ -219,10 +236,26 @@ struct vop2_win {
 	u32 offset;
 
 	enum drm_plane_type type;
+	
+	/**
+	 * @splice_win: window used for the right half of this window when
+	 * the display is driven in splice mode.
+	 */
+	struct vop2_win *splice_win;
+	/**
+	 * @left_win: window driving the left half of this window when this
+	 * window is used as the right half in splice mode.
+	 */
+	struct vop2_win *left_win;
 };
 
 struct vop2_video_port_data {
 	unsigned int id;
+	/**
+	 * @splice_vp_id: id of the video port driving the right half of the
+	 * screen when this video port works in splice mode.
+	 */
+	u8 splice_vp_id;
 	u32 feature;
 	u16 gamma_lut_len;
 	u16 cubic_lut_len;
@@ -262,6 +295,18 @@ struct vop2_video_port {
 	struct drm_pending_vblank_event *event;
 
 	unsigned int nlayers;
+
+	/**
+	 * @splice_mode_right: this video port drives the right half of the
+	 * display in splice mode.
+	 */
+	bool splice_mode_right;
+	/**
+	 * @left_vp: video port driving the left half when
+	 * @splice_mode_right is set.
+	 */
+	struct vop2_video_port *left_vp;
+
 };
 
 /**
@@ -274,6 +319,11 @@ struct vop2_ops {
 	unsigned long (*setup_intf_mux)(struct vop2_video_port *vp, int ep_id, u32 polflags);
 	void (*setup_bg_dly)(struct vop2_video_port *vp);
 	void (*setup_overlay)(struct vop2_video_port *vp);
+	/*
+	 * @setup_splice: join or split this video port and its partner to
+	 * drive a mode wider than a single video port can handle.
+	 */
+	void (*setup_splice)(struct vop2_video_port *vp, bool enable);
 };
 
 struct vop2_data {
@@ -724,6 +774,7 @@ enum dst_factor_mode {
 #define RK3588_DSP_IF_POL__DP0_PIN_POL			GENMASK(10, 8)
 
 #define RK3588_LUT_PORT_SEL__GAMMA_AHB_WRITE_SEL	GENMASK(13, 12)
+#define RK3568_LUT_PORT_SEL__SPLICE_EN			BIT(16)
 
 #define RK3568_VP0_MIPI_CTRL__DCLK_DIV2_PHASE_LOCK	BIT(5)
 #define RK3568_VP0_MIPI_CTRL__DCLK_DIV2			BIT(4)
@@ -872,9 +923,22 @@ static inline struct vop2_win *to_vop2_win(struct drm_plane *p)
 static inline void vop2_cfg_done(struct vop2_video_port *vp)
 {
 	struct vop2 *vop2 = vp->vop2;
+	struct rockchip_crtc_state *vcstate = to_rockchip_crtc_state(vp->crtc.state);
 	u32 val = RK3568_REG_CFG_DONE__GLB_CFG_DONE_EN;
 
 	val |= BIT(vp->id) | (BIT(vp->id) << 16);
+
+	/*
+	 * In splice mode both video ports must be updated in the same frame,
+	 * so set the config done bit of the partner video port as well.
+	 * This is only called with the video port owning the CRTC state,
+	 * i.e. never with the right video port.
+	 */
+	if (vcstate->splice_mode) {
+		int splice_vp_id = vop2->data->vp[vp->id].splice_vp_id;
+
+		val |= BIT(splice_vp_id) | (BIT(splice_vp_id) << 16);
+	}
 
 	regmap_set_bits(vop2->map, RK3568_REG_CFG_DONE, val);
 }

@@ -54,6 +54,11 @@ struct rockchip_crtc_state {
 	int output_flags;
 	bool enable_afbc;
 	bool yuv_overlay;
+	/**
+	 * @splice_mode: two video ports are joined together to drive a
+	 * display that is wider than a single video port can handle.
+	 */
+	bool splice_mode;
 	u32 bus_format;
 	u32 bus_flags;
 	int color_space;
