@@ -1,0 +1,26 @@
+What:		/sys/class/leds/<led>/device/link_brightness
+What:		/sys/class/leds/<led>/device/power_brightness
+What:		/sys/class/leds/<led>/device/wattmeter_brightness
+Date:		October 2026
+KernelVersion:	7.4
+Contact:	Alexey Charkov <alchark@flipper.net>
+Description:	(RW) The Flipper One MCU scales the brightness of each of its
+		LED groups by a per-group setting, from 0 (off) to 255 (full).
+		The link group holds the RGB LEDs registered by this driver;
+		the power and wattmeter groups are driven by the MCU itself.
+
+		The setting applies on top of the brightness and
+		multi_intensity of the individual LEDs: those still select a
+		colour and level relative to the group setting, and a group
+		setting of 0 keeps every LED in the group dark.
+
+		The MCU stores the setting in its flash, so it persists across
+		reboots and power cycles, and every write costs a flash write.
+		Use the brightness of individual LEDs for anything that changes
+		frequently, such as triggers or animations.
+
+		The setting can also be changed from the MCU's own menu, with
+		no notification to the host. Reading the file always returns
+		the current value from the MCU.
+
+		Format: %u
