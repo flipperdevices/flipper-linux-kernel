@@ -68,6 +68,72 @@ static int foled_brightness_set(struct led_classdev *cdev,
 	return regmap_write(led->foled->regmap, led->reg, rgb565);
 }
 
+/*
+ * On top of the per-LED colours, the MCU scales each LED group by a group
+ * brightness (0 is off, 255 is full). The MCU keeps it in flash, and it can
+ * also be changed from the MCU menu, so it is always read back from the MCU.
+ * It is exposed on the controller device rather than on an individual LED, as
+ * one setting covers several LEDs, some of which Linux does not drive at all.
+ */
+static ssize_t foled_group_brightness_show(struct device *dev, char *buf,
+					   unsigned int reg)
+{
+	struct foled_device *foled = dev_get_drvdata(dev);
+	unsigned int val;
+	int ret;
+
+	ret = regmap_read(foled->regmap, reg, &val);
+	if (ret)
+		return ret;
+
+	return sysfs_emit(buf, "%u\n", val);
+}
+
+static ssize_t foled_group_brightness_store(struct device *dev,
+					    const char *buf, size_t count,
+					    unsigned int reg)
+{
+	struct foled_device *foled = dev_get_drvdata(dev);
+	u8 val;
+	int ret;
+
+	ret = kstrtou8(buf, 10, &val);
+	if (ret)
+		return ret;
+
+	ret = regmap_write(foled->regmap, reg, val);
+
+	return ret ?: count;
+}
+
+#define FOLED_GROUP_BRIGHTNESS_ATTR(_group, _reg)			\
+static ssize_t _group##_brightness_show(struct device *dev,		\
+					struct device_attribute *attr,	\
+					char *buf)			\
+{									\
+	return foled_group_brightness_show(dev, buf, _reg);		\
+}									\
+									\
+static ssize_t _group##_brightness_store(struct device *dev,		\
+					 struct device_attribute *attr,	\
+					 const char *buf, size_t count)	\
+{									\
+	return foled_group_brightness_store(dev, buf, count, _reg);	\
+}									\
+static DEVICE_ATTR_RW(_group##_brightness)
+
+FOLED_GROUP_BRIGHTNESS_ATTR(link, FOMCU_REG_LEDS_BR_LINK);
+FOLED_GROUP_BRIGHTNESS_ATTR(power, FOMCU_REG_LEDS_BR_POWER);
+FOLED_GROUP_BRIGHTNESS_ATTR(wattmeter, FOMCU_REG_LEDS_BR_WATT);
+
+static struct attribute *foled_attrs[] = {
+	&dev_attr_link_brightness.attr,
+	&dev_attr_power_brightness.attr,
+	&dev_attr_wattmeter_brightness.attr,
+	NULL
+};
+ATTRIBUTE_GROUPS(foled);
+
 static int foled_probe(struct platform_device *pdev)
 {
 	struct foled_device *foled;
@@ -122,7 +188,8 @@ MODULE_DEVICE_TABLE(platform, foled_id_table);
 static struct platform_driver foled_driver = {
 	.probe		= foled_probe,
 	.driver		= {
-		.name	= "flipper-one-leds",
+		.name		= "flipper-one-leds",
+		.dev_groups	= foled_groups,
 	},
 	.id_table	= foled_id_table,
 };
