@@ -10216,6 +10216,7 @@ F:	drivers/counter/ftm-quaddec.c
 FLIPPER ONE SUPPORT
 M:	Alexey Charkov <alchark@flipper.net>
 S:	Maintained
+F:	Documentation/ABI/testing/sysfs-class-led-driver-flipper-one
 F:	Documentation/ABI/testing/sysfs-driver-flipper-one-mcu
 F:	drivers/gpu/drm/tiny/flipper-one-display.c
 F:	drivers/input/misc/flipper-one-haptic.c
