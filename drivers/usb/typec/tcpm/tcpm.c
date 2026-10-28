@@ -3913,6 +3913,16 @@ static void tcpm_pd_ctrl_request(struct tcpm_port *port,
 		case SNK_READY:
 			if (port->vdm_state > VDM_STATE_READY) {
 				port->vdm_state = VDM_STATE_DONE;
+				/*
+				 * A partner without Structured VDM support answers
+				 * discovery with Not_Supported: there is nothing left
+				 * to discover, just as after a NAK.
+				 */
+				if (type == PD_CTRL_NOT_SUPP &&
+				    (port->ams == DISCOVER_IDENTITY ||
+				     port->ams == DISCOVER_SVIDS))
+					tcpm_update_vdm_discovery_state(port,
+									VDM_DISCOVERY_COMPLETE);
 				if (tcpm_vdm_ams(port))
 					tcpm_ams_finish(port);
 				mod_vdm_delayed_work(port, 0);
