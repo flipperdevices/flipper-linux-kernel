@@ -2060,6 +2060,7 @@ static void svdm_consume_identity(struct tcpm_port *port, const u32 *p, int cnt)
 {
 	u32 vdo = p[VDO_INDEX_IDH];
 	u32 product = p[VDO_INDEX_PRODUCT];
+	int i;
 
 	if (cnt <= VDO_INDEX_PRODUCT)
 		return;
@@ -2069,6 +2070,10 @@ static void svdm_consume_identity(struct tcpm_port *port, const u32 *p, int cnt)
 	port->partner_ident.id_header = vdo;
 	port->partner_ident.cert_stat = p[VDO_INDEX_CSTAT];
 	port->partner_ident.product = product;
+	/* Product Type VDOs, if any, follow the Product VDO */
+	for (i = 0; i < ARRAY_SIZE(port->partner_ident.vdo); i++)
+		port->partner_ident.vdo[i] = VDO_INDEX_PRODUCT + 1 + i < cnt ?
+					     p[VDO_INDEX_PRODUCT + 1 + i] : 0;
 
 	if (port->partner)
 		typec_partner_set_identity(port->partner);
