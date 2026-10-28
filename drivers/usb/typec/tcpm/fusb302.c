@@ -136,11 +136,20 @@ struct fusb302_chip {
 	bool vbus_on;
 	bool charge_on;
 	bool pd_rx_on;
+	/* TCPM waits for the outcome of a transmission */
+	bool tx_pending;
+	/* The driver sent a GoodCRC, for fusb302_pd_check_ack() */
+	bool ack_check;
+	/* INTERRUPT bits fusb302_pd_check_ack() read for fusb302_irq_work() */
+	u8 interrupt_stash;
 	bool vbus_present;
 	bool vbus_vsafe0v;
 	enum typec_cc_polarity cc_polarity;
 	enum typec_cc_status cc1;
 	enum typec_cc_status cc2;
+	/* for a GoodCRC sent by the driver, as the chip does for its own */
+	enum typec_role pwr_role;
+	enum typec_data_role data_role;
 	u32 snk_pdo[PDO_MAX_OBJECTS];
 
 #ifdef CONFIG_DEBUG_FS
@@ -1143,7 +1152,8 @@ static int fusb302_pd_set_auto_goodcrc(struct fusb302_chip *chip, bool on)
 static int fusb302_pd_set_interrupts(struct fusb302_chip *chip, bool on)
 {
 	int ret = 0;
-	u8 mask_interrupts = FUSB_REG_MASK_COLLISION;
+	/* See fusb302_pd_read_message() for CRC_CHK */
+	u8 mask_interrupts = FUSB_REG_MASK_COLLISION | FUSB_REG_MASK_CRC_CHK;
 	u8 maska_interrupts = FUSB_REG_MASKA_RETRYFAIL |
 			      FUSB_REG_MASKA_HARDSENT |
 			      FUSB_REG_MASKA_TX_SUCCESS |
@@ -1190,6 +1200,8 @@ static int tcpm_set_pd_rx(struct tcpc_dev *dev, bool on)
 		fusb302_log(chip, "cannot flush pd tx buffer, ret=%d", ret);
 		goto done;
 	}
+	/* Nothing flushed reports its outcome */
+	chip->tx_pending = false;
 	ret = fusb302_pd_set_auto_goodcrc(chip, on);
 	if (ret < 0) {
 		fusb302_log(chip, "cannot turn %s auto GCRC, ret=%d",
@@ -1247,6 +1259,8 @@ static int tcpm_set_roles(struct tcpc_dev *dev, bool attached,
 			    ret);
 		goto done;
 	}
+	chip->pwr_role = pwr;
+	chip->data_role = data;
 	fusb302_log(chip, "pd header := %s, %s", typec_role_name[pwr],
 		    typec_data_role_name[data]);
 done:
@@ -1410,12 +1424,16 @@ static int tcpm_pd_transmit(struct tcpc_dev *dev, enum tcpm_transmit_type type,
 		if (ret < 0)
 			fusb302_log(chip,
 				    "cannot send PD message, ret=%d", ret);
+		else
+			chip->tx_pending = true;
 		break;
 	case TCPC_TX_HARD_RESET:
 		ret = fusb302_pd_send_hardreset(chip);
 		if (ret < 0)
 			fusb302_log(chip,
 				    "cannot send hardreset, ret=%d", ret);
+		else
+			chip->tx_pending = true;
 		break;
 	default:
 		fusb302_log(chip, "type %s not supported",
@@ -1798,6 +1816,36 @@ static int fusb302_pd_reset(struct fusb302_chip *chip)
 				    FUSB_REG_RESET_PD_RESET);
 }
 
+static void fusb302_pd_tx_complete(struct fusb302_chip *chip,
+				   enum tcpm_transmit_status status)
+{
+	chip->tx_pending = false;
+	tcpm_pd_transmit_complete(chip->tcpm_port, status);
+}
+
+/*
+ * See whether a GoodCRC the driver sent collided before releasing chip->lock:
+ * by the next interrupt, TCPM may have started a transmission, and the
+ * COLLISION would then be reported against it. The chip sets COLLISION when
+ * TXON finds CC busy, so it is there to see by now. Keep the other bits that
+ * reading the register clears for fusb302_irq_work().
+ */
+static int fusb302_pd_check_ack(struct fusb302_chip *chip)
+{
+	u8 interrupt;
+	int ret;
+
+	chip->ack_check = false;
+	ret = fusb302_i2c_read(chip, FUSB_REG_INTERRUPT, &interrupt);
+	if (ret < 0)
+		return ret;
+	if (interrupt & FUSB_REG_INTERRUPT_COLLISION)
+		fusb302_log(chip, "GoodCRC sent by the driver collided");
+	chip->interrupt_stash |= interrupt & ~FUSB_REG_INTERRUPT_COLLISION;
+
+	return 0;
+}
+
 static int fusb302_pd_read_message(struct fusb302_chip *chip,
 				   struct pd_message *msg)
 {
@@ -1814,6 +1862,49 @@ static int fusb302_pd_read_message(struct fusb302_chip *chip,
 				     (u8 *)&msg->header);
 	if (ret < 0)
 		return ret;
+
+	/*
+	 * The chip only decodes the low four bits of the message type, so it
+	 * mistakes Get_Source_Cap_Extended (17) for a GoodCRC (1): it neither
+	 * acknowledges it nor raises GCRCSENT, only CRC_CHK, yet still queues
+	 * it in the RX FIFO. Send the GoodCRC from here, before reading out the
+	 * CRC to save time. It goes out well after tTransmit, but the partner
+	 * retries with the same MessageID and usually accepts it then, rather
+	 * than soft reset over and over.
+	 */
+	if (!pd_header_cnt_le(msg->header) &&
+	    pd_header_type_le(msg->header) == PD_CTRL_GET_SOURCE_CAP_EXT &&
+	    (token & FUSB302_RX_TKN_MASK) != FUSB302_RX_TKN_SOP1) {
+		struct pd_message ack = {};
+
+		/*
+		 * The outcome of a GoodCRC sent now would pass for that of
+		 * the transmission TCPM waits for, so leave the partner to
+		 * retry then
+		 */
+		if (chip->tx_pending) {
+			fusb302_log(chip, "not acknowledging PD message, TX pending");
+		} else {
+			/*
+			 * The chip's own GoodCRCs go out as revision 2.0. It
+			 * sends this one once, waiting for no GoodCRC to it.
+			 */
+			ack.header = PD_HEADER_LE(PD_CTRL_GOOD_CRC,
+						  chip->pwr_role,
+						  chip->data_role, PD_REV20,
+						  pd_header_msgid_le(msg->header),
+						  0);
+			/* Read the message out all the same, to stay in step */
+			ret = fusb302_pd_send_message(chip, TCPC_TX_SOP, &ack);
+			if (ret >= 0)
+				chip->ack_check = true;
+			else
+				fusb302_log(chip,
+					    "cannot acknowledge PD message, ret=%d",
+					    ret);
+		}
+	}
+
 	len = pd_header_cnt_le(msg->header) * 4;
 	/* add 4 to length to include the CRC */
 	if (len > PD_MAX_PAYLOAD * 4) {
@@ -1844,7 +1935,7 @@ static int fusb302_pd_read_message(struct fusb302_chip *chip,
 	 * to check the message type to ensure correct reporting to TCPM.
 	 */
 	if ((!len) && (pd_header_type_le(msg->header) == PD_CTRL_GOOD_CRC))
-		tcpm_pd_transmit_complete(chip->tcpm_port, TCPC_TX_SUCCESS);
+		fusb302_pd_tx_complete(chip, TCPC_TX_SUCCESS);
 	else if ((token & FUSB302_RX_TKN_MASK) == FUSB302_RX_TKN_SOP1)
 		tcpm_pd_receive(chip->tcpm_port, msg, TCPC_TX_SOP_PRIME);
 	else
@@ -1865,7 +1956,7 @@ static int fusb302_pd_read_messages(struct fusb302_chip *chip)
 
 	/*
 	 * Drain the whole RX FIFO rather than one message per interrupt:
-	 * messages the chip does not acknowledge raise no interrupt, and
+	 * messages the chip does not acknowledge raise no GCRCSENT, and
 	 * reading one message per event would then leave every later read
 	 * returning the message queued before the one that raised it.
 	 */
@@ -1917,6 +2008,7 @@ static void fusb302_irq_work(struct work_struct *work)
 	bool intr_comp_chng;
 
 	mutex_lock(&chip->lock);
+again:
 	/* grab a snapshot of intr flags */
 	intr_togdone = chip->intr_togdone;
 	intr_bc_lvl = chip->intr_bc_lvl;
@@ -1925,6 +2017,8 @@ static void fusb302_irq_work(struct work_struct *work)
 	ret = fusb302_i2c_read(chip, FUSB_REG_INTERRUPT, &interrupt);
 	if (ret < 0)
 		goto done;
+	interrupt |= chip->interrupt_stash;
+	chip->interrupt_stash = 0;
 	ret = fusb302_i2c_read(chip, FUSB_REG_INTERRUPTA, &interrupta);
 	if (ret < 0)
 		goto done;
@@ -1934,6 +2028,22 @@ static void fusb302_irq_work(struct work_struct *work)
 	ret = fusb302_i2c_read(chip, FUSB_REG_STATUS0, &status0);
 	if (ret < 0)
 		goto done;
+
+	/*
+	 * A message the chip didn't acknowledge raises CRC_CHK alone: read it
+	 * out first thing, as its GoodCRC is past due already
+	 */
+	if ((interrupt & FUSB_REG_INTERRUPT_CRC_CHK) &&
+	    !(interrupta & FUSB_REG_INTERRUPTA_TX_SUCCESS) &&
+	    !(interruptb & FUSB_REG_INTERRUPTB_GCRCSENT)) {
+		ret = fusb302_pd_read_messages(chip);
+		if (ret < 0) {
+			fusb302_log(chip,
+				    "cannot read in PD message, ret=%d", ret);
+			goto done;
+		}
+	}
+
 	fusb302_log(chip,
 		    "IRQ: 0x%02x, a: 0x%02x, b: 0x%02x, status0: 0x%02x",
 		    interrupt, interrupta, interruptb, status0);
@@ -1982,14 +2092,17 @@ static void fusb302_irq_work(struct work_struct *work)
 		}
 	}
 
+	/* Not for TCPM if it came from a GoodCRC the driver sent */
 	if (interrupt & FUSB_REG_INTERRUPT_COLLISION) {
 		fusb302_log(chip, "IRQ: PD collision");
-		tcpm_pd_transmit_complete(chip->tcpm_port, TCPC_TX_FAILED);
+		if (chip->tx_pending)
+			fusb302_pd_tx_complete(chip, TCPC_TX_FAILED);
 	}
 
 	if (interrupta & FUSB_REG_INTERRUPTA_RETRYFAIL) {
 		fusb302_log(chip, "IRQ: PD retry failed");
-		tcpm_pd_transmit_complete(chip->tcpm_port, TCPC_TX_FAILED);
+		if (chip->tx_pending)
+			fusb302_pd_tx_complete(chip, TCPC_TX_FAILED);
 	}
 
 	if (interrupta & FUSB_REG_INTERRUPTA_HARDSENT) {
@@ -1999,7 +2112,7 @@ static void fusb302_irq_work(struct work_struct *work)
 			fusb302_log(chip, "cannot PD reset, ret=%d", ret);
 			goto done;
 		}
-		tcpm_pd_transmit_complete(chip->tcpm_port, TCPC_TX_SUCCESS);
+		fusb302_pd_tx_complete(chip, TCPC_TX_SUCCESS);
 	}
 
 	if (interrupta & FUSB_REG_INTERRUPTA_TX_SUCCESS) {
@@ -2032,6 +2145,13 @@ static void fusb302_irq_work(struct work_struct *work)
 		}
 	}
 done:
+	/*
+	 * Not right after the GoodCRC, which would hold up the next one to a
+	 * retry queued meanwhile. Then handle what the check read.
+	 */
+	if (chip->ack_check && fusb302_pd_check_ack(chip) >= 0 &&
+	    chip->interrupt_stash)
+		goto again;
 	mutex_unlock(&chip->lock);
 	enable_irq(chip->irq);
 }
