@@ -1472,6 +1472,19 @@ static int fusb302_pd_read_message(struct fusb302_chip *chip,
 	fusb302_log(chip, "PD message len: %d", len);
 
 	/*
+	 * The chip only decodes the low four bits of the message type, so it
+	 * mistakes Get_Source_Cap_Extended (17) for a GoodCRC (1): it neither
+	 * acknowledges it nor raises GCRCSENT, yet still queues it in the RX
+	 * FIFO. Without a GoodCRC the partner never considers it delivered and
+	 * will retry and then soft reset, so it must not be answered.
+	 */
+	if ((!len) &&
+	    (pd_header_type_le(msg->header) == PD_CTRL_GET_SOURCE_CAP_EXT)) {
+		fusb302_log(chip, "dropping unacknowledged PD message");
+		return ret;
+	}
+
+	/*
 	 * Check if we've read off a GoodCRC message. If so then indicate to
 	 * TCPM that the previous transmission has completed. Otherwise we pass
 	 * the received message over to TCPM for processing.
