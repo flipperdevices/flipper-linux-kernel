@@ -953,6 +953,21 @@
 					       PDO_FIXED_USB_COMM | PDO_FIXED_DATA_SWAP)
 				     PDO_VAR(3600, 24000, 3300)
 				     PDO_PPS_APDO(3600, 24000, 3300)>;
+			sink-vdos = <VDO_IDH(1, 1, IDH_PTYPE_PERIPH, 0,
+					     IDH_PTYPE_DFP_HOST, 2, 0x37c1)
+				     VDO_CERT(0x0)
+				     VDO_PRODUCT(0xf12f, 0x0)
+				     VDO_UFP(UFP_VDO_VER1_2,
+					     (DEV_USB2_CAPABLE | DEV_USB3_CAPABLE),
+					     UFP_RECEPTACLE, 0, AMA_VCONN_NOT_REQ, 0,
+					     UFP_ALTMODE_NOT_SUPP, UFP_USB32_GEN1)
+				     /* padding */ 0
+				     VDO_DFP(DFP_VDO_VER1_1,
+					     (HOST_USB2_CAPABLE | HOST_USB3_CAPABLE),
+					     DFP_RECEPTACLE, 0)>;
+			sink-vdos-v1 = <VDO_IDH(1, 1, IDH_PTYPE_PERIPH, 0, 0, 0, 0x37c1)
+					VDO_CERT(0x0)
+					VDO_PRODUCT(0xf12f, 0x0)>;
 			source-pdos = <PDO_FIXED(5000, 2000,
 						 PDO_FIXED_USB_COMM | PDO_FIXED_DATA_SWAP)>;
 			try-power-role = "sink";
