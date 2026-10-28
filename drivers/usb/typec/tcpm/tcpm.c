@@ -3919,6 +3919,10 @@ static void tcpm_pd_ctrl_request(struct tcpm_port *port,
 		case SRC_READY:
 		case SNK_READY:
 			if (port->vdm_state > VDM_STATE_READY) {
+				enum tcpm_transmit_type tx_sop_type;
+				u32 vdo[2] = { };
+				int rlen = 0;
+
 				if (port->ams == DISCOVER_IDENTITY) {
 					if (rx_sop_type == TCPC_TX_SOP) {
 						tcpm_update_vdm_discovery_state(port,
@@ -3928,11 +3932,30 @@ static void tcpm_pd_ctrl_request(struct tcpm_port *port,
 								VDM_DISCOVERY_CABLE_IDENT);
 						mod_vdm_discovery_delayed_work(port, 0);
 					}
+				} else if (port->ams == DISCOVER_SVIDS) {
+					/*
+					 * Finish as when the cable plug does not
+					 * answer, or as after a NAK from the port
+					 * partner.
+					 */
+					if (rx_sop_type == TCPC_TX_SOP_PRIME)
+						tcpm_register_partner_altmodes(port);
+					tcpm_update_vdm_discovery_state(port,
+									VDM_DISCOVERY_COMPLETE);
+				} else if (port->ams == DISCOVER_MODES) {
+					/* Skip to the next SVID, as after a NAK */
+					rlen = tcpm_handle_discover_mode(port, vdo,
+									 rx_sop_type,
+									 &tx_sop_type);
 				}
 				port->vdm_state = VDM_STATE_DONE;
 				if (tcpm_vdm_ams(port))
 					tcpm_ams_finish(port);
-				mod_vdm_delayed_work(port, 0);
+				if (rlen)
+					tcpm_queue_vdm(port, vdo[0], &vdo[1], 0,
+						       tx_sop_type);
+				else
+					mod_vdm_delayed_work(port, 0);
 				break;
 			}
 			fallthrough;
