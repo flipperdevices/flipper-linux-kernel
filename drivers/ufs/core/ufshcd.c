@@ -321,6 +321,9 @@ static const struct ufs_dev_quirk ufs_fixups[] = {
 	{ .wmanufacturerid = UFS_VENDOR_TOSHIBA,
 	  .model = "THGJFJT1E45BATP",
 	  .quirk = UFS_DEVICE_QUIRK_NO_TIMESTAMP_SUPPORT },
+	{ .wmanufacturerid = UFS_VENDOR_BIWIN,
+	  .model = "BWU2A05",
+	  .quirk = UFS_DEVICE_QUIRK_TUR_TO_CLEAR_UA },
 	{}
 };
 
@@ -8192,6 +8195,55 @@ static void ufshcd_process_probe_result(struct ufs_hba *hba,
 }
 
 /**
+ * ufshcd_clear_unit_attention - clear the power-on UNIT ATTENTION of each LU
+ * @hba: per adapter instance
+ *
+ * Send a TEST UNIT READY to each logical unit to clear the power-on UNIT
+ * ATTENTION left by a device reset, for devices that keep reporting it to
+ * WRITE commands instead. Receiving the UNIT ATTENTION is what clears it, so
+ * only transport failures matter.
+ *
+ * Use the device management slot rather than the logical units' request
+ * queues: those are blocked during error handling, and during a runtime
+ * resume of the device W-LU its runtime suspended consumers cannot take
+ * requests until it has resumed.
+ */
+static void ufshcd_clear_unit_attention(struct ufs_hba *hba)
+{
+	struct utp_upiu_req req_upiu, rsp_upiu;
+	struct scsi_device *sdev;
+	int err;
+
+	shost_for_each_device(sdev, hba->host) {
+		if (scsi_is_wlun(sdev->lun))
+			continue;
+
+		req_upiu = (struct utp_upiu_req){
+			.header = {
+				.transaction_code = UPIU_TRANSACTION_COMMAND,
+				.lun = ufshcd_scsi_to_upiu_lun(sdev->lun),
+				.command_set_type = UPIU_COMMAND_SET_TYPE_SCSI,
+			},
+			.sc.cdb[0] = TEST_UNIT_READY,
+		};
+
+		ufshcd_dev_man_lock(hba);
+		err = ufshcd_issue_devman_upiu_cmd(hba, &req_upiu, &rsp_upiu,
+						   NULL, NULL,
+						   DEV_CMD_TYPE_SCSI,
+						   UPIU_QUERY_OPCODE_NOP);
+		ufshcd_dev_man_unlock(hba);
+		if (err) {
+			dev_warn(hba->dev,
+				 "TEST UNIT READY to LUN %llu failed: %d\n",
+				 sdev->lun, err);
+			scsi_device_put(sdev);
+			break;
+		}
+	}
+}
+
+/**
  * ufshcd_host_reset_and_restore - reset and restore host controller
  * @hba: per-adapter instance
  *
@@ -8232,6 +8284,8 @@ static int ufshcd_host_reset_and_restore(struct ufs_hba *hba)
 
 	if (err)
 		dev_err(hba->dev, "%s: Host init failed %d\n", __func__, err);
+	else if (hba->dev_quirks & UFS_DEVICE_QUIRK_TUR_TO_CLEAR_UA)
+		ufshcd_clear_unit_attention(hba);
 	ufshcd_update_evt_hist(hba, UFS_EVT_HOST_RESET, (u32)err);
 	return err;
 }

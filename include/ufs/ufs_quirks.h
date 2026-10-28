@@ -17,6 +17,7 @@
 #define UFS_VENDOR_SKHYNIX     0x1AD
 #define UFS_VENDOR_TOSHIBA     0x198
 #define UFS_VENDOR_WDC         0x145
+#define UFS_VENDOR_BIWIN       0xDAB
 
 /**
  * ufs_dev_quirk - ufs device quirk info
@@ -108,5 +109,13 @@ struct ufs_dev_quirk {
 
 /* Some UFS 4 devices do not support the qTimestamp attribute */
 #define UFS_DEVICE_QUIRK_NO_TIMESTAMP_SUPPORT	(1 << 13)
+
+/*
+ * Some UFS devices do not clear the power-on UNIT ATTENTION condition when
+ * reporting it to a WRITE command, so writes keep failing with it. A TEST
+ * UNIT READY clears it. Enable this quirk to send one to each logical unit
+ * after every host reset and restore, which follows each device reset.
+ */
+#define UFS_DEVICE_QUIRK_TUR_TO_CLEAR_UA	(1 << 14)
 
 #endif /* UFS_QUIRKS_H_ */

@@ -37,6 +37,7 @@ enum dev_cmd_type {
 	DEV_CMD_TYPE_NOP		= 0x0,
 	DEV_CMD_TYPE_QUERY		= 0x1,
 	DEV_CMD_TYPE_RPMB		= 0x2,
+	DEV_CMD_TYPE_SCSI		= 0x3,
 };
 
 enum ufs_event_type {
