@@ -975,6 +975,7 @@ static int fusb302_pd_send_message(struct fusb302_chip *chip,
 	int ret = 0;
 	u8 buf[40];
 	u8 pos = 0;
+	u8 i;
 	int len;
 
 	/* SOP tokens */
@@ -1009,9 +1010,19 @@ static int fusb302_pd_send_message(struct fusb302_chip *chip,
 	/* start transmission */
 	buf[pos++] = FUSB302_TKN_TXON;
 
-	ret = fusb302_i2c_block_write(chip, FUSB_REG_FIFOS, pos, buf);
-	if (ret < 0)
-		return ret;
+	/*
+	 * An SMBus block write carries at most I2C_SMBUS_BLOCK_MAX bytes, and
+	 * a message with more than five data objects needs more. The FIFO
+	 * register appends every byte written to it, and TXON comes last, so
+	 * the message can go out in several writes.
+	 */
+	for (i = 0; i < pos; i += I2C_SMBUS_BLOCK_MAX) {
+		ret = fusb302_i2c_block_write(chip, FUSB_REG_FIFOS,
+					      min_t(u8, pos - i, I2C_SMBUS_BLOCK_MAX),
+					      &buf[i]);
+		if (ret < 0)
+			return ret;
+	}
 	fusb302_log(chip, "sending PD message header: %x", msg->header);
 	fusb302_log(chip, "sending PD message len: %d", len);
 
