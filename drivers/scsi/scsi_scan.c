@@ -1066,6 +1066,9 @@ static int scsi_add_lun(struct scsi_device *sdev, unsigned char *inq_result,
 	if (*bflags & BLIST_IGN_MEDIA_CHANGE)
 		sdev->ignore_media_change = 1;
 
+	if (*bflags & BLIST_TUR_AFTER_RESET)
+		sdev->tur_after_reset = 1;
+
 	sdev->eh_timeout = SCSI_DEFAULT_EH_TIMEOUT;
 
 	if (*bflags & BLIST_TRY_VPD_PAGES)

@@ -71,8 +71,10 @@
 #define BLIST_RETRY_ASC_C1	((__force blist_flags_t)(1ULL << 33))
 /* Do not query the IO Advice Hints Grouping mode page */
 #define BLIST_SKIP_IO_HINTS	((__force blist_flags_t)(1ULL << 34))
+/* Send TEST UNIT READY to clear a power on or reset UNIT ATTENTION */
+#define BLIST_TUR_AFTER_RESET	((__force blist_flags_t)(1ULL << 35))
 
-#define __BLIST_LAST_USED BLIST_SKIP_IO_HINTS
+#define __BLIST_LAST_USED BLIST_TUR_AFTER_RESET
 
 #define __BLIST_HIGH_UNUSED (~(__BLIST_LAST_USED | \
 			       (__force blist_flags_t) \

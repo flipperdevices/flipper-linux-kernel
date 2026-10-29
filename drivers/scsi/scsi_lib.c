@@ -20,6 +20,7 @@
 #include <linux/pci.h>
 #include <linux/delay.h>
 #include <linux/hardirq.h>
+#include <linux/pm_runtime.h>
 #include <linux/scatterlist.h>
 #include <linux/blk-mq.h>
 #include <linux/blk-integrity.h>
@@ -2699,6 +2700,32 @@ static void scsi_evt_emit(struct scsi_device *sdev, struct scsi_event *evt)
 	kobject_uevent_env(&sdev->sdev_gendev.kobj, KOBJ_CHANGE, envp);
 }
 
+/*
+ * Some devices do not clear a power on or reset UNIT ATTENTION when reporting
+ * it to commands such as WRITE, which then keep failing on every retry. Send
+ * them a TEST UNIT READY, which does clear it.
+ *
+ * Leave a device that is not runtime active alone. Until it is, only PM
+ * requests can reach it, and their senders deal with the UNIT ATTENTION. Any
+ * other command that keeps failing with it holds a queue reference, which
+ * aborts a runtime suspend, and re-arms this event on every retry.
+ */
+static void scsi_clear_reset_ua(struct scsi_device *sdev)
+{
+	struct device *dev = &sdev->sdev_gendev;
+	struct scsi_sense_hdr sshdr;
+	int active;
+
+	active = pm_runtime_get_if_active(dev);
+	if (!active)
+		return;
+
+	scsi_test_unit_ready(sdev, sdev->request_queue->rq_timeout, 1, &sshdr);
+
+	if (active > 0)
+		pm_runtime_put(dev);
+}
+
 /**
  *	scsi_evt_thread - send a uevent for each scsi event
  *	@work: work struct for scsi_device
@@ -2713,6 +2740,10 @@ void scsi_evt_thread(struct work_struct *work)
 	LIST_HEAD(event_list);
 
 	sdev = container_of(work, struct scsi_device, event_work);
+
+	if (sdev->tur_after_reset &&
+	    test_bit(SDEV_EVT_POWER_ON_RESET_OCCURRED, sdev->pending_events))
+		scsi_clear_reset_ua(sdev);
 
 	for (evt_type = SDEV_EVT_FIRST; evt_type <= SDEV_EVT_LAST; evt_type++)
 		if (test_and_clear_bit(evt_type, sdev->pending_events))
