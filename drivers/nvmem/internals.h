@@ -29,6 +29,7 @@ struct nvmem_device {
 	struct bin_attribute	eeprom;
 	struct device		*base_dev;
 	struct list_head	cells;
+	struct list_head	retired_cells;
 	void (*fixup_dt_cell_info)(struct nvmem_device *nvmem,
 				   struct nvmem_cell_info *cell);
 	const struct nvmem_keepout *keepout;
@@ -37,6 +38,8 @@ struct nvmem_device {
 	struct nvmem_layout	*layout;
 	struct nvmem_operations __rcu *ops;
 	void *priv;
+	const struct bin_attribute *sysfs_cells_attrs;
+	const struct bin_attribute **sysfs_cells_pattrs;
 	bool			sysfs_cells_populated;
 };
 
