@@ -1980,8 +1980,11 @@ static void vop2_crtc_atomic_enable(struct drm_crtc *crtc,
 	/*
 	 * Switch to HDMI PHY PLL as DCLK source for display modes up
 	 * to 4K@60Hz, if available, otherwise keep using the system CRU.
+	 *
+	 * In FRL mode the PHY PLL runs at the link rate rather than the
+	 * pixel rate, so it cannot feed DCLK.
 	 */
-	if (vop2->pll_hdmiphy0 || vop2->pll_hdmiphy1) {
+	if ((vop2->pll_hdmiphy0 || vop2->pll_hdmiphy1) && !vcstate->frl_enabled) {
 		/*
 		 * YUV422 always transmits two 12-bit components per clock
 		 * cycle, regardless of the color depth, which from a rate
