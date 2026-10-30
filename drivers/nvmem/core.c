@@ -35,6 +35,8 @@ struct nvmem_cell_entry {
 	int			nbits;
 	nvmem_cell_post_process_t read_post_process;
 	void			*priv;
+	struct nvmem_layout	*layout;
+	bool			retired;
 	struct device_node	*np;
 	struct nvmem_device	*nvmem;
 	struct list_head	node;
@@ -527,9 +529,40 @@ static int nvmem_populate_sysfs_cells(struct nvmem_device *nvmem)
 	if (ret)
 		return ret;
 
+	nvmem->sysfs_cells_attrs = attrs;
+	nvmem->sysfs_cells_pattrs = pattrs;
 	nvmem->sysfs_cells_populated = true;
 
 	return ret;
+}
+
+static void nvmem_destroy_sysfs_cells(struct nvmem_device *nvmem)
+{
+	struct attribute_group group = {
+		.name	= "cells",
+	};
+	unsigned int i;
+
+	guard(mutex)(&nvmem_mutex);
+
+	if (!nvmem->sysfs_cells_populated)
+		return;
+
+	/*
+	 * Removing the group waits for any read in flight, after which nothing
+	 * refers to the cell entries through their attributes any more.
+	 */
+	device_remove_group(&nvmem->dev, &group);
+
+	for (i = 0; nvmem->sysfs_cells_pattrs[i]; i++)
+		devm_kfree(&nvmem->dev, nvmem->sysfs_cells_pattrs[i]->attr.name);
+
+	devm_kfree(&nvmem->dev, nvmem->sysfs_cells_attrs);
+	devm_kfree(&nvmem->dev, nvmem->sysfs_cells_pattrs);
+
+	nvmem->sysfs_cells_attrs = NULL;
+	nvmem->sysfs_cells_pattrs = NULL;
+	nvmem->sysfs_cells_populated = false;
 }
 
 #else /* CONFIG_NVMEM_SYSFS */
@@ -539,20 +572,35 @@ static int nvmem_sysfs_setup_compat(struct nvmem_device *nvmem,
 {
 	return -ENOSYS;
 }
+
 static void nvmem_sysfs_remove_compat(struct nvmem_device *nvmem)
 {
 }
 
+static int nvmem_populate_sysfs_cells(struct nvmem_device *nvmem)
+{
+	return 0;
+}
+
+static void nvmem_destroy_sysfs_cells(struct nvmem_device *nvmem)
+{
+}
+
 #endif /* CONFIG_NVMEM_SYSFS */
+
+static void nvmem_cell_entry_free(struct nvmem_cell_entry *cell)
+{
+	of_node_put(cell->np);
+	kfree_const(cell->name);
+	kfree(cell);
+}
 
 static void nvmem_cell_entry_drop(struct nvmem_cell_entry *cell)
 {
 	blocking_notifier_call_chain(&nvmem_notifier, NVMEM_CELL_REMOVE, cell);
 	scoped_guard(mutex, &nvmem_mutex)
 		list_del(&cell->node);
-	of_node_put(cell->np);
-	kfree_const(cell->name);
-	kfree(cell);
+	nvmem_cell_entry_free(cell);
 }
 
 static void nvmem_device_remove_all_cells(const struct nvmem_device *nvmem)
@@ -561,6 +609,45 @@ static void nvmem_device_remove_all_cells(const struct nvmem_device *nvmem)
 
 	list_for_each_entry_safe(cell, p, &nvmem->cells, node)
 		nvmem_cell_entry_drop(cell);
+
+	list_for_each_entry_safe(cell, p, &nvmem->retired_cells, node)
+		nvmem_cell_entry_free(cell);
+}
+
+static void nvmem_device_retire_layout_cells(struct nvmem_layout *layout)
+{
+	struct nvmem_device *nvmem = layout->nvmem;
+	struct nvmem_cell_entry *cell, *p;
+	LIST_HEAD(retired);
+
+	scoped_guard(mutex, &nvmem_mutex) {
+		list_for_each_entry_safe(cell, p, &nvmem->cells, node) {
+			if (cell->layout != layout)
+				continue;
+
+			WRITE_ONCE(cell->retired, true);
+			cell->layout = NULL;
+			list_move_tail(&cell->node, &retired);
+		}
+	}
+
+	if (list_empty(&retired))
+		return;
+
+	/*
+	 * Consumers may hold these cells for as long as they hold the nvmem
+	 * device, so they stay allocated until it is released. Wait for any
+	 * read which got past the retired check to be done with the layout's
+	 * read_post_process callback and private data, which may go away as
+	 * soon as this returns.
+	 */
+	synchronize_srcu(&nvmem->srcu);
+
+	list_for_each_entry(cell, &retired, node)
+		blocking_notifier_call_chain(&nvmem_notifier, NVMEM_CELL_REMOVE, cell);
+
+	scoped_guard(mutex, &nvmem_mutex)
+		list_splice_tail(&retired, &nvmem->retired_cells);
 }
 
 static void nvmem_release(struct device *dev)
@@ -855,33 +942,86 @@ static int nvmem_add_cells_from_legacy_of(struct nvmem_device *nvmem)
 	return nvmem_add_cells_from_dt(nvmem, nvmem->dev.of_node);
 }
 
+/**
+ * nvmem_layout_register() - Register a layout and populate its cells
+ *
+ * @layout: nvmem layout, as handed to the layout driver's probe callback
+ *
+ * Runs the layout's add_cells() callback and takes ownership of the cells it
+ * adds, so that nvmem_layout_unregister() can retire them again. Meant to be
+ * called by a layout driver from its probe callback.
+ *
+ * Return: 0 on success, a negative error code otherwise.
+ */
 int nvmem_layout_register(struct nvmem_layout *layout)
 {
+	struct nvmem_device *nvmem = layout->nvmem;
+	struct nvmem_cell_entry *cell;
+	struct list_head *pos, *last;
 	int ret;
 
 	if (!layout->add_cells)
 		return -EINVAL;
 
+	scoped_guard(mutex, &nvmem_mutex)
+		last = nvmem->cells.prev;
+
 	/* Populate the cells */
 	ret = layout->add_cells(layout);
-	if (ret)
-		return ret;
 
-#ifdef CONFIG_NVMEM_SYSFS
-	ret = nvmem_populate_sysfs_cells(layout->nvmem);
+	/*
+	 * Claim whatever the layout has just appended, including on failure, so
+	 * that it can be retired again when the layout goes away. Cells added
+	 * by anyone else, before or after this, are left alone.
+	 */
+	scoped_guard(mutex, &nvmem_mutex) {
+		for (pos = last->next; pos != &nvmem->cells; pos = pos->next) {
+			cell = list_entry(pos, struct nvmem_cell_entry, node);
+			cell->layout = layout;
+		}
+	}
+
 	if (ret) {
-		nvmem_device_remove_all_cells(layout->nvmem);
+		nvmem_device_retire_layout_cells(layout);
 		return ret;
 	}
-#endif
+
+	ret = nvmem_populate_sysfs_cells(nvmem);
+	if (ret) {
+		nvmem_device_retire_layout_cells(layout);
+		return ret;
+	}
 
 	return 0;
 }
 EXPORT_SYMBOL_GPL(nvmem_layout_register);
 
+/**
+ * nvmem_layout_unregister() - Unregister a layout and retire its cells
+ *
+ * @layout: nvmem layout to unregister
+ *
+ * Retires the cells which nvmem_layout_register() has populated, as they refer
+ * to the layout driver and must not be used once it is gone: lookups no longer
+ * find them, and reads and writes through cells which consumers still hold
+ * fail with -ENODEV. Meant to be called by a layout driver from its remove
+ * callback.
+ */
 void nvmem_layout_unregister(struct nvmem_layout *layout)
 {
-	/* Keep the API even with an empty stub in case we need it later */
+	struct nvmem_device *nvmem = layout->nvmem;
+
+	/*
+	 * The cells this layout added hold a read_post_process callback, and
+	 * possibly private data, belonging to the layout driver, which may be a
+	 * module on its way out. Retire them, taking their sysfs attributes down
+	 * first as those point at the cells, then publish what remains again.
+	 */
+	nvmem_destroy_sysfs_cells(nvmem);
+	nvmem_device_retire_layout_cells(layout);
+
+	if (nvmem_populate_sysfs_cells(nvmem))
+		dev_warn(&nvmem->dev, "failed to rebuild cell attributes\n");
 }
 EXPORT_SYMBOL_GPL(nvmem_layout_unregister);
 
@@ -930,6 +1070,7 @@ struct nvmem_device *nvmem_register(const struct nvmem_config *config)
 	nvmem->dev.bus = &nvmem_bus_type;
 	nvmem->dev.parent = config->dev;
 	INIT_LIST_HEAD(&nvmem->cells);
+	INIT_LIST_HEAD(&nvmem->retired_cells);
 
 	/*
 	 * Must happen before we assign the release() callback in
@@ -1696,7 +1837,14 @@ void *nvmem_cell_read(struct nvmem_cell *cell, size_t *len)
 	if (!buf)
 		return ERR_PTR(-ENOMEM);
 
-	rc = __nvmem_cell_read(nvmem, cell->entry, buf, len, cell->id, cell->index);
+	scoped_guard(srcu, &nvmem->srcu) {
+		/* A retired cell's post-processing may be gone with its layout */
+		if (READ_ONCE(entry->retired))
+			rc = -ENODEV;
+		else
+			rc = __nvmem_cell_read(nvmem, entry, buf, len, cell->id,
+					       cell->index);
+	}
 	if (rc) {
 		kfree(buf);
 		return ERR_PTR(rc);
@@ -1807,6 +1955,9 @@ static int __nvmem_cell_entry_write(struct nvmem_cell_entry *cell, void *buf, si
  */
 int nvmem_cell_write(struct nvmem_cell *cell, void *buf, size_t len)
 {
+	if (READ_ONCE(cell->entry->retired))
+		return -ENODEV;
+
 	return __nvmem_cell_entry_write(cell->entry, buf, len);
 }
 
