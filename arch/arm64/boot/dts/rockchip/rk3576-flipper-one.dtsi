@@ -945,7 +945,7 @@
 			compatible = "usb-c-connector";
 			label = "USB-C";
 			data-role = "dual";
-			op-sink-microwatt = <10000000>;
+			op-sink-microwatt = <30000000>;
 			pd-revision = /bits/ 8 <0x3 0x1 0x1 0x8>;
 			power-role = "dual";
 			self-powered;
