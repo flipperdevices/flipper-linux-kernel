@@ -950,8 +950,8 @@
 			power-role = "dual";
 			self-powered;
 			sink-pdos = <PDO_FIXED(5000, 3000,
-					       PDO_FIXED_DUAL_ROLE | PDO_FIXED_USB_COMM |
-					       PDO_FIXED_DATA_SWAP)
+					       PDO_FIXED_DUAL_ROLE | PDO_FIXED_HIGHER_CAP |
+					       PDO_FIXED_USB_COMM | PDO_FIXED_DATA_SWAP)
 				     PDO_VAR(3600, 24000, 3300)
 				     PDO_PPS_APDO(3600, 24000, 3300)>;
 			sink-vdos = <VDO_IDH(1, 1, IDH_PTYPE_PERIPH, 0,
