@@ -89,6 +89,8 @@ struct bq257xx_chip_info {
  * @notified_usb_type: USB type last reported to userspace
  * @iindpm_target: input current limit requested from the device (uA)
  * @iindpm_set: input current limit the device took for it, read back (uA)
+ * @iindpm_supply: input current limit the supplier allows, 0 if none (uA)
+ * @iindpm_user: input current limit set by userspace, 0 if none (uA)
  * @iindpm_max: maximum input current limit (uA)
  * @vbat_max: maximum charge voltage (uV)
  * @ichg_max: maximum charge current (uA)
@@ -117,6 +119,8 @@ struct bq257xx_chg {
 	int notified_usb_type;
 	int iindpm_target;
 	int iindpm_set;
+	int iindpm_supply;
+	int iindpm_user;
 	u32 iindpm_max;
 	u32 vbat_max;
 	u32 ichg_max;
@@ -1002,6 +1006,32 @@ static void bq257xx_notify_changes(struct bq257xx_chg *pdata)
 }
 
 /**
+ * bq257xx_set_user_iindpm() - Set the input current limit for userspace
+ * @pdata: driver platform data
+ * @iindpm: input current limit in uA
+ *
+ * Program the limit and record it as both the user limit and the last
+ * request, so that later events keep it instead of restoring the limit the
+ * supplier allows.
+ *
+ * Return: Returns 0 on success or error if unable to set the limit.
+ */
+static int bq257xx_set_user_iindpm(struct bq257xx_chg *pdata, int iindpm)
+{
+	int ret;
+
+	guard(mutex)(&pdata->lock);
+
+	ret = pdata->chip->bq257xx_set_iindpm(pdata, iindpm);
+	if (ret)
+		return ret;
+
+	pdata->iindpm_user = iindpm;
+	pdata->iindpm_target = iindpm;
+	return pdata->chip->bq257xx_get_iindpm(pdata, &pdata->iindpm_set);
+}
+
+/**
  * bq257xx_set_charger_property() - Set a power supply property
  * @psy: power supply device
  * @prop: power supply property to set
@@ -1021,7 +1051,7 @@ static int bq257xx_set_charger_property(struct power_supply *psy,
 
 	switch (prop) {
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
-		return pdata->chip->bq257xx_set_iindpm(pdata, val->intval);
+		return bq257xx_set_user_iindpm(pdata, val->intval);
 
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX:
 		return pdata->chip->bq257xx_set_vbatreg(pdata, val->intval);
@@ -1158,17 +1188,33 @@ static int bq257xx_property_is_writeable(struct power_supply *psy,
 /**
  * bq257xx_apply_iindpm() - Program the input current limit if it is off
  * @pdata: driver platform data
- * @iindpm: input current limit to program in uA
+ * @supply: input current limit the supplier allows in uA, 0 if unsupplied
+ *
+ * Program the limit set by userspace if there is one, else the limit the
+ * supplier allows, or the USB default without a supplier. A limit set by
+ * userspace stands until the supplier changes what it allows, as when the
+ * source is unplugged, replaced or renegotiated.
  *
  * Input source detection at plug-in may replace the input current limit on
- * its own, so write the requested limit whenever it differs from the last
- * request or the device no longer holds the value it took for it.
+ * its own, so write the limit whenever it differs from the last request or
+ * the device no longer holds the value it took for it.
  */
-static void bq257xx_apply_iindpm(struct bq257xx_chg *pdata, int iindpm)
+static void bq257xx_apply_iindpm(struct bq257xx_chg *pdata, int supply)
 {
-	int cur;
+	int iindpm, cur;
 
 	guard(mutex)(&pdata->lock);
+
+	if (supply != pdata->iindpm_supply) {
+		pdata->iindpm_supply = supply;
+		pdata->iindpm_user = 0;
+	}
+
+	/* Chips that erase their limits get them programmed again on attach */
+	if (!supply && pdata->chip->reapply_limits)
+		return;
+
+	iindpm = pdata->iindpm_user ?: supply ?: BQ257XX_USB_DEFAULT_UA;
 
 	if (pdata->chip->bq257xx_get_iindpm(pdata, &cur))
 		return;
@@ -1192,20 +1238,20 @@ static void bq257xx_apply_iindpm(struct bq257xx_chg *pdata, int iindpm)
  * current to the value the supplier reports, or to the USB default if it
  * reports none. Fall back to the USB default while the supplier is offline
  * too. A new source then starts from a limit it can deliver, until the
- * supplier reports what it offers. Chips that erase their limits when the
- * input changes get the max charge current and voltage programmed again as
- * well, or they would not charge.
+ * supplier reports what it offers. A limit set by userspace takes precedence
+ * until the supplier changes what it allows. Chips that erase their limits
+ * when the input changes get the max charge current and voltage programmed
+ * again as well, or they would not charge.
  */
 static void bq257xx_external_power_changed(struct power_supply *psy)
 {
 	struct bq257xx_chg *pdata = power_supply_get_drvdata(psy);
 	union power_supply_propval val;
 	int ret;
-	int imax;
 
 	pdata->supplied = power_supply_am_i_supplied(psy);
-	if (!pdata->supplied && !pdata->chip->reapply_limits)
-		bq257xx_apply_iindpm(pdata, BQ257XX_USB_DEFAULT_UA);
+	if (!pdata->supplied)
+		bq257xx_apply_iindpm(pdata, 0);
 	if (pdata->supplied <= 0)
 		goto out;
 
@@ -1223,15 +1269,12 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 	if (ret)
 		goto out;
 
-	imax = val.intval ?: BQ257XX_USB_DEFAULT_UA;
-
 	if (pdata->chip->reapply_limits) {
 		pdata->chip->bq257xx_set_ichg(pdata, pdata->ichg_max);
-		pdata->chip->bq257xx_set_iindpm(pdata, imax);
 		pdata->chip->bq257xx_set_vbatreg(pdata, pdata->vbat_max);
-	} else {
-		bq257xx_apply_iindpm(pdata, imax);
 	}
+
+	bq257xx_apply_iindpm(pdata, val.intval ?: BQ257XX_USB_DEFAULT_UA);
 
 out:
 	bq257xx_notify_changes(pdata);
