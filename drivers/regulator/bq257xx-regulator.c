@@ -45,7 +45,7 @@ static int bq25703_vbus_set_cur_limit(struct regulator_dev *rdev,
 	if ((min_uA > BQ25703_OTG_CUR_MAX_UA) || (max_uA < 0))
 		return -EINVAL;
 
-	reg = (max_uA / BQ25703_OTG_CUR_STEP_UA);
+	reg = min(max_uA, BQ25703_OTG_CUR_MAX_UA) / BQ25703_OTG_CUR_STEP_UA;
 
 	/* Catch rounding errors since our step is 50000uA. */
 	if ((reg * BQ25703_OTG_CUR_STEP_UA) < min_uA)
