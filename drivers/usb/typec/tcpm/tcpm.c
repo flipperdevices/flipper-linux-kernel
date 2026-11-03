@@ -589,6 +589,7 @@ struct tcpm_port {
 
 	/* Partner capabilities/requests */
 	u32 sink_request;
+	struct pd_src_output src_request;
 	u32 source_caps[PDO_MAX_OBJECTS];
 	unsigned int nr_source_caps;
 	u32 sink_caps[PDO_MAX_OBJECTS];
@@ -4423,6 +4424,7 @@ static bool tcpm_send_queued_message(struct tcpm_port *port)
 
 static int tcpm_pd_check_request(struct tcpm_port *port)
 {
+	struct pd_src_output *out = &port->src_request;
 	u32 pdo, rdo = port->sink_request;
 	unsigned int max, op, pdo_max, index;
 	enum pd_pdo_type type;
@@ -4445,15 +4447,21 @@ static int tcpm_pd_check_request(struct tcpm_port *port)
 		if (max > pdo_max && !(rdo & RDO_CAP_MISMATCH))
 			return -EINVAL;
 
-		if (type == PDO_TYPE_FIXED)
+		if (type == PDO_TYPE_FIXED) {
 			tcpm_log(port,
 				 "Requested %u mV, %u mA for %u / %u mA",
 				 pdo_fixed_voltage(pdo), pdo_max, op, max);
-		else
+			out->min_mv = pdo_fixed_voltage(pdo);
+			out->max_mv = pdo_fixed_voltage(pdo);
+		} else {
 			tcpm_log(port,
 				 "Requested %u -> %u mV, %u mA for %u / %u mA",
 				 pdo_min_voltage(pdo), pdo_max_voltage(pdo),
 				 pdo_max, op, max);
+			out->min_mv = pdo_min_voltage(pdo);
+			out->max_mv = pdo_max_voltage(pdo);
+		}
+		out->max_ma = pdo_max;
 		break;
 	case PDO_TYPE_BATT:
 		max = rdo_max_power(rdo);
@@ -4464,10 +4472,16 @@ static int tcpm_pd_check_request(struct tcpm_port *port)
 			return -EINVAL;
 		if (max > pdo_max && !(rdo & RDO_CAP_MISMATCH))
 			return -EINVAL;
+		if (!pdo_min_voltage(pdo))
+			return -EINVAL;
 		tcpm_log(port,
 			 "Requested %u -> %u mV, %u mW for %u / %u mW",
 			 pdo_min_voltage(pdo), pdo_max_voltage(pdo),
 			 pdo_max, op, max);
+		out->min_mv = pdo_min_voltage(pdo);
+		out->max_mv = pdo_max_voltage(pdo);
+		/* The full power has to be available at the lowest voltage */
+		out->max_ma = DIV_ROUND_UP(pdo_max * 1000, out->min_mv);
 		break;
 	default:
 		return -EINVAL;
@@ -5699,7 +5713,14 @@ static void run_state_machine(struct tcpm_port *port)
 		}
 		break;
 	case SRC_TRANSITION_SUPPLY:
-		/* XXX: regulator_set_voltage(vbus, ...) */
+		/*
+		 * The request is already accepted, so a supply that cannot
+		 * reach it leaves no contract to fall back on.
+		 */
+		if (tcpm_set_vbus_output(port, &port->src_request) < 0) {
+			tcpm_set_state(port, hard_reset_state(port), 0);
+			break;
+		}
 		tcpm_pd_send_control(port, PD_CTRL_PS_RDY, TCPC_TX_SOP);
 		port->explicit_contract = true;
 		typec_set_pwr_opmode(port->typec_port, TYPEC_PWR_MODE_PD);
@@ -8420,6 +8441,7 @@ static int tcpm_fw_get_caps(struct tcpm_port *port, struct fwnode_handle *fwnode
 {
 	struct fwnode_handle *capabilities, *caps = NULL;
 	unsigned int nr_src_pdo, nr_snk_pdo;
+	bool src_above_vsafe5v = false;
 	const char *opmode_str;
 	u32 *src_pdo, *snk_pdo;
 	u32 uw, frs_current;
@@ -8542,6 +8564,10 @@ static int tcpm_fw_get_caps(struct tcpm_port *port, struct fwnode_handle *fwnode
 			if (ret)
 				goto put_caps;
 
+			/* Every PDO after the vSafe5V one is another output */
+			if (nr_src_pdo > 1)
+				src_above_vsafe5v = true;
+
 			if (i == 0) {
 				port->nr_src_pdo = nr_src_pdo;
 				memcpy_and_pad(port->src_pdo, sizeof(u32) * PDO_MAX_OBJECTS,
@@ -8588,6 +8614,10 @@ static int tcpm_fw_get_caps(struct tcpm_port *port, struct fwnode_handle *fwnode
 			}
 		}
 	}
+
+	if (src_above_vsafe5v && !port->tcpc->set_vbus_output)
+		dev_warn(port->dev,
+			 "source PDOs above vSafe5V need a TCPC that can set VBUS\n");
 
 	if (port->port_type != TYPEC_PORT_SRC)
 		tcpm_fw_get_sink_caps_ext(port, fwnode);
