@@ -42,6 +42,7 @@ struct tcpci {
 	unsigned int rx_type_mask;
 
 	bool controls_vbus;
+	bool vconn_enabled;
 
 	struct tcpc_dev tcpc;
 	struct tcpci_data *data;
@@ -345,10 +346,44 @@ static void tcpci_set_partner_usb_comm_capable(struct tcpc_dev *tcpc, bool capab
 		tcpci->data->set_partner_usb_comm_capable(tcpci, tcpci->data, capable);
 }
 
+static int tcpci_set_pd_rx(struct tcpc_dev *tcpc, bool enable)
+{
+	struct tcpci *tcpci = tcpc_to_tcpci(tcpc);
+	unsigned int reg = 0;
+	int ret;
+
+	if (enable) {
+		reg = TCPC_RX_DETECT_SOP | TCPC_RX_DETECT_HARD_RESET;
+		/* Only the VCONN Source talks to the cable plug */
+		if (tcpci->data->cable_comm_capable && tcpci->vconn_enabled)
+			reg |= TCPC_RX_DETECT_SOP1;
+	}
+
+	tcpci->rx_type_mask = reg;
+	ret = regmap_write(tcpci->regmap, TCPC_RX_DETECT, reg);
+	if (ret < 0)
+		return ret;
+
+	return 0;
+}
+
 static int tcpci_set_vconn(struct tcpc_dev *tcpc, bool enable)
 {
 	struct tcpci *tcpci = tcpc_to_tcpci(tcpc);
 	int ret;
+
+	/*
+	 * Without VCONN from us, SOP' traffic is between the partner and the
+	 * cable plug, and our GoodCRC would collide with theirs. So stop
+	 * receiving SOP' before VCONN goes off, and start only once it is on.
+	 * Neither is worth failing the VCONN switch over.
+	 */
+	if (!enable) {
+		tcpci->vconn_enabled = false;
+		if ((tcpci->rx_type_mask & TCPC_RX_DETECT_SOP1) &&
+		    tcpci_set_pd_rx(tcpc, true) < 0)
+			dev_warn(tcpci->dev, "Failed to disable SOP' reception\n");
+	}
 
 	/* Handle vendor set vconn */
 	if (tcpci->data->set_vconn) {
@@ -357,9 +392,20 @@ static int tcpci_set_vconn(struct tcpc_dev *tcpc, bool enable)
 			return ret;
 	}
 
-	return regmap_update_bits(tcpci->regmap, TCPC_POWER_CTRL,
-				TCPC_POWER_CTRL_VCONN_ENABLE,
-				enable ? TCPC_POWER_CTRL_VCONN_ENABLE : 0);
+	ret = regmap_update_bits(tcpci->regmap, TCPC_POWER_CTRL,
+				 TCPC_POWER_CTRL_VCONN_ENABLE,
+				 enable ? TCPC_POWER_CTRL_VCONN_ENABLE : 0);
+	if (ret < 0)
+		return ret;
+
+	if (enable) {
+		tcpci->vconn_enabled = true;
+		if (tcpci->data->cable_comm_capable && tcpci->rx_type_mask &&
+		    tcpci_set_pd_rx(tcpc, true) < 0)
+			dev_warn(tcpci->dev, "Failed to enable SOP' reception\n");
+	}
+
+	return 0;
 }
 
 static int tcpci_enable_auto_vbus_discharge(struct tcpc_dev *dev, bool enable)
@@ -473,26 +519,6 @@ static int tcpci_set_roles(struct tcpc_dev *tcpc, bool attached,
 	if (data == TYPEC_HOST)
 		reg |= TCPC_MSG_HDR_INFO_DATA_ROLE;
 	ret = regmap_write(tcpci->regmap, TCPC_MSG_HDR_INFO, reg);
-	if (ret < 0)
-		return ret;
-
-	return 0;
-}
-
-static int tcpci_set_pd_rx(struct tcpc_dev *tcpc, bool enable)
-{
-	struct tcpci *tcpci = tcpc_to_tcpci(tcpc);
-	unsigned int reg = 0;
-	int ret;
-
-	if (enable) {
-		reg = TCPC_RX_DETECT_SOP | TCPC_RX_DETECT_HARD_RESET;
-		if (tcpci->data->cable_comm_capable)
-			reg |= TCPC_RX_DETECT_SOP1;
-	}
-
-	tcpci->rx_type_mask = reg;
-	ret = regmap_write(tcpci->regmap, TCPC_RX_DETECT, reg);
 	if (ret < 0)
 		return ret;
 
