@@ -5,15 +5,26 @@
  */
 
 #include <linux/bitfield.h>
+#include <linux/cleanup.h>
 #include <linux/err.h>
 #include <linux/gpio/consumer.h>
 #include <linux/mfd/bq257xx.h>
+#include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
 #include <linux/pm.h>
 #include <linux/regmap.h>
 #include <linux/regulator/driver.h>
+#include <linux/regulator/machine.h>
 #include <linux/regulator/of_regulator.h>
+#include <linux/workqueue.h>
+
+/*
+ * How long the BQ25792 VBUS pull-down stays on after a step-down or turn-off:
+ * tSafe0V, by when a USB PD source has VBUS at vSafe0V after turning it off,
+ * and which also covers the shorter time it has to settle after a step-down.
+ */
+#define BQ25792_VBUS_DISCHARGE_MS	650
 
 /* Highest OTG voltage the system may sleep with */
 #define BQ257XX_OTG_SLEEP_MAX_UV	5000000
@@ -23,6 +34,11 @@ struct bq257xx_reg_data {
 	struct regulator_desc desc;
 	/* OTG is on above BQ257XX_OTG_SLEEP_MAX_UV */
 	bool vbus_high;
+	struct device *dev;
+	struct regmap *regmap;
+	/* Serialises switching the VBUS pull-down on and off */
+	struct mutex discharge_lock;
+	struct delayed_work discharge_work;
 };
 
 static int bq25703_vbus_get_cur_limit(struct regulator_dev *rdev)
@@ -137,12 +153,79 @@ static const struct dev_pm_ops bq257xx_regulator_pm_ops = {
 	.prepare = pm_sleep_ptr(bq257xx_regulator_prepare),
 };
 
+static bool bq25792_vbus_can_discharge(struct regulator_dev *rdev)
+{
+	return rdev->constraints->active_discharge ==
+	       REGULATOR_ACTIVE_DISCHARGE_ENABLE;
+}
+
+/*
+ * The converter stops switching while VBUS is above the setpoint, after a
+ * step-down or when OTG turns off, and leaves VBUS to the load. Pull it down
+ * through the 6kOhm resistor until it surely got there, then release, as
+ * the resistor draws up to 3.3mA.
+ */
+static void bq25792_vbus_discharge(struct regulator_dev *rdev)
+{
+	struct bq257xx_reg_data *pdata = rdev_get_drvdata(rdev);
+
+	guard(mutex)(&pdata->discharge_lock);
+	if (!regmap_set_bits(pdata->regmap, BQ25792_REG16_TEMPERATURE_CONTROL,
+			     BQ25792_REG16_VBUS_PD_EN))
+		mod_delayed_work(system_dfl_wq, &pdata->discharge_work,
+				 msecs_to_jiffies(BQ25792_VBUS_DISCHARGE_MS));
+}
+
+/* Called with discharge_lock held */
+static int bq25792_vbus_discharge_off(struct bq257xx_reg_data *pdata)
+{
+	return regmap_clear_bits(pdata->regmap,
+				 BQ25792_REG16_TEMPERATURE_CONTROL,
+				 BQ25792_REG16_VBUS_PD_EN);
+}
+
+static void bq25792_vbus_discharge_work(struct work_struct *work)
+{
+	struct bq257xx_reg_data *pdata = container_of(work,
+						      struct bq257xx_reg_data,
+						      discharge_work.work);
+	int ret;
+
+	guard(mutex)(&pdata->discharge_lock);
+	/* Leave it to a discharge started while this one waited */
+	if (delayed_work_pending(&pdata->discharge_work))
+		return;
+
+	ret = bq25792_vbus_discharge_off(pdata);
+	if (ret) {
+		dev_warn_ratelimited(pdata->dev,
+				     "cannot release VBUS pull-down: %d\n", ret);
+		mod_delayed_work(system_dfl_wq, &pdata->discharge_work,
+				 msecs_to_jiffies(BQ25792_VBUS_DISCHARGE_MS));
+	}
+}
+
+/* Don't leave the pull-down on once the regulator is gone */
+static void bq25792_vbus_discharge_stop(void *data)
+{
+	struct bq257xx_reg_data *pdata = data;
+
+	cancel_delayed_work_sync(&pdata->discharge_work);
+	guard(mutex)(&pdata->discharge_lock);
+	bq25792_vbus_discharge_off(pdata);
+}
+
 static int bq25792_vbus_set_voltage_sel(struct regulator_dev *rdev,
 					unsigned int sel)
 {
 	struct regmap *regmap = rdev_get_regmap(rdev);
+	bool step_down;
 	__be16 reg;
 	int ret;
+
+	step_down = bq25792_vbus_can_discharge(rdev) &&
+		    regulator_is_enabled_regmap(rdev) > 0 &&
+		    (int)sel < bq25792_vbus_get_voltage_sel(rdev);
 
 	reg = cpu_to_be16(FIELD_PREP(BQ25792_REG0B_VOTG_MASK, sel));
 	ret = regmap_raw_write(regmap, BQ25792_REG0B_VOTG_REGULATION,
@@ -151,13 +234,26 @@ static int bq25792_vbus_set_voltage_sel(struct regulator_dev *rdev,
 		bq257xx_vbus_note_level(rdev,
 					regulator_is_enabled_regmap(rdev) > 0,
 					sel);
+	if (!ret && step_down)
+		bq25792_vbus_discharge(rdev);
 
 	return ret;
 }
 
 static int bq25792_vbus_enable(struct regulator_dev *rdev)
 {
+	struct bq257xx_reg_data *pdata = rdev_get_drvdata(rdev);
 	int ret;
+
+	/* Don't load the fresh output with what is left of a discharge */
+	if (bq25792_vbus_can_discharge(rdev)) {
+		scoped_guard(mutex, &pdata->discharge_lock) {
+			cancel_delayed_work(&pdata->discharge_work);
+			ret = bq25792_vbus_discharge_off(pdata);
+		}
+		if (ret)
+			return ret;
+	}
 
 	ret = regulator_enable_regmap(rdev);
 	if (!ret)
@@ -174,6 +270,8 @@ static int bq25792_vbus_disable(struct regulator_dev *rdev)
 	ret = regulator_disable_regmap(rdev);
 	if (!ret)
 		bq257xx_vbus_note_level(rdev, false, 0);
+	if (!ret && bq25792_vbus_can_discharge(rdev))
+		bq25792_vbus_discharge(rdev);
 
 	return ret;
 }
@@ -322,6 +420,7 @@ static int bq257xx_regulator_probe(struct platform_device *pdev)
 	struct bq257xx_reg_data *pdata;
 	struct regulator_config cfg = {};
 	struct regulator_dev *rdev;
+	int ret;
 
 	device_set_of_node_from_dev(&pdev->dev, pdev->dev.parent);
 
@@ -350,6 +449,28 @@ static int bq257xx_regulator_probe(struct platform_device *pdev)
 	cfg.regmap = dev_get_regmap(pdev->dev.parent, NULL);
 	if (!cfg.regmap)
 		return -ENODEV;
+	pdata->dev = dev;
+	pdata->regmap = cfg.regmap;
+
+	/* The regulator may be turned off as soon as it is registered */
+	if (bq->type == BQ25792) {
+		ret = devm_mutex_init(dev, &pdata->discharge_lock);
+		if (ret)
+			return ret;
+		INIT_DELAYED_WORK(&pdata->discharge_work,
+				  bq25792_vbus_discharge_work);
+
+		/* Don't keep a pull-down left on from before */
+		scoped_guard(mutex, &pdata->discharge_lock)
+			ret = bq25792_vbus_discharge_off(pdata);
+		if (ret)
+			return ret;
+
+		ret = devm_add_action_or_reset(dev, bq25792_vbus_discharge_stop,
+					       pdata);
+		if (ret)
+			return ret;
+	}
 
 	rdev = devm_regulator_register(dev, &pdata->desc, &cfg);
 	if (IS_ERR(rdev)) {
