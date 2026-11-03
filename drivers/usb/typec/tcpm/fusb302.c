@@ -733,6 +733,27 @@ static int tcpm_set_polarity(struct tcpc_dev *dev,
 	return 0;
 }
 
+/*
+ * Without VCONN from us, SOP' traffic is between the partner and the cable
+ * plug, and our GoodCRC would collide with theirs. So stop receiving SOP'
+ * before VCONN or PD reception goes off, and start only once both are on.
+ * Neither is worth failing the VCONN or PD reception switch over.
+ */
+static void fusb302_pd_set_sop_prime(struct fusb302_chip *chip, bool on)
+{
+	int ret;
+
+	if (on)
+		ret = fusb302_i2c_set_bits(chip, FUSB_REG_CONTROL1,
+					   FUSB_REG_CONTROL1_ENSOP1);
+	else
+		ret = fusb302_i2c_clear_bits(chip, FUSB_REG_CONTROL1,
+					     FUSB_REG_CONTROL1_ENSOP1);
+	if (ret < 0)
+		fusb302_log(chip, "cannot turn SOP' rx %s, ret=%d",
+			    str_on_off(on), ret);
+}
+
 static int tcpm_set_vconn(struct tcpc_dev *dev, bool on)
 {
 	struct fusb302_chip *chip = container_of(dev, struct fusb302_chip,
@@ -751,6 +772,8 @@ static int tcpm_set_vconn(struct tcpc_dev *dev, bool on)
 		switches0_data = (chip->cc_polarity == TYPEC_POLARITY_CC1) ?
 				 FUSB_REG_SWITCHES0_VCONN_CC2 :
 				 FUSB_REG_SWITCHES0_VCONN_CC1;
+	} else {
+		fusb302_pd_set_sop_prime(chip, false);
 	}
 	ret = fusb302_i2c_mask_write(chip, FUSB_REG_SWITCHES0,
 				     switches0_mask, switches0_data);
@@ -758,6 +781,9 @@ static int tcpm_set_vconn(struct tcpc_dev *dev, bool on)
 		goto done;
 	chip->vconn_on = on;
 	fusb302_log(chip, "vconn := %s", str_on_off(on));
+
+	if (on && chip->pd_rx_on)
+		fusb302_pd_set_sop_prime(chip, true);
 done:
 	mutex_unlock(&chip->lock);
 
@@ -856,6 +882,8 @@ static int tcpm_set_pd_rx(struct tcpc_dev *dev, bool on)
 		goto done;
 	}
 
+	if (!on)
+		fusb302_pd_set_sop_prime(chip, false);
 	ret = fusb302_pd_rx_flush(chip);
 	if (ret < 0) {
 		fusb302_log(chip, "cannot flush pd rx buffer, ret=%d", ret);
@@ -881,6 +909,9 @@ static int tcpm_set_pd_rx(struct tcpc_dev *dev, bool on)
 
 	chip->pd_rx_on = on;
 	fusb302_log(chip, "pd := %s", str_on_off(on));
+
+	if (on && chip->vconn_on)
+		fusb302_pd_set_sop_prime(chip, true);
 done:
 	mutex_unlock(&chip->lock);
 
@@ -1159,6 +1190,11 @@ done:
 	mutex_unlock(&chip->lock);
 }
 
+static bool tcpm_cable_comm_capable(struct tcpc_dev *dev)
+{
+	return true;
+}
+
 static void init_tcpc_dev(struct tcpc_dev *fusb302_tcpc_dev)
 {
 	fusb302_tcpc_dev->init = tcpm_init;
@@ -1173,6 +1209,7 @@ static void init_tcpc_dev(struct tcpc_dev *fusb302_tcpc_dev)
 	fusb302_tcpc_dev->set_roles = tcpm_set_roles;
 	fusb302_tcpc_dev->start_toggling = tcpm_start_toggling;
 	fusb302_tcpc_dev->pd_transmit = tcpm_pd_transmit;
+	fusb302_tcpc_dev->cable_comm_capable = tcpm_cable_comm_capable;
 }
 
 static const char * const cc_polarity_name[] = {
