@@ -65,6 +65,7 @@ properties:
           regulator-max-microvolt:
             minimum: 2800000
             maximum: 22000000
+          regulator-active-discharge: true
           enable-gpios:
             description:
               The BQ25703 may require both a register write and a GPIO
@@ -105,6 +106,7 @@ allOf:
                 regulator-max-microvolt:
                   minimum: 4480000
                   maximum: 20800000
+                regulator-active-discharge: false
   - if:
       properties:
         compatible:
