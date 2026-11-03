@@ -44,6 +44,19 @@
  */
 #define T_BC_LVL_DEBOUNCE_DELAY_MS 30
 
+/*
+ * Compared against VBUS, MDAC code n is a threshold of (n + 1) * 420mV, so
+ * code 0 tells whether VBUS is within vSafe0V (0-0.8V).
+ */
+#define FUSB302_MDAC_VSAFE0V		0
+
+/*
+ * VBUSOK only tells VBUS is below 4V, so poll it down to vSafe0V. Give up a
+ * while after tSafe0V (650ms) rather than hold a source attach forever.
+ */
+#define T_VSAFE0V_POLL_MS		10
+#define T_VSAFE0V_TIMEOUT_MS		1000
+
 enum toggling_mode {
 	TOGGLING_MODE_OFF,
 	TOGGLING_MODE_DRP,
@@ -89,6 +102,10 @@ struct fusb302_chip {
 
 	struct workqueue_struct *wq;
 	struct delayed_work bc_lvl_handler;
+	struct delayed_work vsafe0v_work;
+	unsigned long vsafe0v_deadline;
+	/* Suspend or teardown: don't queue vsafe0v_work */
+	bool vsafe0v_hold;
 
 	/* lock for sharing chip states */
 	struct mutex lock;
@@ -106,6 +123,7 @@ struct fusb302_chip {
 	bool charge_on;
 	bool pd_rx_on;
 	bool vbus_present;
+	bool vbus_vsafe0v;
 	enum typec_cc_polarity cc_polarity;
 	enum typec_cc_status cc1;
 	enum typec_cc_status cc2;
@@ -423,6 +441,8 @@ static int tcpm_init(struct tcpc_dev *dev)
 	if (ret < 0)
 		return ret;
 	chip->vbus_present = !!(data & FUSB_REG_STATUS0_VBUSOK);
+	/* Nothing polls VBUS until probe ends, assume it is discharged */
+	chip->vbus_vsafe0v = !chip->vbus_present;
 	ret = fusb302_i2c_read(chip, FUSB_REG_DEVICE_ID, &data);
 	if (ret < 0)
 		return ret;
@@ -439,6 +459,118 @@ static int tcpm_get_vbus(struct tcpc_dev *dev)
 
 	mutex_lock(&chip->lock);
 	ret = chip->vbus_present ? 1 : 0;
+	mutex_unlock(&chip->lock);
+
+	return ret;
+}
+
+/*
+ * Compare VBUS against an MDAC threshold. As a source, the port detects
+ * detach on the same comparator, so hold chip->lock from switching it to VBUS
+ * until it follows CC again, or the IRQ handler mistakes VBUS for an open CC.
+ */
+static int fusb302_vbus_above(struct fusb302_chip *chip, u8 mdac, bool *above)
+{
+	u8 switches0, measure, status0;
+	int ret, err;
+
+	/*
+	 * Autonomous toggling drives the MEAS_CC bits itself, and a sink
+	 * watches BC_LVL on them, which every switch to VBUS would trip
+	 */
+	if (chip->toggling_mode != TOGGLING_MODE_OFF || chip->intr_bc_lvl)
+		return -EBUSY;
+
+	ret = fusb302_i2c_read(chip, FUSB_REG_SWITCHES0, &switches0);
+	if (ret < 0)
+		return ret;
+	ret = fusb302_i2c_read(chip, FUSB_REG_MEASURE, &measure);
+	if (ret < 0)
+		return ret;
+
+	/* MEAS_VBUS needs both MEAS_CC bits clear */
+	ret = fusb302_i2c_write(chip, FUSB_REG_SWITCHES0,
+				switches0 & ~(FUSB_REG_SWITCHES0_MEAS_CC1 |
+					      FUSB_REG_SWITCHES0_MEAS_CC2));
+	if (ret < 0)
+		return ret;
+	ret = fusb302_i2c_write(chip, FUSB_REG_MEASURE,
+				FUSB_REG_MEASURE_VBUS | mdac);
+	if (!ret) {
+		usleep_range(50, 100);
+		ret = fusb302_i2c_read(chip, FUSB_REG_STATUS0, &status0);
+	}
+
+	err = fusb302_i2c_write(chip, FUSB_REG_MEASURE, measure);
+	if (!err)
+		err = fusb302_i2c_write(chip, FUSB_REG_SWITCHES0, switches0);
+	usleep_range(50, 100);
+	if (ret < 0)
+		return ret;
+	if (err < 0)
+		return err;
+
+	*above = !!(status0 & FUSB_REG_STATUS0_COMP);
+	return 0;
+}
+
+static void fusb302_vsafe0v_work(struct work_struct *work)
+{
+	struct fusb302_chip *chip = container_of(work, struct fusb302_chip,
+						 vsafe0v_work.work);
+	bool above = true;
+	int ret;
+
+	guard(mutex)(&chip->lock);
+	if (chip->vsafe0v_hold || chip->vbus_present || chip->vbus_vsafe0v)
+		return;
+
+	ret = fusb302_vbus_above(chip, FUSB302_MDAC_VSAFE0V, &above);
+	/*
+	 * Only a source turns VBUS on, after vSafe0V. A detached port toggles
+	 * and a sink watches CC, and both stop toggling to become a source,
+	 * so pick the poll up then (see fusb302_set_toggling()) and keep
+	 * reporting VBUS above vSafe0V meanwhile.
+	 */
+	if (ret == -EBUSY)
+		return;
+	if (!ret && !above) {
+		fusb302_log(chip, "vbus at vSafe0V");
+	} else if (time_after(jiffies, chip->vsafe0v_deadline)) {
+		/* TCPM only asks again on a VBUS change, which may never come */
+		fusb302_log(chip, "vbus still above vSafe0V, ret=%d, giving up",
+			    ret);
+	} else {
+		mod_delayed_work(chip->wq, &chip->vsafe0v_work,
+				 msecs_to_jiffies(T_VSAFE0V_POLL_MS));
+		return;
+	}
+
+	chip->vbus_vsafe0v = true;
+	tcpm_vbus_change(chip->tcpm_port);
+}
+
+/* Called with chip->lock held */
+static void fusb302_track_vsafe0v(struct fusb302_chip *chip)
+{
+	if (chip->vbus_present) {
+		chip->vbus_vsafe0v = false;
+		cancel_delayed_work(&chip->vsafe0v_work);
+	} else if (!chip->vbus_vsafe0v && !chip->vsafe0v_hold) {
+		chip->vsafe0v_deadline = jiffies +
+					 msecs_to_jiffies(T_VSAFE0V_TIMEOUT_MS);
+		mod_delayed_work(chip->wq, &chip->vsafe0v_work, 0);
+	}
+}
+
+static bool tcpm_is_vbus_vsafe0v(struct tcpc_dev *dev)
+{
+	struct fusb302_chip *chip = container_of(dev, struct fusb302_chip,
+						 tcpc_dev);
+	bool ret;
+
+	mutex_lock(&chip->lock);
+	ret = chip->vbus_vsafe0v;
 	mutex_unlock(&chip->lock);
 
 	return ret;
@@ -583,6 +715,10 @@ static int fusb302_set_toggling(struct fusb302_chip *chip,
 		chip->cc2 = TYPEC_CC_OPEN;
 	}
 	chip->toggling_mode = mode;
+
+	/* VBUS can be measured again, so see whether it got to vSafe0V */
+	if (mode == TOGGLING_MODE_OFF)
+		fusb302_track_vsafe0v(chip);
 
 	return ret;
 }
@@ -1209,6 +1345,7 @@ static void init_tcpc_dev(struct tcpc_dev *fusb302_tcpc_dev)
 	fusb302_tcpc_dev->set_roles = tcpm_set_roles;
 	fusb302_tcpc_dev->start_toggling = tcpm_start_toggling;
 	fusb302_tcpc_dev->pd_transmit = tcpm_pd_transmit;
+	fusb302_tcpc_dev->is_vbus_vsafe0v = tcpm_is_vbus_vsafe0v;
 	fusb302_tcpc_dev->cable_comm_capable = tcpm_cable_comm_capable;
 }
 
@@ -1646,6 +1783,7 @@ static void fusb302_irq_work(struct work_struct *work)
 			    str_on_off(vbus_present));
 		if (vbus_present != chip->vbus_present) {
 			chip->vbus_present = vbus_present;
+			fusb302_track_vsafe0v(chip);
 			tcpm_vbus_change(chip->tcpm_port);
 		}
 	}
@@ -1776,6 +1914,19 @@ static void fusb302_fwnode_put(void *data)
 	fwnode_handle_put(chip->tcpc_dev.fwnode);
 }
 
+/* Called with chip->lock not held */
+static void fusb302_hold_vsafe0v(struct fusb302_chip *chip)
+{
+	scoped_guard(mutex, &chip->lock)
+		chip->vsafe0v_hold = true;
+	cancel_delayed_work_sync(&chip->vsafe0v_work);
+}
+
+static void fusb302_stop_vsafe0v(void *data)
+{
+	fusb302_hold_vsafe0v(data);
+}
+
 static int fusb302_probe(struct i2c_client *client)
 {
 	struct fusb302_chip *chip;
@@ -1800,6 +1951,9 @@ static int fusb302_probe(struct i2c_client *client)
 	ret = devm_mutex_init(dev, &chip->lock);
 	if (ret < 0)
 		return ret;
+
+	/* Toggling looks at it already while the TCPM port registers */
+	INIT_DELAYED_WORK(&chip->vsafe0v_work, fusb302_vsafe0v_work);
 
 	/*
 	 * Devicetree platforms should get extcon via phandle (not yet
@@ -1859,6 +2013,11 @@ static int fusb302_probe(struct i2c_client *client)
 	if (ret < 0)
 		return ret;
 
+	/* Nothing queues it before the IRQ, but stop it before the port goes */
+	ret = devm_add_action_or_reset(dev, fusb302_stop_vsafe0v, chip);
+	if (ret < 0)
+		return ret;
+
 	ret = devm_work_autocancel(dev, &chip->irq_work, fusb302_irq_work);
 	if (ret < 0)
 		return ret;
@@ -1899,6 +2058,7 @@ static int fusb302_pm_suspend(struct device *dev)
 
 	/* Make sure any pending irq_work is finished before the bus suspends */
 	flush_work(&chip->irq_work);
+	fusb302_hold_vsafe0v(chip);
 	return 0;
 }
 
@@ -1914,6 +2074,12 @@ static int fusb302_pm_resume(struct device *dev)
 	}
 	chip->irq_suspended = false;
 	spin_unlock_irqrestore(&chip->irq_lock, flags);
+
+	/* Pick the vSafe0V poll back up if suspend cut it short */
+	scoped_guard(mutex, &chip->lock) {
+		chip->vsafe0v_hold = false;
+		fusb302_track_vsafe0v(chip);
+	}
 
 	return 0;
 }
