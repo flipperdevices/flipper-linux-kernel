@@ -73,6 +73,12 @@ enum tcpm_transmit_type {
  *		Called to set polarity
  * @set_vconn:	Called to enable or disable VCONN
  * @set_vbus:	Called to enable or disable VBUS
+ * @set_vbus_output:
+ *		Optional; called to set the voltage window and the current
+ *		limit of the VBUS source, whether VBUS is on or off. TCPM sets
+ *		vSafe5V whenever the port stops sourcing, and the voltage a sink
+ *		requested before it sends PS_RDY. While VBUS is on, returns once
+ *		VBUS is within the window.
  * @set_current_limit:
  *		Optional; called to set current limit as negotiated
  *		with partner.
@@ -148,6 +154,8 @@ struct tcpc_dev {
 			       enum typec_orientation orientation);
 	int (*set_vconn)(struct tcpc_dev *dev, bool on);
 	int (*set_vbus)(struct tcpc_dev *dev, bool on, bool charge);
+	int (*set_vbus_output)(struct tcpc_dev *dev, u32 min_mv, u32 max_mv,
+			       u32 max_ma);
 	int (*set_current_limit)(struct tcpc_dev *dev, u32 max_ma, u32 mv);
 	int (*set_pd_rx)(struct tcpc_dev *dev, bool on);
 	int (*set_roles)(struct tcpc_dev *dev, bool attached,
