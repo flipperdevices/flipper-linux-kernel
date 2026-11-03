@@ -174,4 +174,14 @@ enum fusb302_txfifo_tokens {
 	FUSB302_TKN_TXOFF = 0xFE,
 };
 
+/* Tokens starting each packet in the FUSB302 RX FIFO, valid under the mask */
+#define FUSB302_RX_TKN_MASK			GENMASK(7, 5)
+enum fusb302_rxfifo_tokens {
+	FUSB302_RX_TKN_SOP2DB = 0x60,
+	FUSB302_RX_TKN_SOP1DB = 0x80,
+	FUSB302_RX_TKN_SOP2 = 0xA0,
+	FUSB302_RX_TKN_SOP1 = 0xC0,
+	FUSB302_RX_TKN_SOP = 0xE0,
+};
+
 #endif
