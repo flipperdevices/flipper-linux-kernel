@@ -330,6 +330,18 @@ struct pd_pps_data {
 	bool active;
 };
 
+/*
+ * VBUS output of the local port as a source
+ * @min_mv: Lowest voltage VBUS may sit at
+ * @max_mv: Highest voltage VBUS may sit at
+ * @max_ma: Current the source has to supply
+ */
+struct pd_src_output {
+	u32 min_mv;
+	u32 max_mv;
+	u32 max_ma;
+};
+
 enum spr_avs_status {
 	SPR_AVS_UNKNOWN,
 	SPR_AVS_NOT_SUPPORTED,
@@ -514,6 +526,8 @@ struct tcpm_port {
 	bool vbus_never_low;
 	bool vbus_source;
 	bool vbus_charge;
+	/* The source output may still be set above vSafe5V */
+	bool vbus_output_stale;
 
 	bool op_vsafe5v;
 
@@ -4966,6 +4980,48 @@ static int tcpm_pd_send_aug_supply_request(struct tcpm_port *port,
 	return tcpm_pd_transmit(port, TCPC_TX_SOP, &msg);
 }
 
+static int tcpm_set_vbus_output(struct tcpm_port *port,
+				const struct pd_src_output *out)
+{
+	int ret;
+
+	if (!port->tcpc->set_vbus_output)
+		return 0;
+
+	tcpm_log(port, "vbus output:=%u-%u mV, %u mA",
+		 out->min_mv, out->max_mv, out->max_ma);
+
+	ret = port->tcpc->set_vbus_output(port->tcpc, out->min_mv, out->max_mv,
+					  out->max_ma);
+	if (ret < 0)
+		tcpm_log(port, "Cannot set vbus output, ret=%d", ret);
+
+	return ret;
+}
+
+/*
+ * A source applies vSafe5V whenever it turns VBUS on (Type-C, PR_Swap, Hard
+ * Reset), so go back to it as soon as VBUS is off, and not at the next turn-on,
+ * which would briefly put out the previous contract's voltage. Ports without
+ * source PDOs never get another voltage, so leave them alone.
+ */
+static int tcpm_reset_vbus_output(struct tcpm_port *port)
+{
+	struct pd_src_output out;
+	int ret;
+
+	if (!port->nr_src_pdo)
+		return 0;
+
+	out.min_mv = VSAFE5V;
+	out.max_mv = VSAFE5V;
+	out.max_ma = pdo_max_current(port->src_pdo[0]);
+	ret = tcpm_set_vbus_output(port, &out);
+	port->vbus_output_stale = ret < 0;
+
+	return ret;
+}
+
 static int tcpm_set_vbus(struct tcpm_port *port, bool enable)
 {
 	int ret;
@@ -4973,11 +5029,21 @@ static int tcpm_set_vbus(struct tcpm_port *port, bool enable)
 	if (enable && port->vbus_charge)
 		return -EINVAL;
 
+	/* Never turn VBUS on at a voltage left over from the last contract */
+	if (enable && port->vbus_output_stale) {
+		ret = tcpm_reset_vbus_output(port);
+		if (ret < 0)
+			return ret;
+	}
+
 	tcpm_log(port, "vbus:=%d charge=%d", enable, port->vbus_charge);
 
 	ret = port->tcpc->set_vbus(port->tcpc, enable, port->vbus_charge);
 	if (ret < 0)
 		return ret;
+
+	if (!enable && port->vbus_source)
+		tcpm_reset_vbus_output(port);
 
 	port->vbus_source = enable;
 	return 0;
@@ -5019,6 +5085,8 @@ static int tcpm_init_vbus(struct tcpm_port *port)
 	int ret;
 
 	ret = port->tcpc->set_vbus(port->tcpc, false, false);
+	/* Also covers a setpoint the supply held before TCPM started */
+	tcpm_reset_vbus_output(port);
 	port->vbus_source = false;
 	port->vbus_charge = false;
 	return ret;
@@ -8028,9 +8096,24 @@ static int tcpm_pd_set(struct typec_port *p, struct usb_power_delivery *pd)
 	}
 
 	if (data->source_desc.pdo[0]) {
+		u32 old_ma = port->nr_src_pdo ?
+			     pdo_max_current(port->src_pdo[0]) : 0;
+
 		for (i = 0; i < PDO_MAX_OBJECTS && data->source_desc.pdo[i]; i++)
 			port->src_pdo[i] = data->source_desc.pdo[i];
 		port->nr_src_pdo = i;
+
+		/*
+		 * The vSafe5V current limit follows the first source PDO, which
+		 * also sets Rp. Apply the new one now if VBUS is off, and raise
+		 * it at once for a sink that goes by Rp alone. A lower limit
+		 * waits for VBUS to go off, as such a sink may take up to
+		 * tSinkAdj to follow a lower Rp.
+		 */
+		if (!port->vbus_source ||
+		    (!port->pd_capable &&
+		     pdo_max_current(port->src_pdo[0]) > old_ma))
+			tcpm_reset_vbus_output(port);
 	}
 
 	switch (port->state) {
