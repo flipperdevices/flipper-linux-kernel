@@ -43,6 +43,8 @@ struct bq257xx_chg;
  * @bq257xx_set_vbatreg: set maximum charge voltage (in uV)
  * @bq257xx_get_iindpm: get maximum input current (in uA)
  * @bq257xx_set_iindpm: set maximum input current (in uA)
+ * @bq257xx_set_vindpm: optional, set the input voltage limit for a source
+ *			voltage (in uV)
  * @bq257xx_get_cur: get battery current from ADC (in uA)
  * @bq257xx_get_vbat: get battery voltage from ADC (in uV)
  * @bq257xx_get_min_vsys: get minimum system voltage (in uV)
@@ -60,6 +62,7 @@ struct bq257xx_chip_info {
 	int (*bq257xx_set_vbatreg)(struct bq257xx_chg *pdata, int vbatreg);
 	int (*bq257xx_get_iindpm)(struct bq257xx_chg *pdata, int *intval);
 	int (*bq257xx_set_iindpm)(struct bq257xx_chg *pdata, int iindpm);
+	int (*bq257xx_set_vindpm)(struct bq257xx_chg *pdata, int vbus);
 	int (*bq257xx_get_cur)(struct bq257xx_chg *pdata, int *intval);
 	int (*bq257xx_get_vbat)(struct bq257xx_chg *pdata, int *intval);
 	int (*bq257xx_get_min_vsys)(struct bq257xx_chg *pdata, int *intval);
@@ -91,6 +94,7 @@ struct bq257xx_chip_info {
  * @iindpm_set: input current limit the device took for it, read back (uA)
  * @iindpm_supply: input current limit the supplier allows, 0 if none (uA)
  * @iindpm_user: input current limit set by userspace, 0 if none (uA)
+ * @vbus_supply: input voltage the supplier last reported, 0 if none (uV)
  * @iindpm_max: maximum input current limit (uA)
  * @vbat_max: maximum charge voltage (uV)
  * @ichg_max: maximum charge current (uA)
@@ -121,6 +125,7 @@ struct bq257xx_chg {
 	int iindpm_set;
 	int iindpm_supply;
 	int iindpm_user;
+	int vbus_supply;
 	u32 iindpm_max;
 	u32 vbat_max;
 	u32 ichg_max;
@@ -699,6 +704,27 @@ static int bq25792_set_iindpm(struct bq257xx_chg *pdata, int iindpm)
 }
 
 /**
+ * bq25792_set_vindpm() - Set the input voltage limit for a source voltage
+ * @pdata: driver platform data
+ * @vbus: voltage the source puts out (uV)
+ *
+ * Set VINDPM the way the device does on its own from the VBUS it measures
+ * when a source plugs in: 1.4V below VBUS from 7V up, 0.7V below it under.
+ *
+ * Return: Returns 0 on success or error on failure to write.
+ */
+static int bq25792_set_vindpm(struct bq257xx_chg *pdata, int vbus)
+{
+	int vindpm = vbus - (vbus >= 7000000 ? 1400000 : 700000);
+
+	vindpm = clamp(vindpm, BQ25792_VINDPM_MIN_UV, BQ25792_VINDPM_MAX_UV);
+
+	return regmap_write(pdata->bq->regmap, BQ25792_REG05_INPUT_VOLTAGE_LIMIT,
+			    FIELD_PREP(BQ25792_REG05_VINDPM_MASK,
+				       vindpm / BQ25792_VINDPM_STEP_UV));
+}
+
+/**
  * bq25703_get_vbat() - Get the reported voltage from the battery
  * @pdata: driver platform data
  * @intval: value of reported battery voltage
@@ -1230,6 +1256,30 @@ static void bq257xx_apply_iindpm(struct bq257xx_chg *pdata, int supply)
 }
 
 /**
+ * bq257xx_apply_vindpm() - Follow the input voltage with the input voltage limit
+ * @pdata: driver platform data
+ * @vbus: input voltage the supplier reports in uV, 0 if unsupplied
+ *
+ * The device sets its input voltage limit only once, from the VBUS it measures
+ * when a source plugs in. A USB PD source that has already gone to 20V by then
+ * and later steps down leaves the limit above VBUS, and the charger draws no
+ * input current. Set the limit for every voltage the supplier reports instead.
+ */
+static void bq257xx_apply_vindpm(struct bq257xx_chg *pdata, int vbus)
+{
+	guard(mutex)(&pdata->lock);
+
+	if (vbus == pdata->vbus_supply)
+		return;
+
+	/* The device drops the limit on unplug and sets it again on plug-in */
+	if (vbus > 0 && pdata->chip->bq257xx_set_vindpm(pdata, vbus))
+		return;
+
+	pdata->vbus_supply = vbus;
+}
+
+/**
  * bq257xx_external_power_changed() - Handler for external power change
  * @psy: Power supply data
  *
@@ -1250,8 +1300,11 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 	int ret;
 
 	pdata->supplied = power_supply_am_i_supplied(psy);
-	if (!pdata->supplied)
+	if (!pdata->supplied) {
 		bq257xx_apply_iindpm(pdata, 0);
+		if (pdata->chip->bq257xx_set_vindpm)
+			bq257xx_apply_vindpm(pdata, 0);
+	}
 	if (pdata->supplied <= 0)
 		goto out;
 
@@ -1275,6 +1328,12 @@ static void bq257xx_external_power_changed(struct power_supply *psy)
 	}
 
 	bq257xx_apply_iindpm(pdata, val.intval ?: BQ257XX_USB_DEFAULT_UA);
+
+	if (pdata->chip->bq257xx_set_vindpm &&
+	    !power_supply_get_property_from_supplier(psy,
+						     POWER_SUPPLY_PROP_VOLTAGE_NOW,
+						     &val))
+		bq257xx_apply_vindpm(pdata, val.intval);
 
 out:
 	bq257xx_notify_changes(pdata);
@@ -1396,6 +1455,7 @@ static const struct bq257xx_chip_info bq25792_chip_info = {
 		.bq257xx_set_vbatreg = &bq25792_set_chrg_volt,
 		.bq257xx_get_iindpm = &bq25792_get_iindpm,
 		.bq257xx_set_iindpm = &bq25792_set_iindpm,
+		.bq257xx_set_vindpm = &bq25792_set_vindpm,
 		.bq257xx_get_cur = &bq25792_get_cur,
 		.bq257xx_get_vbat = &bq25792_get_vbat,
 		.bq257xx_get_min_vsys = &bq25792_get_min_vsys,
