@@ -969,7 +969,20 @@ done:
 	return ret;
 }
 
+/* K-codes of the ordered set that starts each kind of packet */
+static const u8 fusb302_sop_tokens[][4] = {
+	[TCPC_TX_SOP] = {
+		FUSB302_TKN_SYNC1, FUSB302_TKN_SYNC1,
+		FUSB302_TKN_SYNC1, FUSB302_TKN_SYNC2,
+	},
+	[TCPC_TX_SOP_PRIME] = {
+		FUSB302_TKN_SYNC1, FUSB302_TKN_SYNC1,
+		FUSB302_TKN_SYNC3, FUSB302_TKN_SYNC3,
+	},
+};
+
 static int fusb302_pd_send_message(struct fusb302_chip *chip,
+				   enum tcpm_transmit_type type,
 				   const struct pd_message *msg)
 {
 	int ret = 0;
@@ -978,11 +991,9 @@ static int fusb302_pd_send_message(struct fusb302_chip *chip,
 	u8 i;
 	int len;
 
-	/* SOP tokens */
-	buf[pos++] = FUSB302_TKN_SYNC1;
-	buf[pos++] = FUSB302_TKN_SYNC1;
-	buf[pos++] = FUSB302_TKN_SYNC1;
-	buf[pos++] = FUSB302_TKN_SYNC2;
+	memcpy(&buf[pos], fusb302_sop_tokens[type],
+	       sizeof(fusb302_sop_tokens[type]));
+	pos += sizeof(fusb302_sop_tokens[type]);
 
 	len = pd_header_cnt_le(msg->header) * 4;
 	/* plug 2 for header */
@@ -1060,6 +1071,7 @@ static int tcpm_pd_transmit(struct tcpc_dev *dev, enum tcpm_transmit_type type,
 	mutex_lock(&chip->lock);
 	switch (type) {
 	case TCPC_TX_SOP:
+	case TCPC_TX_SOP_PRIME:
 		/* nRetryCount 3 in P2.0 spec, whereas 2 in PD3.0 spec */
 		ret = fusb302_enable_tx_auto_retries(chip, negotiated_rev > PD_REV20 ?
 						     FUSB_REG_CONTROL3_N_RETRIES_2 :
@@ -1067,7 +1079,7 @@ static int tcpm_pd_transmit(struct tcpc_dev *dev, enum tcpm_transmit_type type,
 		if (ret < 0)
 			fusb302_log(chip, "Cannot update retry count ret=%d", ret);
 
-		ret = fusb302_pd_send_message(chip, msg);
+		ret = fusb302_pd_send_message(chip, type, msg);
 		if (ret < 0)
 			fusb302_log(chip,
 				    "cannot send PD message, ret=%d", ret);
@@ -1498,6 +1510,8 @@ static int fusb302_pd_read_message(struct fusb302_chip *chip,
 	 */
 	if ((!len) && (pd_header_type_le(msg->header) == PD_CTRL_GOOD_CRC))
 		tcpm_pd_transmit_complete(chip->tcpm_port, TCPC_TX_SUCCESS);
+	else if ((token & FUSB302_RX_TKN_MASK) == FUSB302_RX_TKN_SOP1)
+		tcpm_pd_receive(chip->tcpm_port, msg, TCPC_TX_SOP_PRIME);
 	else
 		tcpm_pd_receive(chip->tcpm_port, msg, TCPC_TX_SOP);
 
