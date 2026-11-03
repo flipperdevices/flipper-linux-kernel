@@ -1925,6 +1925,8 @@ static int tcpm_ams_start(struct tcpm_port *port, enum tcpm_ams ams)
 		} else if (ams == SOFT_RESET_AMS) {
 			if (!port->explicit_contract)
 				tcpm_set_cc(port, tcpm_rp_cc(port));
+			/* entered right away, so don't leave it to be replayed */
+			port->upcoming_state = INVALID_STATE;
 			tcpm_set_state(port, SOFT_RESET_SEND, 0);
 			return ret;
 		} else if (tcpm_vdm_ams(port)) {
