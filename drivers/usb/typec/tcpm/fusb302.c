@@ -49,6 +49,15 @@
  * code 0 tells whether VBUS is within vSafe0V (0-0.8V).
  */
 #define FUSB302_MDAC_VSAFE0V		0
+#define FUSB302_MDAC_VBUS_STEP_MV	420
+#define FUSB302_MDAC_MAX		0x3f
+
+/* A source has VBUS within 5% of the voltage it set (vSrcNew) */
+#define FUSB302_VBUS_TOLERANCE_PCT	5
+
+/* A source settles at a new voltage within tSrcSettle */
+#define T_SRC_SETTLE_MS			275
+#define T_SRC_SETTLE_POLL_MS		5
 
 /*
  * VBUSOK only tells VBUS is below 4V, so poll it down to vSafe0V. Give up a
@@ -92,6 +101,11 @@ struct fusb302_chip {
 	struct tcpc_dev tcpc_dev;
 
 	struct regulator *vbus;
+	/* The VBUS supply can change its voltage */
+	bool vbus_adjustable;
+	/* The VBUS supply has a current limit, last set to vbus_ma */
+	bool vbus_ilim;
+	u32 vbus_ma;
 
 	spinlock_t irq_lock;
 	struct work_struct irq_work;
@@ -959,6 +973,152 @@ done:
 	return ret;
 }
 
+/* Called with chip->lock held */
+static int fusb302_set_vbus_current(struct fusb302_chip *chip, u32 ma)
+{
+	int ret;
+
+	if (!chip->vbus_ilim || ma == chip->vbus_ma)
+		return 0;
+
+	/* Leave the limiter room above the current to supply for its tolerance */
+	ret = regulator_set_current_limit(chip->vbus, ma * 1000,
+					  (ma + max(ma / 10, 100)) * 1000);
+	if (ret < 0) {
+		fusb302_log(chip, "cannot set vbus current %u mA, ret=%d",
+			    ma, ret);
+		return ret;
+	}
+	chip->vbus_ma = ma;
+
+	return 0;
+}
+
+/* Highest MDAC threshold for VBUS at or below mv */
+static u8 fusb302_vbus_mdac_floor(u32 mv)
+{
+	return clamp_t(u32, mv / FUSB302_MDAC_VBUS_STEP_MV, 1,
+		       FUSB302_MDAC_MAX + 1) - 1;
+}
+
+/* Lowest MDAC threshold for VBUS at or above mv */
+static u8 fusb302_vbus_mdac_ceil(u32 mv)
+{
+	return clamp_t(u32, DIV_ROUND_UP(mv, FUSB302_MDAC_VBUS_STEP_MV), 1,
+		       FUSB302_MDAC_MAX + 1) - 1;
+}
+
+/*
+ * Wait for VBUS to come within tolerance of a new voltage from the side it
+ * moves away from. At 420mV per MDAC step the check is coarse, but it still
+ * catches a supply that does not move, or a step-down without a load that
+ * stays high.
+ */
+static int fusb302_wait_vbus(struct fusb302_chip *chip, u32 old_mv, u32 new_mv)
+{
+	unsigned long timeout = jiffies + msecs_to_jiffies(T_SRC_SETTLE_MS);
+	bool rising = new_mv > old_mv;
+	ktime_t start = ktime_get();
+	bool above;
+	u8 mdac;
+	int ret;
+
+	if (rising)
+		mdac = fusb302_vbus_mdac_floor(new_mv *
+					       (100 - FUSB302_VBUS_TOLERANCE_PCT) / 100);
+	else
+		mdac = fusb302_vbus_mdac_ceil(new_mv *
+					      (100 + FUSB302_VBUS_TOLERANCE_PCT) / 100);
+
+	for (;;) {
+		mutex_lock(&chip->lock);
+		ret = fusb302_vbus_above(chip, mdac, &above);
+		mutex_unlock(&chip->lock);
+		if (ret < 0)
+			return ret;
+		if (above == rising)
+			break;
+		if (time_after(jiffies, timeout)) {
+			fusb302_log(chip, "vbus did not settle at %u mV", new_mv);
+			return -ETIMEDOUT;
+		}
+		usleep_range(T_SRC_SETTLE_POLL_MS * 1000,
+			     (T_SRC_SETTLE_POLL_MS + 1) * 1000);
+	}
+
+	fusb302_log(chip, "vbus settled at %u mV in %lld ms", new_mv,
+		    ktime_ms_delta(ktime_get(), start));
+
+	return 0;
+}
+
+static int tcpm_set_vbus_output(struct tcpc_dev *dev, u32 min_mv, u32 max_mv,
+				u32 max_ma)
+{
+	struct fusb302_chip *chip = container_of(dev, struct fusb302_chip,
+						 tcpc_dev);
+	int old_uv, new_uv, ret;
+	bool vbus_on;
+
+	mutex_lock(&chip->lock);
+	vbus_on = chip->vbus_on;
+
+	/*
+	 * A fixed supply, or the dummy one, is assumed to be at vSafe5V
+	 * of what it reports, as before the port could set the voltage
+	 */
+	if (!chip->vbus_adjustable) {
+		if (min_mv > VSAFE5V || max_mv < VSAFE5V) {
+			ret = -EOPNOTSUPP;
+			goto unlock;
+		}
+		ret = fusb302_set_vbus_current(chip, max_ma);
+		goto unlock;
+	}
+
+	old_uv = regulator_get_voltage(chip->vbus);
+	if (old_uv < 0) {
+		ret = old_uv;
+		fusb302_log(chip, "cannot get vbus voltage, ret=%d", ret);
+		goto unlock;
+	}
+
+	/*
+	 * Lower the current before the voltage changes and raise it after, so
+	 * neither voltage gets the larger of the two limits.
+	 */
+	if (max_ma < chip->vbus_ma) {
+		ret = fusb302_set_vbus_current(chip, max_ma);
+		if (ret < 0)
+			goto unlock;
+	}
+
+	ret = regulator_set_voltage(chip->vbus, min_mv * 1000, max_mv * 1000);
+	if (ret < 0) {
+		fusb302_log(chip, "cannot set vbus %u-%u mV, ret=%d",
+			    min_mv, max_mv, ret);
+		goto unlock;
+	}
+
+	ret = fusb302_set_vbus_current(chip, max_ma);
+	if (ret < 0)
+		goto unlock;
+
+	new_uv = regulator_get_voltage(chip->vbus);
+	fusb302_log(chip, "vbus output := %d mV, %u mA", new_uv / 1000, max_ma);
+	mutex_unlock(&chip->lock);
+
+	if (!vbus_on || new_uv < 0 || new_uv == old_uv)
+		return 0;
+
+	return fusb302_wait_vbus(chip, old_uv / 1000, new_uv / 1000);
+
+unlock:
+	mutex_unlock(&chip->lock);
+
+	return ret;
+}
+
 static int fusb302_pd_tx_flush(struct fusb302_chip *chip)
 {
 	return fusb302_i2c_set_bits(chip, FUSB_REG_CONTROL0,
@@ -1341,6 +1501,7 @@ static void init_tcpc_dev(struct tcpc_dev *fusb302_tcpc_dev)
 	fusb302_tcpc_dev->set_polarity = tcpm_set_polarity;
 	fusb302_tcpc_dev->set_vconn = tcpm_set_vconn;
 	fusb302_tcpc_dev->set_vbus = tcpm_set_vbus;
+	fusb302_tcpc_dev->set_vbus_output = tcpm_set_vbus_output;
 	fusb302_tcpc_dev->set_pd_rx = tcpm_set_pd_rx;
 	fusb302_tcpc_dev->set_roles = tcpm_set_roles;
 	fusb302_tcpc_dev->start_toggling = tcpm_start_toggling;
@@ -1971,6 +2132,14 @@ static int fusb302_probe(struct i2c_client *client)
 	chip->vbus = devm_regulator_get(chip->dev, "vbus");
 	if (IS_ERR(chip->vbus))
 		return PTR_ERR(chip->vbus);
+
+	/* Plain switched supplies have neither a voltage nor a limit to set */
+	chip->vbus_adjustable = regulator_count_voltages(chip->vbus) > 1;
+	ret = regulator_get_current_limit(chip->vbus);
+	chip->vbus_ilim = ret > 0 &&
+			  !regulator_set_current_limit(chip->vbus, ret, ret);
+	/* Unknown until set, so the first contract always sets it */
+	chip->vbus_ma = U32_MAX;
 
 	chip->wq = devm_alloc_ordered_workqueue(dev, dev_name(dev), 0);
 	if (!chip->wq)
