@@ -11,9 +11,11 @@
 #include <linux/mfd/bq257xx.h>
 #include <linux/mutex.h>
 #include <linux/platform_device.h>
+#include <linux/pm.h>
 #include <linux/power_supply.h>
 #include <linux/property.h>
 #include <linux/regmap.h>
+#include <linux/workqueue.h>
 
 /* Forward declaration of driver data. */
 struct bq257xx_chg;
@@ -27,6 +29,12 @@ struct bq257xx_chg;
 
 /* Input current available from a USB 2.0 port without negotiation */
 #define BQ257XX_USB_DEFAULT_UA	500000
+
+/*
+ * Kick the 1s BQ25792 watchdog four times per period, so that traffic on the
+ * shared bus or scheduling delays can't let it expire under a running system
+ */
+#define BQ25792_WDT_KICK_MS	250
 
 /**
  * struct bq257xx_chip_info - chip specific routines
@@ -48,6 +56,9 @@ struct bq257xx_chg;
  * @bq257xx_get_cur: get battery current from ADC (in uA)
  * @bq257xx_get_vbat: get battery voltage from ADC (in uV)
  * @bq257xx_get_min_vsys: get minimum system voltage (in uV)
+ * @bq257xx_wdt_kick: optional, reset the device watchdog, which hw_init
+ *		      starts; returns 1 if it had expired and reset the device
+ * @bq257xx_wdt_stop: stop the device watchdog, with bq257xx_wdt_kick
  */
 struct bq257xx_chip_info {
 	int default_iindpm_uA;
@@ -66,6 +77,8 @@ struct bq257xx_chip_info {
 	int (*bq257xx_get_cur)(struct bq257xx_chg *pdata, int *intval);
 	int (*bq257xx_get_vbat)(struct bq257xx_chg *pdata, int *intval);
 	int (*bq257xx_get_min_vsys)(struct bq257xx_chg *pdata, int *intval);
+	int (*bq257xx_wdt_kick)(struct bq257xx_chg *pdata);
+	int (*bq257xx_wdt_stop)(struct bq257xx_chg *pdata);
 };
 
 /**
@@ -99,6 +112,9 @@ struct bq257xx_chip_info {
  * @vbat_max: maximum charge voltage (uV)
  * @ichg_max: maximum charge current (uA)
  * @vsys_min: minimum system voltage (uV)
+ * @ichg_target: charge current set by userspace, 0 if none (uA)
+ * @vbatreg_target: charge voltage set by userspace, 0 if none (uV)
+ * @wdt_work: kicks the device watchdog, and restores the device if it expired
  */
 struct bq257xx_chg {
 	const struct bq257xx_chip_info *chip;
@@ -130,6 +146,9 @@ struct bq257xx_chg {
 	u32 vbat_max;
 	u32 ichg_max;
 	u32 vsys_min;
+	int ichg_target;
+	int vbatreg_target;
+	struct delayed_work wdt_work;
 };
 
 /**
@@ -856,8 +875,12 @@ static int bq25792_hw_init(struct bq257xx_chg *pdata)
 	int ret = 0;
 	u8 reg;
 
-	/* Disable watchdog (TODO: make it work instead) */
-	ret = regmap_write(regmap, BQ25792_REG10_CHARGER_CONTROL_1, 0);
+	/*
+	 * Start the watchdog, which bq257xx_wdt_work() kicks: if the system
+	 * stops managing the device, it turns OTG off and charges on its own
+	 */
+	ret = regmap_write(regmap, BQ25792_REG10_CHARGER_CONTROL_1,
+			   BQ25792_WATCHDOG_1S);
 	if (ret)
 		return ret;
 
@@ -898,11 +921,13 @@ static int bq25792_hw_init(struct bq257xx_chg *pdata)
 	if (ret)
 		return ret;
 
-	ret = pdata->chip->bq257xx_set_ichg(pdata, pdata->ichg_max);
+	ret = pdata->chip->bq257xx_set_ichg(pdata,
+					    pdata->ichg_target ?: pdata->ichg_max);
 	if (ret)
 		return ret;
 
-	ret = pdata->chip->bq257xx_set_vbatreg(pdata, pdata->vbat_max);
+	ret = pdata->chip->bq257xx_set_vbatreg(pdata,
+					       pdata->vbatreg_target ?: pdata->vbat_max);
 	if (ret)
 		return ret;
 
@@ -962,6 +987,44 @@ static void bq25703_hw_shutdown(struct bq257xx_chg *pdata)
 static void bq25792_hw_shutdown(struct bq257xx_chg *pdata)
 {
 	/* Nothing to do here */
+}
+
+/**
+ * bq25792_wdt_kick() - Reset the watchdog timer
+ * @pdata: driver platform data
+ *
+ * Return: Returns 1 if the watchdog had expired and reset the device, 0 if
+ * the watchdog was reset, or error on failure to access the device.
+ */
+static int bq25792_wdt_kick(struct bq257xx_chg *pdata)
+{
+	struct regmap *regmap = pdata->bq->regmap;
+	unsigned int reg;
+	int ret;
+
+	ret = regmap_read(regmap, BQ25792_REG1B_CHARGER_STATUS_0, &reg);
+	if (ret)
+		return ret;
+
+	if (reg & BQ25792_REG1B_WD_STAT)
+		return 1;
+
+	return regmap_update_bits(regmap, BQ25792_REG10_CHARGER_CONTROL_1,
+				  BQ25792_REG10_WD_RST, BQ25792_REG10_WD_RST);
+}
+
+/**
+ * bq25792_wdt_stop() - Stop the watchdog timer
+ * @pdata: driver platform data
+ *
+ * Return: Returns 0 on success or error on failure to write.
+ */
+static int bq25792_wdt_stop(struct bq257xx_chg *pdata)
+{
+	return regmap_update_bits(pdata->bq->regmap,
+				  BQ25792_REG10_CHARGER_CONTROL_1,
+				  BQ25792_REG10_WATCHDOG_MASK,
+				  BQ25792_WATCHDOG_DISABLE);
 }
 
 /**
@@ -1074,16 +1137,24 @@ static int bq257xx_set_charger_property(struct power_supply *psy,
 		const union power_supply_propval *val)
 {
 	struct bq257xx_chg *pdata = power_supply_get_drvdata(psy);
+	int ret;
 
 	switch (prop) {
 	case POWER_SUPPLY_PROP_INPUT_CURRENT_LIMIT:
 		return bq257xx_set_user_iindpm(pdata, val->intval);
 
+	/* Keep the battery charge voltage and current to restore them */
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_VOLTAGE_MAX:
-		return pdata->chip->bq257xx_set_vbatreg(pdata, val->intval);
+		ret = pdata->chip->bq257xx_set_vbatreg(pdata, val->intval);
+		if (!ret)
+			pdata->vbatreg_target = val->intval;
+		return ret;
 
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
-		return pdata->chip->bq257xx_set_ichg(pdata, val->intval);
+		ret = pdata->chip->bq257xx_set_ichg(pdata, val->intval);
+		if (!ret)
+			pdata->ichg_target = val->intval;
+		return ret;
 
 	default:
 		break;
@@ -1340,6 +1411,74 @@ out:
 }
 
 /**
+ * bq257xx_restore() - Program the device again after it lost its settings
+ * @pdata: driver platform data
+ *
+ * A watchdog expiry resets most registers to their defaults, and a glitch on
+ * the bus during suspend could change them unnoticed. The register cache no
+ * longer matches, so drop it, then program the device configuration and the
+ * input limits for what the supplier reports. This leaves OTG alone: an
+ * expiry has turned it off, and VBUS is up to the regulator consumer.
+ */
+static void bq257xx_restore(struct bq257xx_chg *pdata)
+{
+	struct regmap *regmap = pdata->bq->regmap;
+	int ret;
+
+	regcache_drop_region(regmap, 0, regmap_get_max_register(regmap));
+
+	ret = pdata->chip->bq257xx_hw_init(pdata);
+	if (ret)
+		dev_err(pdata->dev, "Cannot restore the device: %d\n", ret);
+
+	/*
+	 * The input current limit is written again if the device lost it, but
+	 * the input voltage limit only when the supplier voltage changes
+	 */
+	scoped_guard(mutex, &pdata->lock)
+		pdata->vbus_supply = 0;
+	bq257xx_external_power_changed(pdata->charger);
+}
+
+/**
+ * bq257xx_wdt_work() - Kick the device watchdog
+ * @work: wdt_work in the driver data
+ *
+ * Reset the watchdog that hw_init started, and restore the device if it has
+ * expired since the last time.
+ */
+static void bq257xx_wdt_work(struct work_struct *work)
+{
+	struct bq257xx_chg *pdata = container_of(to_delayed_work(work),
+						 struct bq257xx_chg, wdt_work);
+	int ret;
+
+	ret = pdata->chip->bq257xx_wdt_kick(pdata);
+	if (ret < 0)
+		dev_warn_ratelimited(pdata->dev, "Cannot kick watchdog: %d\n",
+				     ret);
+	if (ret > 0) {
+		dev_warn(pdata->dev, "Watchdog expired, restoring the device\n");
+		bq257xx_restore(pdata);
+	}
+
+	queue_delayed_work(system_highpri_wq, &pdata->wdt_work,
+			   msecs_to_jiffies(BQ25792_WDT_KICK_MS));
+}
+
+/**
+ * bq257xx_stop_wdt() - Stop kicking and stop the device watchdog
+ * @data: driver platform data
+ */
+static void bq257xx_stop_wdt(void *data)
+{
+	struct bq257xx_chg *pdata = data;
+
+	disable_delayed_work_sync(&pdata->wdt_work);
+	pdata->chip->bq257xx_wdt_stop(pdata);
+}
+
+/**
  * bq257xx_irq_handler_thread() - Handle charger interrupt
  * @irq: interrupt number
  * @private: pointer to driver private data
@@ -1353,6 +1492,10 @@ out:
 static irqreturn_t bq257xx_irq_handler_thread(int irq, void *private)
 {
 	struct bq257xx_chg *pdata = private;
+
+	/* An expired watchdog interrupts too, so check it right away */
+	if (pdata->chip->bq257xx_wdt_kick)
+		mod_delayed_work(system_highpri_wq, &pdata->wdt_work, 0);
 
 	bq257xx_external_power_changed(pdata->charger);
 	return IRQ_HANDLED;
@@ -1459,6 +1602,8 @@ static const struct bq257xx_chip_info bq25792_chip_info = {
 		.bq257xx_get_cur = &bq25792_get_cur,
 		.bq257xx_get_vbat = &bq25792_get_vbat,
 		.bq257xx_get_min_vsys = &bq25792_get_min_vsys,
+		.bq257xx_wdt_kick = &bq25792_wdt_kick,
+		.bq257xx_wdt_stop = &bq25792_wdt_stop,
 };
 
 /**
@@ -1515,6 +1660,19 @@ static int bq257xx_charger_probe(struct platform_device *pdev)
 		return dev_err_probe(dev, PTR_ERR(pdata->charger),
 				     "Power supply register charger failed\n");
 
+	/*
+	 * hw_init has started the watchdog while registering the supply. The
+	 * work must be quiet before stopping the watchdog, as a restore would
+	 * start it again, so stop both from one action.
+	 */
+	if (pdata->chip->bq257xx_wdt_kick) {
+		INIT_DELAYED_WORK(&pdata->wdt_work, bq257xx_wdt_work);
+		ret = devm_add_action_or_reset(dev, bq257xx_stop_wdt, pdata);
+		if (ret)
+			return ret;
+		queue_delayed_work(system_highpri_wq, &pdata->wdt_work, 0);
+	}
+
 	if (bq->client->irq) {
 		return devm_request_threaded_irq(dev, bq->client->irq, NULL,
 						 bq257xx_irq_handler_thread,
@@ -1537,12 +1695,45 @@ static void bq257xx_charger_shutdown(struct platform_device *pdev)
 {
 	struct bq257xx_chg *pdata = platform_get_drvdata(pdev);
 
+	/* Keep the settings for charging while the system is down */
+	if (pdata->chip->bq257xx_wdt_kick)
+		bq257xx_stop_wdt(pdata);
+
 	pdata->chip->bq257xx_hw_shutdown(pdata);
 }
+
+static int bq257xx_charger_suspend(struct device *dev)
+{
+	struct bq257xx_chg *pdata = dev_get_drvdata(dev);
+
+	/* Nothing kicks the watchdog while the system sleeps */
+	if (pdata->chip->bq257xx_wdt_kick)
+		bq257xx_stop_wdt(pdata);
+
+	return 0;
+}
+
+static int bq257xx_charger_resume(struct device *dev)
+{
+	struct bq257xx_chg *pdata = dev_get_drvdata(dev);
+
+	if (pdata->chip->bq257xx_wdt_kick) {
+		/* This also starts the watchdog again */
+		bq257xx_restore(pdata);
+		enable_delayed_work(&pdata->wdt_work);
+		queue_delayed_work(system_highpri_wq, &pdata->wdt_work, 0);
+	}
+
+	return 0;
+}
+
+static DEFINE_SIMPLE_DEV_PM_OPS(bq257xx_charger_pm_ops, bq257xx_charger_suspend,
+				bq257xx_charger_resume);
 
 static struct platform_driver bq257xx_chg_driver = {
 	.driver = {
 		.name = "bq257xx-charger",
+		.pm = pm_sleep_ptr(&bq257xx_charger_pm_ops),
 	},
 	.probe = bq257xx_charger_probe,
 	.shutdown = bq257xx_charger_shutdown,
