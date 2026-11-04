@@ -10,13 +10,19 @@
 #include <linux/mfd/bq257xx.h>
 #include <linux/of.h>
 #include <linux/platform_device.h>
+#include <linux/pm.h>
 #include <linux/regmap.h>
 #include <linux/regulator/driver.h>
 #include <linux/regulator/of_regulator.h>
 
+/* Highest OTG voltage the system may sleep with */
+#define BQ257XX_OTG_SLEEP_MAX_UV	5000000
+
 struct bq257xx_reg_data {
 	struct gpio_desc *otg_en_gpio;
 	struct regulator_desc desc;
+	/* OTG is on above BQ257XX_OTG_SLEEP_MAX_UV */
+	bool vbus_high;
 };
 
 static int bq25703_vbus_get_cur_limit(struct regulator_dev *rdev)
@@ -101,33 +107,118 @@ static int bq25792_vbus_set_cur_limit(struct regulator_dev *rdev,
 				  FIELD_PREP(BQ25792_REG0D_IOTG_MASK, reg));
 }
 
+static void bq257xx_vbus_note_level(struct regulator_dev *rdev, bool enabled,
+				    int sel)
+{
+	struct bq257xx_reg_data *pdata = rdev_get_drvdata(rdev);
+
+	pdata->vbus_high = enabled && regulator_list_voltage_linear(rdev, sel) >
+				      BQ257XX_OTG_SLEEP_MAX_UV;
+}
+
+/*
+ * A sleeping system handles a detach only once it has resumed, and on the
+ * BQ25792, nothing kicks the watchdog that turns OTG off when the system stops
+ * managing the device. Refuse to sleep while OTG puts out more than 5V.
+ */
+static int bq257xx_regulator_prepare(struct device *dev)
+{
+	struct bq257xx_reg_data *pdata = dev_get_drvdata(dev);
+
+	if (pdata->vbus_high) {
+		dev_info(dev, "Not suspending while VBUS is above 5V\n");
+		return -EBUSY;
+	}
+
+	return 0;
+}
+
+static const struct dev_pm_ops bq257xx_regulator_pm_ops = {
+	.prepare = pm_sleep_ptr(bq257xx_regulator_prepare),
+};
+
 static int bq25792_vbus_set_voltage_sel(struct regulator_dev *rdev,
 					unsigned int sel)
 {
 	struct regmap *regmap = rdev_get_regmap(rdev);
 	__be16 reg;
+	int ret;
 
 	reg = cpu_to_be16(FIELD_PREP(BQ25792_REG0B_VOTG_MASK, sel));
-	return regmap_raw_write(regmap, BQ25792_REG0B_VOTG_REGULATION,
-				&reg, sizeof(reg));
+	ret = regmap_raw_write(regmap, BQ25792_REG0B_VOTG_REGULATION,
+			       &reg, sizeof(reg));
+	if (!ret)
+		bq257xx_vbus_note_level(rdev,
+					regulator_is_enabled_regmap(rdev) > 0,
+					sel);
+
+	return ret;
+}
+
+static int bq25792_vbus_enable(struct regulator_dev *rdev)
+{
+	int ret;
+
+	ret = regulator_enable_regmap(rdev);
+	if (!ret)
+		bq257xx_vbus_note_level(rdev, true,
+					bq25792_vbus_get_voltage_sel(rdev));
+
+	return ret;
+}
+
+static int bq25792_vbus_disable(struct regulator_dev *rdev)
+{
+	int ret;
+
+	ret = regulator_disable_regmap(rdev);
+	if (!ret)
+		bq257xx_vbus_note_level(rdev, false, 0);
+
+	return ret;
 }
 
 static int bq25703_vbus_enable(struct regulator_dev *rdev)
 {
 	struct bq257xx_reg_data *pdata = rdev_get_drvdata(rdev);
+	int ret;
 
 	if (pdata->otg_en_gpio)
 		gpiod_set_value_cansleep(pdata->otg_en_gpio, 1);
-	return regulator_enable_regmap(rdev);
+	ret = regulator_enable_regmap(rdev);
+	if (!ret)
+		bq257xx_vbus_note_level(rdev, true,
+					regulator_get_voltage_sel_regmap(rdev));
+
+	return ret;
 }
 
 static int bq25703_vbus_disable(struct regulator_dev *rdev)
 {
 	struct bq257xx_reg_data *pdata = rdev_get_drvdata(rdev);
+	int ret;
 
 	if (pdata->otg_en_gpio)
 		gpiod_set_value_cansleep(pdata->otg_en_gpio, 0);
-	return regulator_disable_regmap(rdev);
+	ret = regulator_disable_regmap(rdev);
+	if (!ret)
+		bq257xx_vbus_note_level(rdev, false, 0);
+
+	return ret;
+}
+
+static int bq25703_vbus_set_voltage_sel(struct regulator_dev *rdev,
+					unsigned int sel)
+{
+	int ret;
+
+	ret = regulator_set_voltage_sel_regmap(rdev, sel);
+	if (!ret)
+		bq257xx_vbus_note_level(rdev,
+					regulator_is_enabled_regmap(rdev) > 0,
+					sel);
+
+	return ret;
 }
 
 static const struct regulator_ops bq25703_vbus_ops = {
@@ -136,7 +227,7 @@ static const struct regulator_ops bq25703_vbus_ops = {
 	.is_enabled = regulator_is_enabled_regmap,
 	.list_voltage = regulator_list_voltage_linear,
 	.get_voltage_sel = regulator_get_voltage_sel_regmap,
-	.set_voltage_sel = regulator_set_voltage_sel_regmap,
+	.set_voltage_sel = bq25703_vbus_set_voltage_sel,
 	.get_current_limit = bq25703_vbus_get_cur_limit,
 	.set_current_limit = bq25703_vbus_set_cur_limit,
 };
@@ -161,8 +252,8 @@ static const struct regulator_desc bq25703_vbus_desc = {
 
 static const struct regulator_ops bq25792_vbus_ops = {
 	/* No GPIO for enabling the OTG regulator */
-	.enable = regulator_enable_regmap,
-	.disable = regulator_disable_regmap,
+	.enable = bq25792_vbus_enable,
+	.disable = bq25792_vbus_disable,
 	.is_enabled = regulator_is_enabled_regmap,
 	.list_voltage = regulator_list_voltage_linear,
 	.get_voltage_sel = bq25792_vbus_get_voltage_sel,
@@ -290,6 +381,7 @@ static void bq257xx_regulator_shutdown(struct platform_device *pdev)
 static struct platform_driver bq257xx_reg_driver = {
 	.driver = {
 		.name = "bq257xx-regulator",
+		.pm = pm_sleep_ptr(&bq257xx_regulator_pm_ops),
 	},
 	.probe = bq257xx_regulator_probe,
 	.shutdown = bq257xx_regulator_shutdown,
