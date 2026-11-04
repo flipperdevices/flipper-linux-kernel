@@ -699,12 +699,13 @@ struct tcpm_port {
 
 	/* SOP* Related Fields */
 	/*
-	 * tx_sop_type determines which SOP* a message is being sent on.
-	 * For messages that are queued and not sent immediately such as in
-	 * tcpm_queue_message or messages that send after state changes,
-	 * the tx_sop_type is set accordingly.
+	 * Messages that are not sent right away carry their SOP* separately,
+	 * one per context so that one cannot redirect another:
+	 * vdm_sop_type for the VDM being sent, including its retries, and
+	 * soft_reset_sop_type for the next Soft_Reset.
 	 */
-	enum tcpm_transmit_type tx_sop_type;
+	enum tcpm_transmit_type vdm_sop_type;
+	enum tcpm_transmit_type soft_reset_sop_type;
 	/*
 	 * Prior to discovering the port partner's Specification Revision, the
 	 * Vconn source and cable plug will use the lower of their two revisions.
@@ -2080,7 +2081,7 @@ static void tcpm_queue_vdm(struct tcpm_port *port, const u32 header,
 	port->vdm_state = VDM_STATE_READY;
 	port->vdm_sm_running = true;
 
-	port->tx_sop_type = tx_sop_type;
+	port->vdm_sop_type = tx_sop_type;
 
 	mod_vdm_delayed_work(port, 0);
 }
@@ -2102,7 +2103,7 @@ static bool tcpm_vdm_resend(struct tcpm_port *port)
 	memcpy(port->vdo_data, port->vdm_req,
 	       sizeof(u32) * port->vdm_req_count);
 	port->vdo_count = port->vdm_req_count;
-	port->tx_sop_type = port->vdm_req_sop_type;
+	port->vdm_sop_type = port->vdm_req_sop_type;
 	port->vdm_retries = 0;
 	port->vdm_state = VDM_STATE_READY;
 	port->vdm_sm_running = true;
@@ -3191,7 +3192,7 @@ static void vdm_run_state_machine(struct tcpm_port *port)
 			tcpm_ams_finish(port);
 			port->vdo_data[0] = 0;
 			tcpm_vdm_req_done(port);
-			if (port->tx_sop_type == TCPC_TX_SOP)
+			if (port->vdm_sop_type == TCPC_TX_SOP)
 				break;
 			/* Handle SOP' Transmission Errors */
 			switch (PD_VDO_CMD(vdo_hdr)) {
@@ -3228,7 +3229,7 @@ static void vdm_run_state_machine(struct tcpm_port *port)
 	case VDM_STATE_SEND_MESSAGE:
 		/* Prepare and send VDM */
 		memset(&msg, 0, sizeof(msg));
-		if (port->tx_sop_type == TCPC_TX_SOP_PRIME) {
+		if (port->vdm_sop_type == TCPC_TX_SOP_PRIME) {
 			msg.header = PD_HEADER_LE(PD_DATA_VENDOR_DEF,
 						  0,	/* Cable Plug Indicator for DFP/UFP */
 						  0,	/* Reserved */
@@ -3245,7 +3246,7 @@ static void vdm_run_state_machine(struct tcpm_port *port)
 		}
 		for (i = 0; i < port->vdo_count; i++)
 			msg.payload[i] = cpu_to_le32(port->vdo_data[i]);
-		res = tcpm_pd_transmit(port, port->tx_sop_type, &msg);
+		res = tcpm_pd_transmit(port, port->vdm_sop_type, &msg);
 		if (res < 0) {
 			port->vdm_state = VDM_STATE_ERR_SEND;
 		} else {
@@ -5758,6 +5759,7 @@ static void run_state_machine(struct tcpm_port *port)
 		port->message_id_prime = 0;
 		port->rx_msgid = -1;
 		port->rx_msgid_prime = -1;
+		port->soft_reset_sop_type = TCPC_TX_SOP;
 		port->explicit_contract = false;
 		/* SNK -> SRC POWER/FAST_ROLE_SWAP finished */
 		if (port->ams == POWER_ROLE_SWAP ||
@@ -6044,6 +6046,7 @@ static void run_state_machine(struct tcpm_port *port)
 		port->message_id_prime = 0;
 		port->rx_msgid = -1;
 		port->rx_msgid_prime = -1;
+		port->soft_reset_sop_type = TCPC_TX_SOP;
 		port->explicit_contract = false;
 
 		if (port->ams == POWER_ROLE_SWAP ||
@@ -6458,6 +6461,7 @@ static void run_state_machine(struct tcpm_port *port)
 	case SOFT_RESET:
 		port->message_id = 0;
 		port->rx_msgid = -1;
+		port->soft_reset_sop_type = TCPC_TX_SOP;
 		/* remove existing capabilities */
 		tcpm_partner_source_caps_reset(port);
 		tcpm_pd_send_control(port, PD_CTRL_ACCEPT, TCPC_TX_SOP);
@@ -6475,6 +6479,7 @@ static void run_state_machine(struct tcpm_port *port)
 	case SNK_SOFT_RESET:
 		if (port->ams != NONE_AMS)
 			tcpm_ams_finish(port);
+		port->soft_reset_sop_type = TCPC_TX_SOP;
 		port->upcoming_state = SOFT_RESET_SEND;
 		tcpm_ams_start(port, SOFT_RESET_AMS);
 		break;
@@ -6485,7 +6490,8 @@ static void run_state_machine(struct tcpm_port *port)
 		 * A Soft_Reset Message Shall be targeted at a specific entity
 		 * depending on the type of SOP* packet used.
 		 */
-		if (port->tx_sop_type == TCPC_TX_SOP_PRIME) {
+		if (port->soft_reset_sop_type == TCPC_TX_SOP_PRIME) {
+			port->soft_reset_sop_type = TCPC_TX_SOP;
 			port->message_id_prime = 0;
 			port->rx_msgid_prime = -1;
 			tcpm_pd_send_control(port, PD_CTRL_SOFT_RESET, TCPC_TX_SOP_PRIME);
@@ -6704,7 +6710,7 @@ static void run_state_machine(struct tcpm_port *port)
 	case VCONN_SWAP_SEND_SOFT_RESET:
 		tcpm_swap_complete(port, port->swap_status);
 		if (tcpm_can_communicate_sop_prime(port)) {
-			port->tx_sop_type = TCPC_TX_SOP_PRIME;
+			port->soft_reset_sop_type = TCPC_TX_SOP_PRIME;
 			port->upcoming_state = SOFT_RESET_SEND;
 			tcpm_ams_start(port, SOFT_RESET_AMS);
 		} else {
