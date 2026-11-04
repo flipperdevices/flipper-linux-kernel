@@ -269,11 +269,30 @@ static int bq257xx_regulator_probe(struct platform_device *pdev)
 	return 0;
 }
 
+/*
+ * The charger keeps running off the battery when the system goes down, so it
+ * would go on powering a port partner while the system is off, or into the
+ * next kernel after a kexec, which assumes VBUS is off. Turn the output off.
+ */
+static void bq257xx_regulator_shutdown(struct platform_device *pdev)
+{
+	struct bq257xx_reg_data *pdata = platform_get_drvdata(pdev);
+	struct regmap *regmap = dev_get_regmap(pdev->dev.parent, NULL);
+
+	if (pdata->otg_en_gpio)
+		gpiod_set_value_cansleep(pdata->otg_en_gpio, 0);
+	if (regmap)
+		regmap_update_bits(regmap, pdata->desc.enable_reg,
+				   pdata->desc.enable_mask,
+				   pdata->desc.disable_val);
+}
+
 static struct platform_driver bq257xx_reg_driver = {
 	.driver = {
 		.name = "bq257xx-regulator",
 	},
 	.probe = bq257xx_regulator_probe,
+	.shutdown = bq257xx_regulator_shutdown,
 };
 
 module_platform_driver(bq257xx_reg_driver);
