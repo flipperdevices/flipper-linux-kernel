@@ -706,6 +706,8 @@ struct tcpm_port {
 	 */
 	enum tcpm_transmit_type vdm_sop_type;
 	enum tcpm_transmit_type soft_reset_sop_type;
+	/* The Soft_Reset in SOFT_RESET_SEND went to the cable plug */
+	bool soft_reset_sent_prime;
 	/*
 	 * Prior to discovering the port partner's Specification Revision, the
 	 * Vconn source and cable plug will use the lower of their two revisions.
@@ -4324,6 +4326,52 @@ static void tcpm_pd_ext_msg_request(struct tcpm_port *port,
 	}
 }
 
+/* Whether a cable plug control message responds to what the port sent it */
+static bool tcpm_cable_ctrl_msg_expected(struct tcpm_port *port,
+					 enum pd_ctrl_msg_type type)
+{
+	switch (type) {
+	case PD_CTRL_ACCEPT:
+		/* the Soft_Reset after a VCONN Swap */
+		return port->state == SOFT_RESET_SEND &&
+		       port->soft_reset_sent_prime;
+	case PD_CTRL_REJECT:
+	case PD_CTRL_NOT_SUPP:
+		/* a VDM, in the ready state, which takes it as the answer */
+		return port->vdm_sop_type == TCPC_TX_SOP_PRIME &&
+		       port->vdm_state > VDM_STATE_READY &&
+		       port->state == ready_state(port);
+	default:
+		return false;
+	}
+}
+
+/*
+ * A cable plug only responds to the VCONN source: to its VDMs, and to its
+ * Soft_Reset. Hand those to the usual handlers, which tell SOP' apart where
+ * it matters, and drop anything else on SOP': it comes from a cable plug
+ * that breaks the rules, and no sequence has the port answer a cable plug.
+ */
+static void tcpm_pd_cable_msg_request(struct tcpm_port *port,
+				      const struct pd_message *msg)
+{
+	unsigned int type = pd_header_type_le(msg->header);
+	bool ext = le16_to_cpu(msg->header) & PD_HEADER_EXT_HDR;
+	bool ctrl = !ext && !pd_header_cnt_le(msg->header);
+
+	if (!ext && !ctrl && type == PD_DATA_VENDOR_DEF) {
+		tcpm_pd_data_request(port, msg, TCPC_TX_SOP_PRIME);
+		return;
+	}
+	if (ctrl && tcpm_cable_ctrl_msg_expected(port, type)) {
+		tcpm_pd_ctrl_request(port, msg, TCPC_TX_SOP_PRIME);
+		return;
+	}
+
+	tcpm_log(port, "Dropping unexpected SOP' message, header: %#x",
+		 le16_to_cpu(msg->header));
+}
+
 static void tcpm_pd_rx_handler(struct kthread_work *work)
 {
 	struct pd_rx_event *event = container_of(work,
@@ -4364,13 +4412,17 @@ static void tcpm_pd_rx_handler(struct kthread_work *work)
 			if (msgid == port->rx_msgid_prime)
 				goto done;
 			port->rx_msgid_prime = msgid;
-			break;
+			tcpm_pd_cable_msg_request(port, msg);
+			goto done;
 		case TCPC_TX_SOP:
-		default:
 			if (msgid == port->rx_msgid && type != PD_CTRL_SOFT_RESET)
 				goto done;
 			port->rx_msgid = msgid;
 			break;
+		default:
+			/* Neither for the port partner nor for a supported cable plug */
+			tcpm_log(port, "Dropping message on SOP* type %d", rx_sop_type);
+			goto done;
 		}
 
 		/*
@@ -4378,7 +4430,7 @@ static void tcpm_pd_rx_handler(struct kthread_work *work)
 		 * mismatch.
 		 */
 		if (!!(le16_to_cpu(msg->header) & PD_HEADER_DATA_ROLE) ==
-		    (port->data_role == TYPEC_HOST) && rx_sop_type == TCPC_TX_SOP) {
+		    (port->data_role == TYPEC_HOST)) {
 			tcpm_log(port,
 				 "Data role mismatch, initiating error recovery");
 			tcpm_set_state(port, ERROR_RECOVERY, 0);
@@ -6490,7 +6542,9 @@ static void run_state_machine(struct tcpm_port *port)
 		 * A Soft_Reset Message Shall be targeted at a specific entity
 		 * depending on the type of SOP* packet used.
 		 */
-		if (port->soft_reset_sop_type == TCPC_TX_SOP_PRIME) {
+		port->soft_reset_sent_prime =
+			port->soft_reset_sop_type == TCPC_TX_SOP_PRIME;
+		if (port->soft_reset_sent_prime) {
 			port->soft_reset_sop_type = TCPC_TX_SOP;
 			port->message_id_prime = 0;
 			port->rx_msgid_prime = -1;
