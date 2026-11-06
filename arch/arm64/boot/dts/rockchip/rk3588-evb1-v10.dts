@@ -8,6 +8,8 @@
 
 #include <dt-bindings/gpio/gpio.h>
 #include <dt-bindings/input/input.h>
+#include <dt-bindings/media/video-interfaces.h>
+#include <dt-bindings/media/video-interface-devices.h>
 #include <dt-bindings/pinctrl/rockchip.h>
 #include <dt-bindings/soc/rockchip,vop2.h>
 #include <dt-bindings/usb/pd.h>
@@ -141,6 +143,34 @@
 				remote-endpoint = <&hdmi1_out_con>;
 			};
 		};
+	};
+
+	cam0_savdd: regulator-cam0-savdd {
+		compatible = "regulator-fixed";
+		regulator-min-microvolt = <2900000>;
+		regulator-max-microvolt = <2900000>;
+		regulator-name = "savdd_cam0";
+		vin-supply = <&vcc_3v3_s3>;
+	};
+
+	cam0_sdvdd: regulator-cam0-sdvdd {
+		compatible = "regulator-fixed";
+		enable-active-high;
+		gpio = <&gpio2 RK_PC4 GPIO_ACTIVE_HIGH>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam0_pwr>;
+		regulator-min-microvolt = <1100000>;
+		regulator-max-microvolt = <1100000>;
+		regulator-name = "sdvdd_cam0";
+		vin-supply = <&vcc5v0_sys>;
+	};
+
+	cam0_siovdd: regulator-cam0-siovdd {
+		compatible = "regulator-fixed";
+		regulator-min-microvolt = <1800000>;
+		regulator-max-microvolt = <1800000>;
+		regulator-name = "siovdd_cam0";
+		vin-supply = <&vcc_3v3_s3>;
 	};
 
 	pcie20_avdd0v85: regulator-pcie20-avdd0v85 {
@@ -541,6 +571,43 @@
 	};
 };
 
+&i2c5 {
+	status = "okay";
+
+	camera-sensor@1a {
+		compatible = "sony,imx415";
+		reg = <0x1a>;
+
+		assigned-clocks = <&cru CLK_MIPI_CAMARAOUT_M1>;
+		assigned-clock-rates = <37125000>;
+		avdd-supply = <&cam0_savdd>;
+		clocks = <&cru CLK_MIPI_CAMARAOUT_M1>;
+		dvdd-supply = <&cam0_sdvdd>;
+		orientation = <MEDIA_ORIENTATION_EXTERNAL>;
+		ovdd-supply = <&cam0_siovdd>;
+		pinctrl-names = "default";
+		pinctrl-0 = <&cam0_rstn &mipim0_camera1_clk>;
+		reset-gpios = <&gpio1 RK_PA0 GPIO_ACTIVE_LOW>;
+
+		port {
+			imx415_output: endpoint {
+				data-lanes = <1 2 3 4>;
+				link-frequencies = /bits/ 64 <445500000>;
+				/*
+				 * TODO: this is connected to the same DC-PHY,
+				 * that also drives the DSI display. Using it
+				 * in RX mode is not yet supported and thus the
+				 * related CSI2 hardware IP (&csi0) has also not
+				 * yet been added to upstream DT. Thus this is
+				 * as far as we can get.
+				 *
+				 * remote-endpoint = <&csi0_input>;
+				 */
+			};
+		};
+	};
+};
+
 &i2c6 {
 	status = "okay";
 
@@ -706,6 +773,16 @@
 
 		bt_wake_gpio: bluetooth-wake {
 			rockchip,pins = <3 RK_PA1 RK_FUNC_GPIO &pcfg_pull_up>;
+		};
+	};
+
+	camera1 {
+		cam0_rstn: cam0-rstn-pinctrl {
+			rockchip,pins = <1 RK_PA0 RK_FUNC_GPIO &pcfg_pull_none>;
+		};
+
+		cam0_pwr: cam0-pwren-pinctrl {
+			rockchip,pins = <2 RK_PC4 RK_FUNC_GPIO &pcfg_pull_none>;
 		};
 	};
 
