@@ -634,6 +634,15 @@ struct tcpm_port {
 	u8 vdo_count;
 	/* VDO to retry if UFP responder replied busy */
 	u32 vdo_retry;
+	/*
+	 * The Structured VDM request sent last, until its response comes, to
+	 * send again if another AMS gets in its way
+	 */
+	u32 vdm_req[VDO_MAX_SIZE];
+	u8 vdm_req_count;
+	enum tcpm_transmit_type vdm_req_sop_type;
+	u32 vdm_req_retries;
+	bool vdm_req_resend;
 
 	/* PPS */
 	struct pd_pps_data pps_data;
@@ -1904,13 +1913,38 @@ static bool tcpm_ams_interruptible(struct tcpm_port *port)
 	return true;
 }
 
+/*
+ * Another AMS got in the way of the Structured VDM request in vdm_req: send it
+ * again once the port is idle, as its sender, e.g. an Alternate Mode driver,
+ * waits for the response.
+ */
+static bool tcpm_vdm_req_defer(struct tcpm_port *port)
+{
+	if (!port->vdm_req_count || port->vdm_req_retries >= 3)
+		return false;
+
+	port->vdm_req_resend = true;
+	return true;
+}
+
+/*
+ * A VDM exchange ended, so the request in vdm_req got its answer, unless it is
+ * waiting to be sent again: the exchange was then one the partner started
+ */
+static void tcpm_vdm_req_done(struct tcpm_port *port)
+{
+	if (!port->vdm_req_resend)
+		port->vdm_req_count = 0;
+}
+
 static void tcpm_vdm_handle_ams_interruption(struct tcpm_port *port)
 {
 	tcpm_log(port, "VDM AMS state machine got interrupted");
 
 	port->vdm_state = VDM_STATE_ERR_BUSY;
 	tcpm_ams_finish(port);
-	mod_vdm_delayed_work(port, 0);
+	/* Leave the interrupting AMS time to finish */
+	mod_vdm_delayed_work(port, tcpm_vdm_req_defer(port) ? PD_T_VDM_BUSY : 0);
 }
 
 static int tcpm_ams_start(struct tcpm_port *port, enum tcpm_ams ams)
@@ -2026,6 +2060,21 @@ static void tcpm_queue_vdm(struct tcpm_port *port, const u32 header,
 	port->vdo_count = cnt + 1;
 	port->vdo_data[0] = header;
 	memcpy(&port->vdo_data[1], data, sizeof(u32) * cnt);
+
+	/* Attention expects no response, so nothing can cut it short */
+	if (PD_VDO_SVDM(header) && PD_VDO_CMDT(header) == CMDT_INIT &&
+	    PD_VDO_CMD(header) != CMD_ATTENTION) {
+		memcpy(port->vdm_req, port->vdo_data,
+		       sizeof(u32) * port->vdo_count);
+		port->vdm_req_count = port->vdo_count;
+		port->vdm_req_sop_type = tx_sop_type;
+		port->vdm_req_retries = 0;
+		port->vdm_req_resend = false;
+	} else {
+		/* No request of ours awaits its response while one goes out */
+		tcpm_vdm_req_done(port);
+	}
+
 	/* Set ready, vdm state machine will actually send */
 	port->vdm_retries = 0;
 	port->vdm_state = VDM_STATE_READY;
@@ -2034,6 +2083,31 @@ static void tcpm_queue_vdm(struct tcpm_port *port, const u32 header,
 	port->tx_sop_type = tx_sop_type;
 
 	mod_vdm_delayed_work(port, 0);
+}
+
+/*
+ * Queue the deferred Structured VDM request again if the port is ready and no
+ * other AMS runs. Leaves running the VDM state machine to the caller, which is
+ * vdm_state_machine_work() only.
+ */
+static bool tcpm_vdm_resend(struct tcpm_port *port)
+{
+	if (!port->vdm_req_resend || port->vdm_state > VDM_STATE_DONE ||
+	    !tcpm_can_send_vdm(port->state) || port->ams != NONE_AMS)
+		return false;
+
+	tcpm_log(port, "Sending VDM request %#x again", port->vdm_req[0]);
+	port->vdm_req_resend = false;
+	port->vdm_req_retries++;
+	memcpy(port->vdo_data, port->vdm_req,
+	       sizeof(u32) * port->vdm_req_count);
+	port->vdo_count = port->vdm_req_count;
+	port->tx_sop_type = port->vdm_req_sop_type;
+	port->vdm_retries = 0;
+	port->vdm_state = VDM_STATE_READY;
+	port->vdm_sm_running = true;
+
+	return true;
 }
 
 static void tcpm_queue_vdm_work(struct kthread_work *work)
@@ -2841,6 +2915,15 @@ static void tcpm_handle_vdm_request(struct tcpm_port *port,
 	adev = typec_match_altmode(port->port_altmode, ALTMODE_DISCOVERY_MAX,
 				   PD_VDO_VID(p[0]), PD_VDO_OPOS(p[0]));
 
+	/* A late answer settles a request waiting to be sent again */
+	if (port->vdm_req_resend && PD_VDO_SVDM(p[0]) &&
+	    PD_VDO_CMDT(p[0]) != CMDT_INIT &&
+	    PD_VDO_VID(p[0]) == PD_VDO_VID(port->vdm_req[0]) &&
+	    PD_VDO_CMD(p[0]) == PD_VDO_CMD(port->vdm_req[0])) {
+		port->vdm_req_resend = false;
+		port->vdm_req_count = 0;
+	}
+
 	if (port->vdm_state == VDM_STATE_BUSY) {
 		/* If UFP responded busy retry after timeout */
 		if (PD_VDO_CMDT(p[0]) == CMDT_RSP_BUSY) {
@@ -2851,6 +2934,7 @@ static void tcpm_handle_vdm_request(struct tcpm_port *port,
 			return;
 		}
 		port->vdm_state = VDM_STATE_DONE;
+		tcpm_vdm_req_done(port);
 	}
 
 	if (PD_VDO_SVDM(p[0]) && (adev || tcpm_vdm_ams(port) || port->nr_snk_vdo)) {
@@ -3021,6 +3105,8 @@ static void vdm_run_state_machine(struct tcpm_port *port)
 				res = tcpm_ams_start(port, DISCOVER_IDENTITY);
 				if (res == -EAGAIN) {
 					port->vdo_data[0] = 0;
+					/* Discovery retries on its own */
+					port->vdm_req_count = 0;
 					mod_vdm_discovery_delayed_work(port,
 							SEND_DISCOVERY_VDM_RETRY_MS);
 				}
@@ -3050,6 +3136,10 @@ static void vdm_run_state_machine(struct tcpm_port *port)
 
 			if (res < 0) {
 				port->vdm_state = VDM_STATE_ERR_BUSY;
+				if (res == -EAGAIN && tcpm_vdm_req_defer(port))
+					mod_vdm_delayed_work(port, PD_T_VDM_BUSY);
+				else
+					tcpm_vdm_req_done(port);
 				return;
 			}
 		}
@@ -3069,6 +3159,7 @@ static void vdm_run_state_machine(struct tcpm_port *port)
 		break;
 	case VDM_STATE_BUSY:
 		port->vdm_state = VDM_STATE_ERR_TMOUT;
+		tcpm_vdm_req_done(port);
 		if (port->ams != NONE_AMS)
 			tcpm_ams_finish(port);
 		break;
@@ -3081,6 +3172,7 @@ static void vdm_run_state_machine(struct tcpm_port *port)
 		if (port->state == SRC_VDM_IDENTITY_REQUEST) {
 			tcpm_ams_finish(port);
 			port->vdo_data[0] = 0;
+			tcpm_vdm_req_done(port);
 			port->vdm_state = VDM_STATE_DONE;
 			tcpm_set_state(port, SRC_SEND_CAPABILITIES, 0);
 		/*
@@ -3098,6 +3190,7 @@ static void vdm_run_state_machine(struct tcpm_port *port)
 		} else {
 			tcpm_ams_finish(port);
 			port->vdo_data[0] = 0;
+			tcpm_vdm_req_done(port);
 			if (port->tx_sop_type == TCPC_TX_SOP)
 				break;
 			/* Handle SOP' Transmission Errors */
@@ -3176,6 +3269,15 @@ static void vdm_state_machine_work(struct kthread_work *work)
 	enum vdm_states prev_state;
 
 	mutex_lock(&port->lock);
+
+	/*
+	 * Wait for the AMS or the VDM exchange in the way of a deferred request
+	 * to finish, or if the port left the ready state, for it to get back
+	 * there. The state machine below may set the next run sooner.
+	 */
+	if (port->vdm_req_resend && !tcpm_vdm_resend(port) &&
+	    tcpm_can_send_vdm(port->state))
+		mod_vdm_delayed_work(port, PD_T_VDM_BUSY);
 
 	/*
 	 * Continue running as long as the port is not busy and there was
@@ -3935,6 +4037,7 @@ static void tcpm_pd_ctrl_request(struct tcpm_port *port,
 		case SNK_READY:
 			if (port->vdm_state > VDM_STATE_READY) {
 				port->vdm_state = VDM_STATE_DONE;
+				tcpm_vdm_req_done(port);
 				/*
 				 * A partner without Structured VDM support answers
 				 * discovery with Not_Supported: there is nothing left
@@ -5266,6 +5369,8 @@ static void tcpm_reset_port(struct tcpm_port *port)
 	port->in_ams = false;
 	port->ams = NONE_AMS;
 	port->vdm_sm_running = false;
+	port->vdm_req_count = 0;
+	port->vdm_req_resend = false;
 	tcpm_update_vdm_discovery_state(port, VDM_DISCOVERY_UNKNOWN);
 	mod_vdm_discovery_cancel_delayed_work(port);
 	tcpm_unregister_altmodes(port);
@@ -5755,6 +5860,13 @@ static void run_state_machine(struct tcpm_port *port)
 		}
 
 		/*
+		 * e.g. a Soft_Reset interrupted a VDM request: leave the partner
+		 * time for what it sends right after the contract
+		 */
+		if (port->vdm_req_resend)
+			mod_vdm_delayed_work(port, PD_T_VDM_BUSY);
+
+		/*
 		 * 6.4.4.3.1 Discover Identity
 		 * "The Discover Identity Command Shall only be sent to SOP when there is an
 		 * Explicit Contract."
@@ -6154,6 +6266,13 @@ static void run_state_machine(struct tcpm_port *port)
 		}
 
 		/*
+		 * e.g. a Soft_Reset interrupted a VDM request: leave the partner
+		 * time for what it sends right after the contract
+		 */
+		if (port->vdm_req_resend)
+			mod_vdm_delayed_work(port, PD_T_VDM_BUSY);
+
+		/*
 		 * 6.4.4.3.1 Discover Identity
 		 * "The Discover Identity Command Shall only be sent to SOP when there is an
 		 * Explicit Contract."
@@ -6213,6 +6332,9 @@ static void run_state_machine(struct tcpm_port *port)
 		port->hard_reset_count++;
 		port->tcpc->set_pd_rx(port->tcpc, false);
 		tcpm_unregister_altmodes(port);
+		/* A Hard Reset exits Alternate Modes, so drop what was for them */
+		port->vdm_req_count = 0;
+		port->vdm_req_resend = false;
 		port->nr_sink_caps = 0;
 		tcpm_update_vdm_discovery_state(port, VDM_DISCOVERY_UNKNOWN);
 		mod_vdm_discovery_cancel_delayed_work(port);
