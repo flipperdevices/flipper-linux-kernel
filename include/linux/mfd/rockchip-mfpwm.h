@@ -456,7 +456,8 @@ extern void mfpwm_release(const struct rockchip_mfpwm_func *pwmf);
  * @pwmf: pointer to a &struct rockchip_mfpwm_func
  *
  * Check the hardware registers of the PWM hardware to determine which mode it
- * is currently operating in, if any.
+ * is currently operating in, if any. Does not require exclusive access to the
+ * hardware through mfpwm_acquire/release.
  *
  * Returns:
  *   - %-EINVAL if @pwmf is %NULL or an error pointer

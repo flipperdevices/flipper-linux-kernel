@@ -25,13 +25,16 @@
 #include <linux/platform_device.h>
 #include <linux/spinlock.h>
 
+static const char *const pwm_clk_names[] = {
+	"pwm", "osc", "rc"
+};
+
 /**
  * struct rockchip_mfpwm - private mfpwm driver instance state struct
- * @pdev: pointer to this instance's &struct platform_device
+ * @dev: pointer to this instance's &struct device
  * @base: pointer to the memory mapped registers of this device
- * @pwm_clk: pointer to the PLL clock the PWM signal may be derived from
- * @osc_clk: pointer to the fixed crystal the PWM signal may be derived from
- * @rc_clk: pointer to the RC oscillator the PWM signal may be derived from
+ * @pwm_clks: array of pointers to the PLL, fixed crystal and RC oscillator
+ *            &struct clk
  * @chosen_clk: a clk-mux of pwm_clk, osc_clk and rc_clk
  * @pclk: pointer to the APB bus clock needed for mmio register access
  * @active_func: pointer to the currently active device function, or %NULL if no
@@ -44,11 +47,9 @@
  * @irq: the IRQ number of this device
  */
 struct rockchip_mfpwm {
-	struct platform_device *pdev;
+	struct device *dev;
 	void __iomem *base;
-	struct clk *pwm_clk;
-	struct clk *osc_clk;
-	struct clk *rc_clk;
+	struct clk *pwm_clks[ARRAY_SIZE(pwm_clk_names)];
 	struct clk *chosen_clk;
 	struct clk *pclk;
 	struct rockchip_mfpwm_func *active_func;
@@ -59,78 +60,47 @@ struct rockchip_mfpwm {
 
 static atomic_t subdev_id = ATOMIC_INIT(0);
 
-static inline struct rockchip_mfpwm *to_rockchip_mfpwm(struct platform_device *pdev)
-{
-	return platform_get_drvdata(pdev);
-}
-
-static int mfpwm_check_pwmf(const struct rockchip_mfpwm_func *pwmf,
-			    const char *fname)
-{
-	struct device *dev = &pwmf->parent->pdev->dev;
-
-	if (IS_ERR_OR_NULL(pwmf)) {
-		dev_warn(dev, "called %s with an erroneous handle, no effect\n",
-			 fname);
-		return -EINVAL;
-	}
-
-	if (IS_ERR_OR_NULL(pwmf->parent)) {
-		dev_warn(dev, "called %s with an erroneous mfpwm_func parent, no effect\n",
-			 fname);
-		return -EINVAL;
-	}
-
-	return 0;
-}
-
 __attribute__((nonnull))
 static int mfpwm_do_acquire(struct rockchip_mfpwm_func *pwmf)
 {
 	struct rockchip_mfpwm *mfpwm = pwmf->parent;
-	unsigned int cnt;
 
+	/*
+	 * If some other function driver already has exclusive access to the
+	 * hardware, let the driver trying to do an acquire know.
+	 */
 	if (mfpwm->active_func && pwmf->id != mfpwm->active_func->id)
 		return -EBUSY;
 
 	if (!mfpwm->active_func)
 		mfpwm->active_func = pwmf;
 
-	if (!check_add_overflow(mfpwm->acquire_cnt, 1, &cnt)) {
-		mfpwm->acquire_cnt = cnt;
-	} else {
-		dev_warn(&mfpwm->pdev->dev, "prevented acquire counter overflow in %s\n",
-			 __func__);
+	/* Prevent resource leaks in function drivers from turning into more bugs */
+	if (WARN_ON(check_add_overflow(mfpwm->acquire_cnt, 1, &mfpwm->acquire_cnt))) {
+		mfpwm->acquire_cnt = UINT_MAX;
 		return -EOVERFLOW;
 	}
 
-	dev_dbg(&mfpwm->pdev->dev, "%d acquired mfpwm, acquires now at %u\n",
-		pwmf->id, mfpwm->acquire_cnt);
-
+	/* Enable the bus clock so hardware registers can be accessed. */
 	return clk_enable(mfpwm->pclk);
 }
 
 int mfpwm_acquire(struct rockchip_mfpwm_func *pwmf)
 {
-	struct rockchip_mfpwm *mfpwm;
-	unsigned long flags;
-	int ret = 0;
 
-	ret = mfpwm_check_pwmf(pwmf, "mfpwm_acquire");
-	if (ret)
-		return ret;
+	if (WARN_ON(IS_ERR_OR_NULL(pwmf)) || WARN_ON(IS_ERR_OR_NULL(pwmf->parent)))
+		return -EINVAL;
 
-	mfpwm = pwmf->parent;
-	dev_dbg(&mfpwm->pdev->dev, "%d is attempting to acquire\n", pwmf->id);
+	/*
+	 * Take the state lock and increase the active counter if pwmf is either
+	 * already the currently active function driver that has ownership of
+	 * the hardware, or if no other function driver is making a claim. If a
+	 * different function driver has exclusive ownership currently, return
+	 * -EBUSY to the calling driver.
+	 */
+	guard(spinlock_irqsave)(&pwmf->parent->state_lock);
 
-	if (!spin_trylock_irqsave(&mfpwm->state_lock, flags))
-		return -EBUSY;
-
-	ret = mfpwm_do_acquire(pwmf);
-
-	spin_unlock_irqrestore(&mfpwm->state_lock, flags);
-
-	return ret;
+	return mfpwm_do_acquire(pwmf);
 }
 EXPORT_SYMBOL_NS_GPL(mfpwm_acquire, "ROCKCHIP_MFPWM");
 
@@ -146,8 +116,9 @@ static void mfpwm_do_release(const struct rockchip_mfpwm_func *pwmf)
 		return;
 
 	/*
-	 * No need to check_sub_overflow here, !mfpwm->active_func above catches
-	 * this type of problem already.
+	 * No need to check_sub_overflow here, !mfpwm->active_func in
+	 * mfpwm_do_acquire() catches what would otherwise be an underflow
+	 * of the active_cnt already.
 	 */
 	mfpwm->acquire_cnt--;
 
@@ -159,19 +130,16 @@ static void mfpwm_do_release(const struct rockchip_mfpwm_func *pwmf)
 
 void mfpwm_release(const struct rockchip_mfpwm_func *pwmf)
 {
-	struct rockchip_mfpwm *mfpwm;
-	unsigned long flags;
-
-	if (mfpwm_check_pwmf(pwmf, "mfpwm_release"))
+	if (WARN_ON(IS_ERR_OR_NULL(pwmf)) || WARN_ON(IS_ERR_OR_NULL(pwmf->parent)))
 		return;
 
-	mfpwm = pwmf->parent;
+	/*
+	 * Take the state lock and decrease the active counter if pwmf is the
+	 * active function driver that has ownership of the hardware right now.
+	 */
+	guard(spinlock_irqsave)(&pwmf->parent->state_lock);
 
-	spin_lock_irqsave(&mfpwm->state_lock, flags);
 	mfpwm_do_release(pwmf);
-	dev_dbg(&mfpwm->pdev->dev, "%d released mfpwm, acquires now at %u\n",
-		pwmf->id, mfpwm->acquire_cnt);
-	spin_unlock_irqrestore(&mfpwm->state_lock, flags);
 }
 EXPORT_SYMBOL_NS_GPL(mfpwm_release, "ROCKCHIP_MFPWM");
 
@@ -180,18 +148,26 @@ int mfpwm_get_mode(const struct rockchip_mfpwm_func *pwmf)
 	struct rockchip_mfpwm *mfpwm;
 	int ret;
 
-	ret = mfpwm_check_pwmf(pwmf, "mfpwm_acquire");
-	if (ret)
-		return ret;
+	if (WARN_ON(IS_ERR_OR_NULL(pwmf)) || WARN_ON(IS_ERR_OR_NULL(pwmf->parent)))
+		return -EINVAL;
 
 	mfpwm = pwmf->parent;
 
+	clk_enable(mfpwm->pclk);
+
 	guard(spinlock_irqsave)(&mfpwm->state_lock);
 
-	if (!rockchip_pwm_v4_is_enabled(mfpwm_reg_read(mfpwm->base, PWMV4_REG_ENABLE)))
-		return -1;
+	if (!rockchip_pwm_v4_is_enabled(mfpwm_reg_read(mfpwm->base, PWMV4_REG_ENABLE))) {
+		ret = -1;
+		goto out_disable_clk;
+	}
 
-	return mfpwm_reg_read(mfpwm->base, PWMV4_REG_CTRL) & PWMV4_MODE_MASK;
+	ret = mfpwm_reg_read(mfpwm->base, PWMV4_REG_CTRL) & PWMV4_MODE_MASK;
+
+out_disable_clk:
+	clk_disable(mfpwm->pclk);
+
+	return ret;
 }
 EXPORT_SYMBOL_NS_GPL(mfpwm_get_mode, "ROCKCHIP_MFPWM");
 
@@ -211,7 +187,7 @@ static int mfpwm_register_subdev(struct rockchip_mfpwm *mfpwm,
 	struct rockchip_mfpwm_func *func;
 	struct mfd_cell cell = {};
 
-	func = devm_kzalloc(&mfpwm->pdev->dev, sizeof(*func), GFP_KERNEL);
+	func = devm_kzalloc(mfpwm->dev, sizeof(*func), GFP_KERNEL);
 	if (IS_ERR(func))
 		return PTR_ERR(func);
 	func->irq = mfpwm->irq;
@@ -223,7 +199,7 @@ static int mfpwm_register_subdev(struct rockchip_mfpwm *mfpwm,
 	cell.platform_data = func;
 	cell.pdata_size = sizeof(*func);
 
-	return devm_mfd_add_devices(&mfpwm->pdev->dev, func->id, &cell, 1, NULL,
+	return devm_mfd_add_devices(mfpwm->dev, func->id, &cell, 1, NULL,
 				    0, NULL);
 }
 
@@ -244,107 +220,87 @@ static int mfpwm_register_subdevs(struct rockchip_mfpwm *mfpwm)
 
 static int rockchip_mfpwm_probe(struct platform_device *pdev)
 {
+	const char *mux_p_names[ARRAY_SIZE(pwm_clk_names)];
 	struct device *dev = &pdev->dev;
-	struct rockchip_mfpwm *mfpwm;
+	struct rockchip_mfpwm *ddata;
 	char *clk_mux_name;
-	const char *mux_p_names[3];
-	int ret = 0;
+	unsigned int i;
+	int ret;
 
-	mfpwm = devm_kzalloc(&pdev->dev, sizeof(*mfpwm), GFP_KERNEL);
-	if (IS_ERR(mfpwm))
-		return PTR_ERR(mfpwm);
+	ddata = devm_kzalloc(&pdev->dev, sizeof(*ddata), GFP_KERNEL);
+	if (IS_ERR(ddata))
+		return PTR_ERR(ddata);
 
-	mfpwm->pdev = pdev;
+	ddata->dev = &pdev->dev;
 
-	spin_lock_init(&mfpwm->state_lock);
+	spin_lock_init(&ddata->state_lock);
 
-	mfpwm->base = devm_platform_ioremap_resource(pdev, 0);
-	if (IS_ERR(mfpwm->base))
-		return dev_err_probe(dev, PTR_ERR(mfpwm->base),
-				     "failed to ioremap address\n");
+	ddata->base = devm_platform_ioremap_resource(pdev, 0);
+	if (IS_ERR(ddata->base))
+		return PTR_ERR(ddata->base);
 
-	mfpwm->pclk = devm_clk_get_prepared(dev, "pclk");
-	if (IS_ERR(mfpwm->pclk))
-		return dev_err_probe(dev, PTR_ERR(mfpwm->pclk),
+	ddata->pclk = devm_clk_get_prepared(dev, "pclk");
+	if (IS_ERR(ddata->pclk))
+		return dev_err_probe(dev, PTR_ERR(ddata->pclk),
 				     "couldn't get and prepare 'pclk' clock\n");
 
-	mfpwm->irq = platform_get_irq(pdev, 0);
-	if (mfpwm->irq < 0)
-		return dev_err_probe(dev, mfpwm->irq, "couldn't get irq 0\n");
+	ddata->irq = platform_get_irq(pdev, 0);
+	if (ddata->irq < 0)
+		return dev_err_probe(dev, ddata->irq, "couldn't get irq 0\n");
 
-	mfpwm->pwm_clk = devm_clk_get_prepared(dev, "pwm");
-	if (IS_ERR(mfpwm->pwm_clk))
-		return dev_err_probe(dev, PTR_ERR(mfpwm->pwm_clk),
-				     "couldn't get and prepare 'pwm' clock\n");
-
-	mfpwm->osc_clk = devm_clk_get_prepared(dev, "osc");
-	if (IS_ERR(mfpwm->osc_clk))
-		return dev_err_probe(dev, PTR_ERR(mfpwm->osc_clk),
-				     "couldn't get and prepare 'osc' clock\n");
-
-	mfpwm->rc_clk = devm_clk_get_prepared(dev, "rc");
-	if (IS_ERR(mfpwm->rc_clk))
-		return dev_err_probe(dev, PTR_ERR(mfpwm->rc_clk),
-				     "couldn't get and prepare 'rc' clock\n");
+	for (i = 0; i < ARRAY_SIZE(pwm_clk_names); i++) {
+		ddata->pwm_clks[i] = devm_clk_get_prepared(dev, pwm_clk_names[i]);
+		if (IS_ERR(ddata->pwm_clks[i]))
+			return dev_err_probe(dev, PTR_ERR(ddata->pwm_clks[i]),
+					     "couldn't get and prepare '%s' clock\n",
+					     pwm_clk_names[i]);
+		mux_p_names[i] = __clk_get_name(ddata->pwm_clks[i]);
+	}
 
 	clk_mux_name = devm_kasprintf(dev, GFP_KERNEL, "%s_chosen", dev_name(dev));
 	if (!clk_mux_name)
 		return -ENOMEM;
 
-	mux_p_names[0] = __clk_get_name(mfpwm->pwm_clk);
-	mux_p_names[1] = __clk_get_name(mfpwm->osc_clk);
-	mux_p_names[2] = __clk_get_name(mfpwm->rc_clk);
-	mfpwm->chosen_clk = clk_register_mux(dev, clk_mux_name, mux_p_names,
+	ddata->chosen_clk = clk_register_mux(dev, clk_mux_name, mux_p_names,
 					     ARRAY_SIZE(mux_p_names),
 					     CLK_SET_RATE_PARENT,
-					     mfpwm->base + PWMV4_REG_CLK_CTRL,
+					     ddata->base + PWMV4_REG_CLK_CTRL,
 					     PWMV4_CLK_SRC_SHIFT, PWMV4_CLK_SRC_WIDTH,
 					     CLK_MUX_HIWORD_MASK, NULL);
-	ret = clk_prepare(mfpwm->chosen_clk);
-	if (ret) {
-		dev_err(dev, "failed to prepare PWM clock mux: %pe\n",
-			ERR_PTR(ret));
-		return ret;
-	}
+	ret = clk_prepare(ddata->chosen_clk);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to prepare PWM clock mux\n");
 
-	platform_set_drvdata(pdev, mfpwm);
+	platform_set_drvdata(pdev, ddata);
 
-	ret = mfpwm_register_subdevs(mfpwm);
-	if (ret) {
-		dev_err(dev, "failed to register sub-devices: %pe\n",
-			ERR_PTR(ret));
-		return ret;
-	}
+	ret = mfpwm_register_subdevs(ddata);
+	if (ret)
+		return dev_err_probe(dev, ret, "failed to register sub-devices\n");
 
-	return ret;
+	return 0;
 }
 
 static void rockchip_mfpwm_remove(struct platform_device *pdev)
 {
-	struct rockchip_mfpwm *mfpwm = to_rockchip_mfpwm(pdev);
-	unsigned long flags;
+	struct rockchip_mfpwm *mfpwm = platform_get_drvdata(pdev);
 
-	spin_lock_irqsave(&mfpwm->state_lock, flags);
+	guard(spinlock_irqsave)(&mfpwm->state_lock);
 
 	if (mfpwm->chosen_clk) {
 		clk_unprepare(mfpwm->chosen_clk);
 		clk_unregister_mux(mfpwm->chosen_clk);
 	}
-
-	spin_unlock_irqrestore(&mfpwm->state_lock, flags);
 }
 
 static const struct of_device_id rockchip_mfpwm_of_match[] = {
-	{
-		.compatible = "rockchip,rk3576-pwm",
-	},
+	{ .compatible = "rockchip,rk3576-pwm" },
 	{ /* sentinel */ }
 };
 MODULE_DEVICE_TABLE(of, rockchip_mfpwm_of_match);
 
 static struct platform_driver rockchip_mfpwm_driver = {
 	.driver = {
-		.name = KBUILD_MODNAME,
+		.name = "rockchip-mfpwm",
 		.of_match_table = rockchip_mfpwm_of_match,
 	},
 	.probe = rockchip_mfpwm_probe,
