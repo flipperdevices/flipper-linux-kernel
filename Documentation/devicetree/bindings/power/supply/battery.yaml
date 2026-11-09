@@ -111,10 +111,20 @@ properties:
       for each of the battery capacity lookup table.
 
   operating-range-celsius:
-    description: operating temperature range of a battery
+    description: operating temperature range of a battery, in which it can be
+      discharged. Charging may be further restricted by
+      charge-temp-range-celsius.
     items:
       - description: minimum temperature at which battery can operate
       - description: maximum temperature at which battery can operate
+
+  charge-temp-range-celsius:
+    description: temperature range in which the battery can be charged, within
+      operating-range-celsius. If absent, the battery can be charged in all of
+      operating-range-celsius. Outside this range the battery is not charged.
+    items:
+      - description: minimum temperature at which battery can be charged
+      - description: maximum temperature at which battery can be charged
 
   ambient-celsius:
     description: safe range of ambient temperature
@@ -123,10 +133,38 @@ properties:
       - description: alert when ambient temperature is higher than this value
 
   alert-celsius:
-    description: safe range of battery temperature
+    description: safe range of battery temperature. Where a limit of this
+      range lies within charge-temp-range-celsius, the battery is charged
+      between the two limits with the alert-low-temp-charge-* or
+      alert-high-temp-charge-* settings. Each of those that is absent falls
+      back to the corresponding constant-charge-* setting.
     items:
       - description: alert when battery temperature is lower than this value
       - description: alert when battery temperature is higher than this value
+
+  alert-low-temp-charge-current-microamp:
+    description: charge current in place of
+      constant-charge-current-max-microamp, while the battery temperature is
+      between the lower limits of charge-temp-range-celsius and alert-celsius
+    minimum: 1
+
+  alert-low-temp-charge-voltage-microvolt:
+    description: charge voltage in place of
+      constant-charge-voltage-max-microvolt, while the battery temperature is
+      between the lower limits of charge-temp-range-celsius and alert-celsius
+    minimum: 1
+
+  alert-high-temp-charge-current-microamp:
+    description: charge current in place of
+      constant-charge-current-max-microamp, while the battery temperature is
+      between the upper limits of alert-celsius and charge-temp-range-celsius
+    minimum: 1
+
+  alert-high-temp-charge-voltage-microvolt:
+    description: charge voltage in place of
+      constant-charge-voltage-max-microvolt, while the battery temperature is
+      between the upper limits of alert-celsius and charge-temp-range-celsius
+    minimum: 1
 
   # The volt-drop* -properties describe voltage-drop for a battery, described
   # as VDROP in:
@@ -200,8 +238,11 @@ examples:
         ocv-capacity-table-2 = <4250000 100>, <4200000 95>, <4185000 90>;
         resistance-temp-table = <20 100>, <10 90>, <0 80>, <(-10) 60>;
         operating-range-celsius = <(-30) 50>;
+        charge-temp-range-celsius = <0 45>;
         ambient-celsius = <(-5) 50>;
         alert-celsius = <0 40>;
+        alert-high-temp-charge-current-microamp = <450000>;
+        alert-high-temp-charge-voltage-microvolt = <4100000>;
       };
 
       charger@11 {
