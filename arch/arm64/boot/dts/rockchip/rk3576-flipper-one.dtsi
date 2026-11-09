@@ -22,7 +22,10 @@
 
 	battery: battery {
 		compatible = "simple-battery";
+		alert-celsius = <10 45>;
+		alert-low-temp-charge-current-microamp = <620000>;
 		charge-full-design-microamp-hours = <3100000>;
+		charge-temp-range-celsius = <0 45>;
 		constant-charge-current-max-microamp = <3100000>;
 		constant-charge-voltage-max-microvolt = <8650000>;
 		device-chemistry = "lithium-ion-polymer";
