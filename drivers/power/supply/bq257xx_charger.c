@@ -114,6 +114,14 @@ struct bq257xx_chip_info {
  * @vsys_min: minimum system voltage (uV)
  * @ichg_target: charge current set by userspace, 0 if none (uA)
  * @vbatreg_target: charge voltage set by userspace, 0 if none (uV)
+ * @temp_charge_min: no charging below this battery temperature (C)
+ * @temp_charge_max: no charging above this battery temperature (C)
+ * @temp_alert_min: charge with @alert_low_* below this battery temperature (C)
+ * @temp_alert_max: charge with @alert_high_* above this battery temperature (C)
+ * @alert_low_ichg: charge current below @temp_alert_min (uA)
+ * @alert_low_vbatreg: charge voltage below @temp_alert_min (uV)
+ * @alert_high_ichg: charge current above @temp_alert_max (uA)
+ * @alert_high_vbatreg: charge voltage above @temp_alert_max (uV)
  * @wdt_work: kicks the device watchdog, and restores the device if it expired
  */
 struct bq257xx_chg {
@@ -148,6 +156,14 @@ struct bq257xx_chg {
 	u32 vsys_min;
 	int ichg_target;
 	int vbatreg_target;
+	int temp_charge_min;
+	int temp_charge_max;
+	int temp_alert_min;
+	int temp_alert_max;
+	u32 alert_low_ichg;
+	u32 alert_low_vbatreg;
+	u32 alert_high_ichg;
+	u32 alert_high_vbatreg;
 	struct delayed_work wdt_work;
 };
 
@@ -857,6 +873,96 @@ static int bq25703_hw_init(struct bq257xx_chg *pdata)
 	return ret;
 }
 
+/*
+ * The JEITA_ISETC or JEITA_ISETH value for the largest of 20%, 40% or all of
+ * ICHG within @ua, or 0 to stop charging
+ */
+static u8 bq25792_jeita_iset(struct bq257xx_chg *pdata, u32 ua)
+{
+	if (ua >= pdata->ichg_max)
+		return 3;
+	if ((u64)ua * 5 >= 2ULL * pdata->ichg_max)
+		return 2;
+	if ((u64)ua * 5 >= pdata->ichg_max)
+		return 1;
+	return 0;
+}
+
+/**
+ * bq25792_set_jeita() - Program the battery charging temperature range
+ * @pdata: driver platform data
+ *
+ * With the recommended 103AT network on TS, charging stops below 0C and above
+ * 60C. TS_COOL (5 to 20C) and TS_WARM (40 to 55C) bound the full charge rate,
+ * and the bands beyond them charge with 20%, 40% or all of ICHG, or not at
+ * all, the warm one with VREG lowered by 100 to 800mV. Round towards less
+ * charging where the device cannot follow the battery. Keep the device
+ * defaults for a battery without temperature limits.
+ *
+ * Return: Returns 0 on success or error code on error.
+ */
+static int bq25792_set_jeita(struct bq257xx_chg *pdata)
+{
+	int cool = max(pdata->temp_alert_min, pdata->temp_charge_min);
+	int warm = min(pdata->temp_alert_max, pdata->temp_charge_max);
+	struct regmap *regmap = pdata->bq->regmap;
+	u8 ts_cool, ts_warm, isetc, iseth, vset;
+	u32 drop_mv;
+	int ret;
+
+	if (cool == INT_MIN && warm == INT_MAX)
+		return 0;
+
+	ts_cool = DIV_ROUND_UP(clamp(cool, 5, 20) - 5, 5);
+	ts_warm = (clamp(warm, 40, 55) - 40) / 5;
+
+	if (pdata->temp_charge_min > 0) {
+		dev_warn(pdata->dev,
+			 "Disabling charge at 0C-%dC, as the battery cannot charge below %dC\n",
+			 5 * (ts_cool + 1), pdata->temp_charge_min);
+		isetc = 0;
+	} else if (pdata->alert_low_vbatreg < pdata->vbat_max) {
+		dev_warn(pdata->dev,
+			 "Disabling charge at 0C-%dC, as the battery cannot take voltage above %uuV at that temperature\n",
+			 5 * (ts_cool + 1), pdata->alert_low_vbatreg);
+		isetc = 0;
+	} else {
+		isetc = bq25792_jeita_iset(pdata, pdata->alert_low_ichg);
+	}
+
+	/* JEITA_VSET: 0 stops charging, 1 to 6 lower VREG, 7 keeps it */
+	drop_mv = 0;
+	if (pdata->alert_high_vbatreg < pdata->vbat_max)
+		drop_mv = DIV_ROUND_UP(pdata->vbat_max - pdata->alert_high_vbatreg,
+				       1000);
+	if (pdata->temp_charge_max < 60 || drop_mv > 800)
+		vset = 0;
+	else if (drop_mv > 600)
+		vset = 1;
+	else if (drop_mv > 400)
+		vset = 2;
+	else
+		vset = 7 - DIV_ROUND_UP(drop_mv, 100);
+
+	iseth = vset ? bq25792_jeita_iset(pdata, pdata->alert_high_ichg) : 0;
+
+	ret = regmap_update_bits(regmap, BQ25792_REG17_NTC_CONTROL_0,
+				 BQ25792_REG17_JEITA_VSET_MASK |
+				 BQ25792_REG17_JEITA_ISETH_MASK |
+				 BQ25792_REG17_JEITA_ISETC_MASK,
+				 FIELD_PREP(BQ25792_REG17_JEITA_VSET_MASK, vset) |
+				 FIELD_PREP(BQ25792_REG17_JEITA_ISETH_MASK, iseth) |
+				 FIELD_PREP(BQ25792_REG17_JEITA_ISETC_MASK, isetc));
+	if (ret)
+		return ret;
+
+	return regmap_update_bits(regmap, BQ25792_REG18_NTC_CONTROL_1,
+				  BQ25792_REG18_TS_COOL_MASK |
+				  BQ25792_REG18_TS_WARM_MASK,
+				  FIELD_PREP(BQ25792_REG18_TS_COOL_MASK, ts_cool) |
+				  FIELD_PREP(BQ25792_REG18_TS_WARM_MASK, ts_warm));
+}
+
 /**
  * bq25792_hw_init() - Initialize BQ25792 hardware
  * @pdata: driver platform data
@@ -865,7 +971,8 @@ static int bq25703_hw_init(struct bq257xx_chg *pdata)
  * current sensing with 5A limit, and configuring input current regulation.
  * Set the charge current, charge voltage, minimum system voltage, and
  * input current limit from platform data. Enable and configure the ADC
- * to measure all available channels.
+ * to measure all available channels, and program the battery charging
+ * temperature range.
  *
  * Return: Returns 0 on success or error code on error.
  */
@@ -962,7 +1069,7 @@ static int bq25792_hw_init(struct bq257xx_chg *pdata)
 	if (ret)
 		return ret;
 
-	return ret;
+	return bq25792_set_jeita(pdata);
 }
 
 /**
@@ -1533,6 +1640,25 @@ static int bq257xx_charger_init(struct power_supply *psy)
 	pdata->vsys_min = bat_info->voltage_min_design_uv;
 	pdata->vbat_max = bat_info->constant_charge_voltage_max_uv;
 	pdata->ichg_max = bat_info->constant_charge_current_max_ua;
+
+	pdata->temp_charge_min = bat_info->temp_charge_min;
+	pdata->temp_charge_max = bat_info->temp_charge_max;
+	pdata->temp_alert_min = bat_info->temp_alert_min;
+	pdata->temp_alert_max = bat_info->temp_alert_max;
+
+	/* The alert settings fall back to the constant charge ones */
+	pdata->alert_low_ichg = pdata->ichg_max;
+	pdata->alert_low_vbatreg = pdata->vbat_max;
+	pdata->alert_high_ichg = pdata->ichg_max;
+	pdata->alert_high_vbatreg = pdata->vbat_max;
+	if (bat_info->alert_low_temp_charge_current_ua > 0)
+		pdata->alert_low_ichg = bat_info->alert_low_temp_charge_current_ua;
+	if (bat_info->alert_low_temp_charge_voltage_uv > 0)
+		pdata->alert_low_vbatreg = bat_info->alert_low_temp_charge_voltage_uv;
+	if (bat_info->alert_high_temp_charge_current_ua > 0)
+		pdata->alert_high_ichg = bat_info->alert_high_temp_charge_current_ua;
+	if (bat_info->alert_high_temp_charge_voltage_uv > 0)
+		pdata->alert_high_vbatreg = bat_info->alert_high_temp_charge_voltage_uv;
 
 	power_supply_put_battery_info(psy, bat_info);
 
