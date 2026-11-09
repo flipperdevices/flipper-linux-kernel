@@ -948,15 +948,9 @@
 			compatible = "usb-c-connector";
 			label = "USB-C";
 			data-role = "dual";
-			op-sink-microwatt = <30000000>;
 			pd-revision = /bits/ 8 <0x3 0x1 0x1 0x8>;
 			power-role = "dual";
 			self-powered;
-			sink-pdos = <PDO_FIXED(5000, 3000,
-					       PDO_FIXED_DUAL_ROLE | PDO_FIXED_HIGHER_CAP |
-					       PDO_FIXED_USB_COMM | PDO_FIXED_DATA_SWAP)
-				     PDO_VAR(3600, 24000, 3300)
-				     PDO_PPS_APDO(3600, 24000, 3300)>;
 			sink-vdos = <VDO_IDH(1, 1, IDH_PTYPE_PERIPH, 0,
 					     IDH_PTYPE_DFP_HOST, 2, 0x37c1)
 				     VDO_CERT(0x0)
@@ -972,15 +966,72 @@
 			sink-vdos-v1 = <VDO_IDH(1, 1, IDH_PTYPE_PERIPH, 0, 0, 0, 0x37c1)
 					VDO_CERT(0x0)
 					VDO_PRODUCT(0xf12f, 0x0)>;
-			source-pdos = <PDO_FIXED(5000, 2000,
-						 PDO_FIXED_DUAL_ROLE | PDO_FIXED_USB_COMM |
-						 PDO_FIXED_DATA_SWAP)>;
 			try-power-role = "sink";
 
 			altmodes {
 				displayport {
 					svid = /bits/ 16 <0xff01>;
 					vdo = <0x00001c46>;
+				};
+			};
+
+			capabilities {
+				/* vSafe5V only */
+				caps-0 {
+					op-sink-microwatt = <30000000>;
+					sink-pdos = <PDO_FIXED(5000, 3000,
+							       PDO_FIXED_DUAL_ROLE |
+							       PDO_FIXED_HIGHER_CAP |
+							       PDO_FIXED_USB_COMM |
+							       PDO_FIXED_DATA_SWAP)
+						     PDO_VAR(3600, 24000, 3300)
+						     PDO_PPS_APDO(3600, 24000, 3300)>;
+					source-pdos = <PDO_FIXED(5000, 3000,
+								 PDO_FIXED_DUAL_ROLE |
+								 PDO_FIXED_USB_COMM |
+								 PDO_FIXED_DATA_SWAP)>;
+				};
+
+				/* Up to 18W, which the battery sustains until empty */
+				caps-1 {
+					op-sink-microwatt = <30000000>;
+					sink-pdos = <PDO_FIXED(5000, 3000,
+							       PDO_FIXED_DUAL_ROLE |
+							       PDO_FIXED_HIGHER_CAP |
+							       PDO_FIXED_USB_COMM |
+							       PDO_FIXED_DATA_SWAP)
+						     PDO_VAR(3600, 24000, 3300)
+						     PDO_PPS_APDO(3600, 24000, 3300)>;
+					source-pdos = <PDO_FIXED(5000, 3000,
+								 PDO_FIXED_DUAL_ROLE |
+								 PDO_FIXED_USB_COMM |
+								 PDO_FIXED_DATA_SWAP)
+						       PDO_FIXED(9000, 2000, 0)
+						       PDO_FIXED(12000, 1500, 0)
+						       PDO_FIXED(15000, 1100, 0)
+						       PDO_FIXED(20000, 750, 0)
+						       PDO_VAR(5000, 20000, 750)>;
+				};
+
+				/* 27W, until the battery overheats in about 20 minutes */
+				caps-2 {
+					op-sink-microwatt = <30000000>;
+					sink-pdos = <PDO_FIXED(5000, 3000,
+							       PDO_FIXED_DUAL_ROLE |
+							       PDO_FIXED_HIGHER_CAP |
+							       PDO_FIXED_USB_COMM |
+							       PDO_FIXED_DATA_SWAP)
+						     PDO_VAR(3600, 24000, 3300)
+						     PDO_PPS_APDO(3600, 24000, 3300)>;
+					source-pdos = <PDO_FIXED(5000, 3000,
+								 PDO_FIXED_DUAL_ROLE |
+								 PDO_FIXED_USB_COMM |
+								 PDO_FIXED_DATA_SWAP)
+						       PDO_FIXED(9000, 3000, 0)
+						       PDO_FIXED(12000, 2250, 0)
+						       PDO_FIXED(15000, 1800, 0)
+						       PDO_FIXED(20000, 1350, 0)
+						       PDO_VAR(5000, 20000, 1350)>;
 				};
 			};
 
@@ -1239,6 +1290,7 @@
 
 		regulators {
 			vusb_typec: vbus {
+				regulator-active-discharge = <1>;
 				regulator-max-microamp = <3320000>;
 				regulator-max-microvolt = <22000000>;
 				regulator-min-microamp = <0>;
