@@ -659,6 +659,8 @@ static struct samsung_sdi_battery samsung_sdi_batteries[] = {
 			.temp_alert_min = 0,
 			.temp_alert_max = 40,
 			.temp_max = 60,
+			.temp_charge_min = -50,
+			.temp_charge_max = 60,
 			.resist_table = samsung_temp2res,
 			.resist_table_size = ARRAY_SIZE(samsung_temp2res),
 			/* If you have tables for more temperatures, add them */
@@ -703,6 +705,8 @@ static struct samsung_sdi_battery samsung_sdi_batteries[] = {
 			.temp_alert_min = 0,
 			.temp_alert_max = 40,
 			.temp_max = 47,
+			.temp_charge_min = -30,
+			.temp_charge_max = 47,
 			.resist_table = samsung_temp2res,
 			.resist_table_size = ARRAY_SIZE(samsung_temp2res),
 			/* If you have tables for more temperatures, add them */
@@ -747,6 +751,8 @@ static struct samsung_sdi_battery samsung_sdi_batteries[] = {
 			.temp_alert_min = 0,
 			.temp_alert_max = 43,
 			.temp_max = 49,
+			.temp_charge_min = -50,
+			.temp_charge_max = 49,
 			.resist_table = samsung_temp2res,
 			.resist_table_size = ARRAY_SIZE(samsung_temp2res),
 			/* If you have tables for more temperatures, add them */
@@ -790,6 +796,8 @@ static struct samsung_sdi_battery samsung_sdi_batteries[] = {
 			.temp_alert_min = 0,
 			.temp_alert_max = 40,
 			.temp_max = 60,
+			.temp_charge_min = -50,
+			.temp_charge_max = 60,
 			.resist_table = samsung_temp2res,
 			.resist_table_size = ARRAY_SIZE(samsung_temp2res),
 			/* If you have tables for more temperatures, add them */
@@ -835,6 +843,8 @@ static struct samsung_sdi_battery samsung_sdi_batteries[] = {
 			.temp_alert_min = 0,
 			.temp_alert_max = 40,
 			.temp_max = 60,
+			.temp_charge_min = -5,
+			.temp_charge_max = 60,
 			.resist_table = samsung_temp2res,
 			.resist_table_size = ARRAY_SIZE(samsung_temp2res),
 			/* If you have tables for more temperatures, add them */
@@ -879,6 +889,8 @@ static struct samsung_sdi_battery samsung_sdi_batteries[] = {
 			.temp_alert_min = 0,
 			.temp_alert_max = 40,
 			.temp_max = 60,
+			.temp_charge_min = -5,
+			.temp_charge_max = 60,
 			.resist_table = samsung_temp2res,
 			.resist_table_size = ARRAY_SIZE(samsung_temp2res),
 			/* If you have tables for more temperatures, add them */
