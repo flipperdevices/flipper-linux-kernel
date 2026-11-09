@@ -559,15 +559,15 @@ struct power_supply_maintenance_charge_table {
  *   maintenance_charge.
  * @alert_low_temp_charge_current_ua: The charging current to use if the battery
  *   enters low alert temperature, i.e. if the internal temperature is between
- *   temp_alert_min and temp_min. No matter the charging phase, this
+ *   temp_charge_min and temp_alert_min. No matter the charging phase, this
  *   and alert_high_temp_charge_voltage_uv will be applied.
  * @alert_low_temp_charge_voltage_uv: Same as alert_low_temp_charge_current_ua,
  *   but for the charging voltage.
  * @alert_high_temp_charge_current_ua: The charging current to use if the
  *   battery enters high alert temperature, i.e. if the internal temperature is
- *   between temp_alert_max and temp_max. No matter the charging phase, this
- *   and alert_high_temp_charge_voltage_uv will be applied, usually lowering
- *   the charging current as an evasive manouver.
+ *   between temp_alert_max and temp_charge_max. No matter the charging phase,
+ *   this and alert_high_temp_charge_voltage_uv will be applied, usually
+ *   lowering the charging current as an evasive manouver.
  * @alert_high_temp_charge_voltage_uv: Same as
  *   alert_high_temp_charge_current_ua, but for the charging voltage.
  * @factory_internal_resistance_uohm: the internal resistance of the battery
@@ -603,6 +603,12 @@ struct power_supply_maintenance_charge_table {
  * @temp_max: the battery will go outside of operating conditions when
  *   the internal temperature goes above this temperature in degrees Celsius.
  *   Normally this means the system should shut down.
+ * @temp_charge_min: the battery must not be charged when the internal
+ *   temperature is below this temperature in degrees Celsius. Defaults to
+ *   temp_min.
+ * @temp_charge_max: the battery must not be charged when the internal
+ *   temperature is above this temperature in degrees Celsius. Defaults to
+ *   temp_max.
  * @ocv_table: for each entry in ocv_temp there is a corresponding entry in
  *   ocv_table and a size for each entry in ocv_table_size. These arrays
  *   determine the capacity in percent in relation to the voltage in microvolts
@@ -826,6 +832,8 @@ struct power_supply_battery_info {
 	int temp_alert_max;
 	int temp_min;
 	int temp_max;
+	int temp_charge_min;
+	int temp_charge_max;
 	const struct power_supply_battery_ocv_table *ocv_table[POWER_SUPPLY_OCV_TEMP_MAX];
 	int ocv_table_size[POWER_SUPPLY_OCV_TEMP_MAX];
 	const struct power_supply_resistance_temp_table *resist_table;

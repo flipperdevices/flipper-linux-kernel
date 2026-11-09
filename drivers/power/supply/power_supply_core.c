@@ -855,6 +855,14 @@ int power_supply_get_battery_info(struct power_supply *psy,
 			     &info->constant_charge_voltage_max_uv);
 	fwnode_property_read_u32(fwnode, "factory-internal-resistance-micro-ohms",
 			     &info->factory_internal_resistance_uohm);
+	fwnode_property_read_u32(fwnode, "alert-low-temp-charge-current-microamp",
+			     &info->alert_low_temp_charge_current_ua);
+	fwnode_property_read_u32(fwnode, "alert-low-temp-charge-voltage-microvolt",
+			     &info->alert_low_temp_charge_voltage_uv);
+	fwnode_property_read_u32(fwnode, "alert-high-temp-charge-current-microamp",
+			     &info->alert_high_temp_charge_current_ua);
+	fwnode_property_read_u32(fwnode, "alert-high-temp-charge-voltage-microvolt",
+			     &info->alert_high_temp_charge_voltage_uv);
 
 	if (!fwnode_property_read_u32_array(fwnode, "ambient-celsius",
 					    min_max, ARRAY_SIZE(min_max))) {
@@ -870,6 +878,14 @@ int power_supply_get_battery_info(struct power_supply *psy,
 					    min_max, ARRAY_SIZE(min_max))) {
 		info->temp_min = min_max[0];
 		info->temp_max = min_max[1];
+	}
+	if (!fwnode_property_read_u32_array(fwnode, "charge-temp-range-celsius",
+					    min_max, ARRAY_SIZE(min_max))) {
+		info->temp_charge_min = min_max[0];
+		info->temp_charge_max = min_max[1];
+	} else {
+		info->temp_charge_min = info->temp_min;
+		info->temp_charge_max = info->temp_max;
 	}
 
 	len = fwnode_property_count_u32(fwnode, "ocv-capacity-celsius");
