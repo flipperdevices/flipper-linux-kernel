@@ -1,6 +1,6 @@
 // SPDX-License-Identifier: GPL-2.0-or-later
 /*
- * Copyright (c) 2025 Collabora Ltd.
+ * Copyright (c) 2025, 2026 Collabora Ltd.
  *
  * A counter driver for the Pulse-Width-Modulation (PWM) hardware found on
  * Rockchip SoCs such as the RK3576, internally referred to as "PWM v4". It
@@ -29,23 +29,40 @@ struct rockchip_pwm_capture {
 	struct counter_device *counter;
 };
 
-static struct counter_signal rkpwmc_signals[] = {
-	{
-		.id = 0,
-		.name = "PWM Clock"
-	},
+enum rkwpmc_signal {
+	RKPWMC_SIGNAL_PWM_CLOCK = 0,
+	RKPWMC_SIGNAL_PWM_INPUT,
 };
 
-static const enum counter_synapse_action rkpwmc_hpc_lpc_actions[] = {
-	COUNTER_SYNAPSE_ACTION_BOTH_EDGES,
-	COUNTER_SYNAPSE_ACTION_NONE,
+static struct counter_signal rkpwmc_signals[] = {
+	[RKPWMC_SIGNAL_PWM_CLOCK] = {
+		.id = RKPWMC_SIGNAL_PWM_CLOCK,
+		.name = "PWM Clock"
+	},
+	[RKPWMC_SIGNAL_PWM_INPUT] = {
+		.id = RKPWMC_SIGNAL_PWM_INPUT,
+		.name = "PWM Input"
+	}
+};
+
+static const enum counter_synapse_action rkpwmc_pwm_clock_actions[] = {
+	COUNTER_SYNAPSE_ACTION_RISING_EDGE
+};
+
+static const enum counter_synapse_action rkpwmc_pwm_input_actions[] = {
+	COUNTER_SYNAPSE_ACTION_NONE
 };
 
 static struct counter_synapse rkpwmc_pwm_synapses[] = {
 	{
-		.actions_list = rkpwmc_hpc_lpc_actions,
-		.num_actions = ARRAY_SIZE(rkpwmc_hpc_lpc_actions),
-		.signal = &rkpwmc_signals[0]
+		.actions_list = rkpwmc_pwm_clock_actions,
+		.num_actions = ARRAY_SIZE(rkpwmc_pwm_clock_actions),
+		.signal = &rkpwmc_signals[RKPWMC_SIGNAL_PWM_CLOCK]
+	},
+	{
+		.actions_list = rkpwmc_pwm_input_actions,
+		.num_actions = ARRAY_SIZE(rkpwmc_pwm_input_actions),
+		.signal = &rkpwmc_signals[RKPWMC_SIGNAL_PWM_INPUT]
 	},
 };
 
@@ -62,16 +79,14 @@ static bool rkpwmc_acquire_if_enabled(struct rockchip_pwm_capture *pc)
 {
 	int ret;
 
+	if (!rkpwmc_is_enabled(pc->pwmf))
+		return false;
+
 	ret = mfpwm_acquire(pc->pwmf);
 	if (ret < 0)
 		return false;
 
-	if (rkpwmc_is_enabled(pc->pwmf))
-		return true;
-
-	mfpwm_release(pc->pwmf);
-
-	return false;
+	return true;
 }
 
 static int rkpwmc_enable_read(struct counter_device *counter,
@@ -92,51 +107,44 @@ static int rkpwmc_enable_write(struct counter_device *counter,
 	struct rockchip_pwm_capture *pc = counter_priv(counter);
 	int ret;
 
-	ret = mfpwm_acquire(pc->pwmf);
-	if (ret)
-		return ret;
+	if (enable == rkpwmc_is_enabled(pc->pwmf))
+		return 0;
 
-	if (!!enable != rkpwmc_is_enabled(pc->pwmf)) {
-		if (enable) {
-			mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_ENABLE,
-					 PWMV4_EN(false));
-			mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_CTRL,
-					 PWMV4_CTRL_CAP_FLAGS);
-			mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_INT_EN,
-					 PWMV4_INT_LPC_W(true) |
-					 PWMV4_INT_HPC_W(true));
-			mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_ENABLE,
-					 PWMV4_EN(true) | PWMV4_CLK_EN(true));
+	if (enable) {
+		ret = mfpwm_acquire(pc->pwmf);
+		if (ret)
+			return ret;
 
-			ret = clk_enable(pc->pwmf->core);
-			if (ret)
-				goto err_release;
+		mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_ENABLE,
+					PWMV4_EN(false));
+		mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_CTRL,
+					PWMV4_CTRL_CAP_FLAGS);
+		mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_INT_EN,
+					PWMV4_INT_LPC_W(true) |
+					PWMV4_INT_HPC_W(true));
+		mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_ENABLE,
+					PWMV4_EN(true) | PWMV4_CLK_EN(true));
 
-			ret = clk_rate_exclusive_get(pc->pwmf->core);
-			if (ret)
-				goto err_disable_pwm_clk;
+		ret = clk_enable(pc->pwmf->core);
+		if (ret)
+			goto err_release;
 
-			ret = mfpwm_acquire(pc->pwmf);
-			if (ret)
-				goto err_unprotect_pwm_clk;
-		} else {
-			mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_INT_EN,
-					 PWMV4_INT_LPC_W(false) |
-					 PWMV4_INT_HPC_W(false));
-			mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_ENABLE,
-					 PWMV4_EN(false) | PWMV4_CLK_EN(false));
-			clk_rate_exclusive_put(pc->pwmf->core);
-			clk_disable(pc->pwmf->core);
-			mfpwm_release(pc->pwmf);
-		}
+		ret = clk_rate_exclusive_get(pc->pwmf->core);
+		if (ret)
+			goto err_disable_pwm_clk;
+	} else {
+		mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_INT_EN,
+					PWMV4_INT_LPC_W(false) |
+					PWMV4_INT_HPC_W(false));
+		mfpwm_reg_write(pc->pwmf->base, PWMV4_REG_ENABLE,
+					PWMV4_EN(false) | PWMV4_CLK_EN(false));
+		clk_rate_exclusive_put(pc->pwmf->core);
+		clk_disable(pc->pwmf->core);
+		mfpwm_release(pc->pwmf);
 	}
-
-	mfpwm_release(pc->pwmf);
 
 	return 0;
 
-err_unprotect_pwm_clk:
-	clk_rate_exclusive_put(pc->pwmf->core);
 err_disable_pwm_clk:
 	clk_disable(pc->pwmf->core);
 err_release:
@@ -177,6 +185,26 @@ static struct counter_count rkpwmc_counts[] = {
 	},
 };
 
+static int rkpwmc_action_read(struct counter_device *counter,
+			      struct counter_count *count,
+			      struct counter_synapse *synapse,
+			      enum counter_synapse_action *action)
+{
+	if (!synapse || !synapse->signal)
+		return -EINVAL;
+
+	switch (synapse->signal->id) {
+	case RKPWMC_SIGNAL_PWM_CLOCK:
+		*action = COUNTER_SYNAPSE_ACTION_RISING_EDGE;
+		return 0;
+	case RKPWMC_SIGNAL_PWM_INPUT:
+		*action = COUNTER_SYNAPSE_ACTION_NONE;
+		return 0;
+	}
+
+	return -EINVAL;
+}
+
 static int rkpwmc_count_read(struct counter_device *counter,
 			     struct counter_count *count, u64 *value)
 {
@@ -205,6 +233,7 @@ static int rkpwmc_count_read(struct counter_device *counter,
 }
 
 static const struct counter_ops rkpwmc_ops = {
+	.action_read = rkpwmc_action_read,
 	.count_read = rkpwmc_count_read,
 };
 
@@ -247,7 +276,7 @@ static int rockchip_pwm_capture_probe(struct platform_device *pdev)
 	int ret;
 
 	/* Set our (still unset) OF node to the parent MFD device's OF node */
-	pdev->dev.parent->of_node_reused = true;
+	dev_set_of_node_reused(&pdev->dev);
 	device_set_node(&pdev->dev,
 			of_fwnode_handle(no_free_ptr(pdev->dev.parent->of_node)));
 
