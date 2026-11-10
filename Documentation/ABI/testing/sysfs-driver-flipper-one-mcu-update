@@ -1,0 +1,72 @@
+What:		/sys/bus/platform/drivers/flipper-one-fw-update/<dev>/firmware_version
+Date:		November 2026
+KernelVersion:	7.5
+Contact:	Alexey Charkov <alchark@flipper.net>
+Description:	(RO) Version of the firmware the Flipper One MCU is running,
+		as major.minor.patch. An image without version information
+		reads as 0.0.0. Reading fails with EOPNOTSUPP on MCU firmware
+		that does not support try-before-you-buy images, which can
+		only be updated over USB.
+
+		Images themselves are uploaded through the firmware upload
+		class as /sys/class/firmware/flipper-one-mcu/, see
+		sysfs-class-firmware. Both UF2 files and raw binary images
+		are accepted. The MCU stages a new image in its inactive slot
+		and switches to it once the host reboots or powers off, and
+		then power-cycles the host. Until then this keeps reporting
+		the old version.
+
+		Format: %u.%u.%u.
+
+What:		/sys/bus/platform/drivers/flipper-one-fw-update/<dev>/staged_version
+Date:		November 2026
+KernelVersion:	7.5
+Contact:	Alexey Charkov <alchark@flipper.net>
+Description:	(RO) Version of the image last staged in the inactive MCU
+		firmware slot since the MCU started, as major.minor.patch, or
+		0.0.0 if none was. Reading fails with EOPNOTSUPP on MCU
+		firmware that does not support try-before-you-buy images.
+
+		Format: %u.%u.%u.
+
+What:		/sys/bus/platform/drivers/flipper-one-fw-update/<dev>/boot_slot
+Date:		November 2026
+KernelVersion:	7.5
+Contact:	Alexey Charkov <alchark@flipper.net>
+Description:	(RO) MCU firmware slot the MCU booted from. Reading fails
+		with EOPNOTSUPP on MCU firmware that does not support
+		try-before-you-buy images.
+
+		Access: Read
+
+		Valid values:
+		 - ``A``
+		 - ``B``
+
+What:		/sys/bus/platform/drivers/flipper-one-fw-update/<dev>/boot_type
+Date:		November 2026
+KernelVersion:	7.5
+Contact:	Alexey Charkov <alchark@flipper.net>
+Description:	(RO) How the MCU last booted. Reading fails with EOPNOTSUPP on
+		MCU firmware that does not support try-before-you-buy images.
+
+		Access: Read
+
+		Valid values:
+		 - ``normal``: an ordinary reset or power-up
+		 - ``flash-update``: the switch to a newly staged image
+		 - ``unknown``: a boot type this driver doesn't know
+
+What:		/sys/bus/platform/drivers/flipper-one-fw-update/<dev>/target
+Date:		November 2026
+KernelVersion:	7.5
+Contact:	Alexey Charkov <alchark@flipper.net>
+Description:	(RO) Name of the MCU firmware build target that matches this
+		board revision, as used in the names of published MCU
+		firmware images (for example "f1"). Userspace uses it to pick
+		the image to upload; the driver cannot tell from an image
+		which target it was built for.
+
+		Absent on board revisions the driver does not know.
+
+		Format: %s.

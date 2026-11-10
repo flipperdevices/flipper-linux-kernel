@@ -91,6 +91,21 @@ config FIRMWARE_MEMMAP
 
       See also Documentation/ABI/testing/sysfs-firmware-memmap.
 
+config FLIPPER_ONE_MCU_UPDATE
+	tristate "Flipper One MCU firmware update"
+	depends on MFD_FLIPPER_ONE
+	select CRC_ITU_T
+	select FW_LOADER
+	select FW_UPLOAD
+	help
+	  Say Y here to update the firmware of the MCU on the Flipper One
+	  networking multitool over its I2C link to the CPU. Images are
+	  uploaded through the firmware upload class, in UF2 or raw binary
+	  form, and staged in the inactive MCU flash slot.
+
+	  To compile this driver as a module, choose M here: the module
+	  will be called flipper-one-mcu-update.
+
 config DMIID
     bool "Export DMI identification via sysfs to userspace"
     depends on DMI
