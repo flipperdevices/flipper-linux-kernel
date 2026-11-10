@@ -177,6 +177,7 @@ struct rk_udphy {
 	u8 hw_mode; /* modes currently supported by hardware */
 	u8 sw_mode; /* modes currently requested */
 	u8 status;
+	bool dp_lane_update_required;
 
 	/* utilized for USB */
 	bool hs; /* flag for high-speed */
@@ -1063,6 +1064,10 @@ static int rk_udphy_update_power_state(struct rk_udphy *udphy)
 	if (!udphy->phy_needs_reinit && udphy->status == target_mode) {
 		if (udphy->sw_mode & UDPHY_MODE_USB)
 			rk_udphy_u3_port_disable(udphy, !usb3_port_enable);
+		if (udphy->dp_lane_update_required && udphy->sw_mode & UDPHY_MODE_DP) {
+			udphy->dp_lane_update_required = false;
+			rk_udphy_dp_lane_select(udphy);
+		}
 		return 0;
 	}
 
@@ -1108,6 +1113,20 @@ static int rk_udphy_update_power_state(struct rk_udphy *udphy)
 		}
 	}
 
+	/* Setup DP lanes and the AUX polarity */
+	if (target_mode & UDPHY_MODE_DP) {
+		phy_set_bus_width(udphy->phy_dp, udphy->dp_lanes);
+		rk_udphy_dp_lane_enable(udphy, udphy->dp_lanes);
+		if (udphy->sw_mode & UDPHY_MODE_DP) {
+			udphy->dp_lane_update_required = false;
+			rk_udphy_dp_lane_select(udphy);
+		} else {
+			udphy->dp_lane_update_required = true;
+		}
+	} else if (target_mode != UDPHY_MODE_NONE) {
+		rk_udphy_dp_lane_enable(udphy, 0);
+	}
+
 	/* Ensure USB3 support is enabled when supported */
 	if (udphy->sw_mode & UDPHY_MODE_USB)
 		rk_udphy_u3_port_disable(udphy, !usb3_port_enable);
@@ -1135,17 +1154,11 @@ static int rk_udphy_dp_phy_power_on(struct phy *phy)
 	scoped_guard(mutex, &udphy->mutex) {
 		udphy->sw_mode |= UDPHY_MODE_DP;
 
-		phy_set_bus_width(phy, udphy->dp_lanes);
-
 		ret = rk_udphy_update_power_state(udphy);
 		if (ret) {
 			udphy->sw_mode &= ~UDPHY_MODE_DP;
 			return ret;
 		}
-
-		rk_udphy_dp_lane_enable(udphy, udphy->dp_lanes);
-
-		rk_udphy_dp_lane_select(udphy);
 	}
 
 	/*
@@ -1166,7 +1179,6 @@ static int rk_udphy_dp_phy_power_off(struct phy *phy)
 
 	udphy->sw_mode &= ~UDPHY_MODE_DP;
 
-	rk_udphy_dp_lane_enable(udphy, 0);
 	return rk_udphy_update_power_state(udphy);
 }
 
