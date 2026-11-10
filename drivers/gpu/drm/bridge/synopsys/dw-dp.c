@@ -2388,6 +2388,12 @@ static void dw_dp_hpd_work(struct work_struct *work)
 				dev_warn(dp->dev, "Retrain link failed\n");
 		}
 	} else {
+		if (dp->link.enabled && dw_dp_hpd_detect(dp)) {
+			ret = dw_dp_link_retrain(dp);
+			if (ret)
+				dev_warn(dp->dev, "Retrain link failed\n");
+		}
+
 		drm_helper_hpd_irq_event(dp->bridge.dev);
 	}
 }
