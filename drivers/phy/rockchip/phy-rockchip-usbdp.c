@@ -1108,6 +1108,12 @@ static int rk_udphy_update_power_state(struct rk_udphy *udphy)
 		}
 	}
 
+	/* Init clears the DP lane enables and the AUX polarity may be stale */
+	if ((udphy->sw_mode & UDPHY_MODE_DP) && (target_mode & UDPHY_MODE_DP)) {
+		rk_udphy_dp_lane_enable(udphy, udphy->dp_lanes);
+		rk_udphy_dp_lane_select(udphy);
+	}
+
 	/* Ensure USB3 support is enabled when supported */
 	if (udphy->sw_mode & UDPHY_MODE_USB)
 		rk_udphy_u3_port_disable(udphy, !usb3_port_enable);
