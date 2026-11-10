@@ -1,0 +1,31 @@
+What:		/sys/bus/platform/drivers/flipper-one-fw-update/<dev>/firmware_version
+Date:		November 2026
+KernelVersion:	7.5
+Contact:	Alexey Charkov <alchark@flipper.net>
+Description:	(RO) Version of the firmware the Flipper One MCU is running,
+		as major.minor.patch. MCU firmware that predates updates over
+		I2C, or an image without version information, reads as 0.0.0.
+
+		A newly uploaded image only runs once the MCU restarts, so
+		this keeps reporting the old version until then.
+
+		Images themselves are uploaded through the firmware upload
+		class as /sys/class/firmware/flipper-one-mcu/, see
+		sysfs-class-firmware. Both UF2 files and raw binary images
+		are accepted.
+
+		Format: %u.%u.%u.
+
+What:		/sys/bus/platform/drivers/flipper-one-fw-update/<dev>/target
+Date:		November 2026
+KernelVersion:	7.5
+Contact:	Alexey Charkov <alchark@flipper.net>
+Description:	(RO) Name of the MCU firmware build target that matches this
+		board revision, as used in the names of published MCU
+		firmware images (for example "f1"). Userspace uses it to pick
+		the image to upload; the driver cannot tell from an image
+		which target it was built for.
+
+		Absent on board revisions the driver does not know.
+
+		Format: %s.

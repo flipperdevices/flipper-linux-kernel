@@ -10494,6 +10494,8 @@ M:	Alexey Charkov <alchark@flipper.net>
 S:	Maintained
 F:	Documentation/ABI/testing/sysfs-class-led-driver-flipper-one
 F:	Documentation/ABI/testing/sysfs-driver-flipper-one-mcu
+F:	Documentation/ABI/testing/sysfs-driver-flipper-one-mcu-update
+F:	drivers/firmware/flipper-one-mcu-update.c
 F:	drivers/gpu/drm/tiny/flipper-one-display.c
 F:	drivers/input/misc/flipper-one-haptic.c
 F:	drivers/input/misc/flipper-one-input.c
