@@ -16,6 +16,7 @@
 
 static const struct regmap_range fomcu_writeable_reg_ranges[] = {
 	regmap_reg_range(FOMCU_REG_CPUSTATE, FOMCU_REG_CPUSTATE),
+	regmap_reg_range(FOMCU_REG_SYSRST, FOMCU_REG_SYSRST_DELAY),
 	regmap_reg_range(FOMCU_REG_INTMSK_INPUT,
 			 FOMCU_REG_INPUT_BTNS - 1),
 	regmap_reg_range(FOMCU_REG_LEDS_BR_LINK,
@@ -23,12 +24,32 @@ static const struct regmap_range fomcu_writeable_reg_ranges[] = {
 	regmap_reg_range(FOMCU_REG_HAPTIC, FOMCU_REG_HAPTIC),
 	regmap_reg_range(FOMCU_REG_UCSI_CONTROL,
 			 FOMCU_REG_UCSI_CONTROL + 6),
-	regmap_reg_range(FOMCU_REG_UCSI_MESSAGE_OUT, FOMCU_REG_MAX),
+	regmap_reg_range(FOMCU_REG_UCSI_MESSAGE_OUT,
+			 FOMCU_REG_UCSI_MESSAGE_OUT_END),
+	regmap_reg_range(FOMCU_REG_FWUPD_CMD, FOMCU_REG_FWUPD_CMD),
+	regmap_reg_range(FOMCU_REG_FWUPD_CRC, FOMCU_REG_FWUPD_BLOCKS),
+	regmap_reg_range(FOMCU_REG_FWUPD_DATA, FOMCU_REG_MAX),
 };
 
 static const struct regmap_access_table fomcu_writeable_regs = {
 	.yes_ranges = fomcu_writeable_reg_ranges,
 	.n_yes_ranges = ARRAY_SIZE(fomcu_writeable_reg_ranges),
+};
+
+/* Keep the regmap debugfs dump off unmapped gaps and write-only frames */
+static const struct regmap_range fomcu_unreadable_reg_ranges[] = {
+	regmap_reg_range(FOMCU_REG_UCSI_MESSAGE_OUT_END + 1,
+			 FOMCU_REG_FWUPD_STATUS - 1),
+	regmap_reg_range(FOMCU_REG_FWUPD_STAGED_PATCH + 2,
+			 FOMCU_REG_FWUPD_CRC - 1),
+	regmap_reg_range(FOMCU_REG_FWUPD_BLOCKS + 2,
+			 FOMCU_REG_FWUPD_DATA - 1),
+	regmap_reg_range(FOMCU_REG_FWUPD_DATA, FOMCU_REG_MAX),
+};
+
+static const struct regmap_access_table fomcu_readable_regs = {
+	.no_ranges = fomcu_unreadable_reg_ranges,
+	.n_no_ranges = ARRAY_SIZE(fomcu_unreadable_reg_ranges),
 };
 
 /*
@@ -66,6 +87,7 @@ static const struct regmap_config fomcu_regmap_config = {
 	.val_format_endian = REGMAP_ENDIAN_LITTLE,
 	.max_register = FOMCU_REG_MAX,
 	.wr_table = &fomcu_writeable_regs,
+	.rd_table = &fomcu_readable_regs,
 	.volatile_table = &fomcu_volatile_regs,
 	.precious_table = &fomcu_precious_regs,
 	.cache_type = REGCACHE_MAPLE,
@@ -121,6 +143,7 @@ static const struct resource fo_ucsi_irqs[] = {
 };
 
 static const struct mfd_cell cells[] = {
+	MFD_CELL_NAME("flipper-one-fw-update"),
 	MFD_CELL_NAME("flipper-one-haptic"),
 	MFD_CELL_RES("flipper-one-input", fo_input_irqs),
 	MFD_CELL_NAME("flipper-one-leds"),
