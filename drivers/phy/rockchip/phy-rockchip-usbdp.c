@@ -1114,6 +1114,13 @@ static int rk_udphy_update_power_state(struct rk_udphy *udphy)
 		}
 	}
 
+	/* Setup DP lanes and the AUX polarity */
+	if ((target_mode & UDPHY_MODE_DP) && (udphy->sw_mode & UDPHY_MODE_DP)) {
+		phy_set_bus_width(udphy->phy_dp, udphy->dp_lanes);
+		rk_udphy_dp_lane_enable(udphy, udphy->dp_lanes);
+		rk_udphy_dp_lane_select(udphy);
+	}
+
 	/* Ensure USB3 support is enabled when supported */
 	if (udphy->sw_mode & UDPHY_MODE_USB)
 		rk_udphy_u3_port_disable(udphy, !usb3_port_enable);
