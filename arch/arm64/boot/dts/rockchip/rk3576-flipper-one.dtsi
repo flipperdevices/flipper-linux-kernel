@@ -321,7 +321,7 @@
 	typea_up_con: usb-a-connector {
 		compatible = "usb-a-connector";
 		data-role = "host";
-		label = "USB-A (up)";
+		label = "USB-A";
 		power-role = "source";
 		vbus-supply = <&vusb_typea_up>;
 
@@ -348,7 +348,7 @@
 	typec_up_con: usb-c-connector {
 		compatible = "usb-c-connector";
 		data-role = "host";
-		label = "USB-C (up)";
+		label = "USB-C2";
 		power-role = "source";
 
 		ports {
@@ -944,7 +944,7 @@
 
 		connector {
 			compatible = "usb-c-connector";
-			label = "USB-C";
+			label = "USB-C1";
 			data-role = "dual";
 			pd-revision = /bits/ 8 <0x3 0x1 0x1 0x8>;
 			power-role = "dual";
