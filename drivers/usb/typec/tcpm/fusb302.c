@@ -19,6 +19,7 @@
 #include <linux/mutex.h>
 #include <linux/of.h>
 #include <linux/pinctrl/consumer.h>
+#include <linux/pm_wakeirq.h>
 #include <linux/proc_fs.h>
 #include <linux/regulator/consumer.h>
 #include <linux/sched/clock.h>
@@ -1806,16 +1807,11 @@ static int fusb302_probe(struct i2c_client *client)
 	if (ret)
 		return ret;
 
-	enable_irq_wake(chip->gpio_int_n_irq);
+	ret = devm_device_init_wakeup(chip->dev);
+	if (ret)
+		return ret;
 
-	return ret;
-}
-
-static void fusb302_remove(struct i2c_client *client)
-{
-	struct fusb302_chip *chip = i2c_get_clientdata(client);
-
-	disable_irq_wake(chip->gpio_int_n_irq);
+	return devm_pm_set_wake_irq(chip->dev, chip->gpio_int_n_irq);
 }
 
 static int fusb302_pm_suspend(struct device *dev)
@@ -1872,7 +1868,6 @@ static struct i2c_driver fusb302_driver = {
 		   .of_match_table = of_match_ptr(fusb302_dt_match),
 		   },
 	.probe = fusb302_probe,
-	.remove = fusb302_remove,
 	.id_table = fusb302_i2c_device_id,
 };
 module_i2c_driver(fusb302_driver);
