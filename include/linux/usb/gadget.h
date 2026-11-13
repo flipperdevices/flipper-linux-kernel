@@ -412,8 +412,8 @@ struct usb_gadget_ops {
  *	u_ether.c to improve performance.
  * @is_selfpowered: if the gadget is self-powered.
  * @deactivated: True if gadget is deactivated - in deactivated state it cannot
- *	be connected.
- * @connected: True if gadget is connected.
+ *	be connected. Cleared when the gadget driver unbinds.
+ * @connected: True if the gadget's pullup is enabled.
  * @lpm_capable: If the gadget max_speed is FULL or HIGH, this flag
  *	indicates that it supports LPM as per the LPM ECN & errata.
  * @wakeup_capable: True if gadget is capable of sending remote wakeup.
