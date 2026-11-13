@@ -1697,6 +1697,11 @@ static int gadget_bind_driver(struct device *dev)
 		dev_err(&udc->dev, "failed to start %s: %d\n",
 			driver->function, ret);
 
+	/* The driver may have deactivated the gadget before failing */
+	mutex_lock(&udc->connect_lock);
+	gadget->deactivated = false;
+	mutex_unlock(&udc->connect_lock);
+
 	mutex_lock(&udc_lock);
 	udc->driver = NULL;
 	driver->is_bound = false;
@@ -1726,6 +1731,8 @@ static void gadget_unbind_driver(struct device *dev)
 
 	mutex_lock(&udc->connect_lock);
 	usb_gadget_udc_stop_locked(udc);
+	/* The next gadget driver decides on its own deactivation */
+	gadget->deactivated = false;
 	mutex_unlock(&udc->connect_lock);
 
 	mutex_lock(&udc_lock);
