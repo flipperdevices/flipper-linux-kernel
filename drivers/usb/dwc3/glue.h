@@ -172,7 +172,7 @@ void dwc3_gadget_exit(struct dwc3 *dwc);
  * This is usually handled by the dwc3 core code and should only be used
  * when skip_core_init_mode is used and the glue layer needs to manage SUSPHY
  * settings itself, e.g., due to platform-specific requirements during mode
- * switches.
+ * switches. It takes dwc->lock internally.
  */
 void dwc3_enable_susphy(struct dwc3 *dwc, bool enable);
 

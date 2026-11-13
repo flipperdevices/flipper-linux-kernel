@@ -108,10 +108,12 @@ static int dwc3_get_dr_mode(struct dwc3 *dwc)
 	return 0;
 }
 
-void dwc3_enable_susphy(struct dwc3 *dwc, bool enable)
+static void __dwc3_enable_susphy(struct dwc3 *dwc, bool enable)
 {
 	u32 reg;
 	int i;
+
+	lockdep_assert_held(&dwc->lock);
 
 	for (i = 0; i < dwc->num_usb3_ports; i++) {
 		reg = dwc3_readl(dwc, DWC3_GUSB3PIPECTL(i));
@@ -133,6 +135,13 @@ void dwc3_enable_susphy(struct dwc3 *dwc, bool enable)
 		dwc3_writel(dwc, DWC3_GUSB2PHYCFG(i), reg);
 	}
 }
+
+void dwc3_enable_susphy(struct dwc3 *dwc, bool enable)
+{
+	guard(spinlock_irqsave)(&dwc->lock);
+
+	__dwc3_enable_susphy(dwc, enable);
+}
 EXPORT_SYMBOL_GPL(dwc3_enable_susphy);
 
 void dwc3_set_prtcap(struct dwc3 *dwc, u32 mode, bool ignore_susphy)
@@ -150,7 +159,7 @@ void dwc3_set_prtcap(struct dwc3 *dwc, u32 mode, bool ignore_susphy)
 	hw_mode = DWC3_GHWPARAMS0_MODE(dwc->hwparams.hwparams0);
 	if (hw_mode == DWC3_GHWPARAMS0_MODE_DRD && !ignore_susphy) {
 		if (DWC3_GCTL_PRTCAP(reg) != mode)
-			dwc3_enable_susphy(dwc, false);
+			__dwc3_enable_susphy(dwc, false);
 	}
 
 	reg &= ~(DWC3_GCTL_PRTCAPDIR(DWC3_GCTL_PRTCAP_OTG));
@@ -1624,7 +1633,8 @@ static int dwc3_core_init_mode(struct dwc3 *dwc)
 
 	switch (dwc->dr_mode) {
 	case USB_DR_MODE_PERIPHERAL:
-		dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_DEVICE, false);
+		scoped_guard(spinlock_irqsave, &dwc->lock)
+			dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_DEVICE, false);
 
 		if (dwc->usb2_phy)
 			otg_set_vbus(dwc->usb2_phy->otg, false);
@@ -1636,7 +1646,8 @@ static int dwc3_core_init_mode(struct dwc3 *dwc)
 			return dev_err_probe(dev, ret, "failed to initialize gadget\n");
 		break;
 	case USB_DR_MODE_HOST:
-		dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_HOST, false);
+		scoped_guard(spinlock_irqsave, &dwc->lock)
+			dwc3_set_prtcap(dwc, DWC3_GCTL_PRTCAP_HOST, false);
 
 		if (dwc->usb2_phy)
 			otg_set_vbus(dwc->usb2_phy->otg, true);
