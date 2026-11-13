@@ -38,14 +38,19 @@ static const struct bus_type gadget_bus_type;
  * @vbus: for udcs who care about vbus status, this value is real vbus status;
  * for udcs who do not care about vbus status, this value is always true
  * @started: the UDC's started state. True if the UDC had started.
- * @allow_connect: Indicates whether UDC is allowed to be pulled up.
- * Set/cleared by gadget_(un)bind_driver() after gadget driver is bound or
- * unbound.
+ * @bound: True while a gadget driver is bound and the UDC is started for it.
+ * @soft_disconnected: True if userspace has disconnected the gadget through
+ * the soft_connect attribute. Forgotten when the gadget driver unbinds.
+ * @allow_connect: True if the gadget may connect to the host: a gadget driver
+ * is bound, VBUS is present, the driver hasn't deactivated the gadget, and
+ * userspace hasn't disconnected it. Only usb_udc_update_allow_connect() sets
+ * it, and usb_udc_update_connection_locked() connects or disconnects the
+ * gadget to match.
  * @vbus_work: work routine to handle VBUS status change notifications.
- * @connect_lock: protects udc->started, gadget->connect,
- * gadget->allow_connect and gadget->deactivate. The routines
+ * @connect_lock: protects udc->started, udc->bound, udc->soft_disconnected,
+ * udc->allow_connect, gadget->connected and gadget->deactivated. The routines
  * usb_gadget_connect_locked(), usb_gadget_disconnect_locked(),
- * usb_udc_connect_control_locked(), usb_gadget_udc_start_locked() and
+ * usb_udc_update_connection_locked(), usb_gadget_udc_start_locked() and
  * usb_gadget_udc_stop_locked() are called with this lock held.
  *
  * This represents the internal data structure which is used by the UDC-class
@@ -59,6 +64,8 @@ struct usb_udc {
 	struct list_head		list;
 	bool				vbus;
 	bool				started;
+	bool				bound;
+	bool				soft_disconnected;
 	bool				allow_connect;
 	struct work_struct		vbus_work;
 	struct mutex			connect_lock;
@@ -710,28 +717,24 @@ static int usb_gadget_connect_locked(struct usb_gadget *gadget)
 {
 	int ret = 0;
 
+	/*
+	 * If the gadget may not connect yet, usb_udc_update_connection_locked()
+	 * will connect it once it may.
+	 */
+	if (gadget->connected || !gadget->udc->allow_connect)
+		goto out;
+
 	if (!gadget->ops->pullup) {
 		ret = -EOPNOTSUPP;
-		goto out;
-	}
-
-	if (gadget->connected)
-		goto out;
-
-	if (gadget->deactivated || !gadget->udc->allow_connect || !gadget->udc->started) {
-		/*
-		 * If the gadget isn't usable (because it is deactivated,
-		 * unbound, or not yet started), we only save the new state.
-		 * The gadget will be connected automatically when it is
-		 * activated/bound/started.
-		 */
-		gadget->connected = true;
 		goto out;
 	}
 
 	ret = gadget->ops->pullup(gadget, 1);
 	if (!ret)
 		gadget->connected = 1;
+	else if (ret != -EOPNOTSUPP)
+		dev_warn(&gadget->udc->dev, "failed to enable the pullup: %d\n",
+			 ret);
 
 out:
 	trace_usb_gadget_connect(gadget, ret);
@@ -746,6 +749,10 @@ out:
  * Enables the D+ (or potentially D-) pullup.  The host will start
  * enumerating this gadget when the pullup is active and a VBUS session
  * is active (the link is powered).
+ *
+ * Does nothing while the gadget may not connect: no gadget driver is bound,
+ * VBUS is absent, the gadget is deactivated or userspace has disconnected it.
+ * The UDC core connects the gadget by itself once all of that changes.
  *
  * Returns zero on success, else negative errno.
  */
@@ -766,26 +773,20 @@ static int usb_gadget_disconnect_locked(struct usb_gadget *gadget)
 {
 	int ret = 0;
 
-	if (!gadget->ops->pullup) {
-		ret = -EOPNOTSUPP;
-		goto out;
-	}
-
 	if (!gadget->connected)
 		goto out;
 
-	if (gadget->deactivated || !gadget->udc->started) {
-		/*
-		 * If gadget is deactivated we only save new state.
-		 * Gadget will stay disconnected after activation.
-		 */
-		gadget->connected = false;
+	if (!gadget->ops->pullup) {
+		ret = -EOPNOTSUPP;
 		goto out;
 	}
 
 	ret = gadget->ops->pullup(gadget, 0);
 	if (!ret)
 		gadget->connected = 0;
+	else if (ret != -EOPNOTSUPP)
+		dev_warn(&gadget->udc->dev, "failed to disable the pullup: %d\n",
+			 ret);
 
 	mutex_lock(&udc_lock);
 	if (gadget->udc->driver)
@@ -809,6 +810,10 @@ out:
  * Following a successful disconnect, invoke the ->disconnect() callback
  * for the current gadget driver so that UDC drivers don't need to.
  *
+ * The gadget stays disconnected until usb_gadget_connect() is called or the
+ * UDC core connects it again on the next change of VBUS, binding, activation
+ * or soft_connect.
+ *
  * Returns zero on success, else negative errno.
  */
 int usb_gadget_disconnect(struct usb_gadget *gadget)
@@ -822,6 +827,34 @@ int usb_gadget_disconnect(struct usb_gadget *gadget)
 	return ret;
 }
 EXPORT_SYMBOL_GPL(usb_gadget_disconnect);
+
+static void usb_udc_update_allow_connect(struct usb_udc *udc)
+	__must_hold(&udc->connect_lock)
+{
+	udc->allow_connect = udc->bound && udc->vbus &&
+			     !udc->gadget->deactivated &&
+			     !udc->soft_disconnected;
+}
+
+/*
+ * Decide whether the gadget may connect and connect or disconnect it to match.
+ * Call this after changing any of the state that
+ * usb_udc_update_allow_connect() checks.
+ */
+static int usb_udc_update_connection_locked(struct usb_udc *udc)
+	__must_hold(&udc->connect_lock)
+{
+	usb_udc_update_allow_connect(udc);
+
+	/* Without a pullup control there is nothing to switch */
+	if (!udc->gadget->ops->pullup)
+		return 0;
+
+	if (udc->allow_connect)
+		return usb_gadget_connect_locked(udc->gadget);
+
+	return usb_gadget_disconnect_locked(udc->gadget);
+}
 
 /**
  * usb_gadget_deactivate - deactivate function which is not ready to work
@@ -845,18 +878,13 @@ int usb_gadget_deactivate(struct usb_gadget *gadget)
 	if (gadget->deactivated)
 		goto unlock;
 
-	if (gadget->connected) {
-		ret = usb_gadget_disconnect_locked(gadget);
-		if (ret)
-			goto unlock;
-
-		/*
-		 * If gadget was being connected before deactivation, we want
-		 * to reconnect it in usb_gadget_activate().
-		 */
-		gadget->connected = true;
-	}
 	gadget->deactivated = true;
+	ret = usb_udc_update_connection_locked(gadget->udc);
+	if (ret) {
+		/* Still connected, so stay active */
+		gadget->deactivated = false;
+		usb_udc_update_allow_connect(gadget->udc);
+	}
 
 unlock:
 	mutex_unlock(&gadget->udc->connect_lock);
@@ -871,7 +899,7 @@ EXPORT_SYMBOL_GPL(usb_gadget_deactivate);
  * @gadget: the peripheral being activated
  *
  * This routine activates gadget which was previously deactivated with
- * usb_gadget_deactivate() call. It calls usb_gadget_connect() if needed.
+ * usb_gadget_deactivate() call, and connects it if it may connect.
  *
  * This routine may sleep; it must not be called in interrupt context.
  *
@@ -886,15 +914,7 @@ int usb_gadget_activate(struct usb_gadget *gadget)
 		goto unlock;
 
 	gadget->deactivated = false;
-
-	/*
-	 * If gadget has been connected before deactivation, or became connected
-	 * while it was being deactivated, we call usb_gadget_connect().
-	 */
-	if (gadget->connected) {
-		gadget->connected = false;
-		ret = usb_gadget_connect_locked(gadget);
-	}
+	ret = usb_udc_update_connection_locked(gadget->udc);
 
 unlock:
 	mutex_unlock(&gadget->udc->connect_lock);
@@ -1147,21 +1167,12 @@ EXPORT_SYMBOL_GPL(usb_gadget_set_state);
 
 /* ------------------------------------------------------------------------- */
 
-/* Acquire connect_lock before calling this function. */
-static int usb_udc_connect_control_locked(struct usb_udc *udc) __must_hold(&udc->connect_lock)
-{
-	if (udc->vbus)
-		return usb_gadget_connect_locked(udc->gadget);
-	else
-		return usb_gadget_disconnect_locked(udc->gadget);
-}
-
 static void vbus_event_work(struct work_struct *work)
 {
 	struct usb_udc *udc = container_of(work, struct usb_udc, vbus_work);
 
 	mutex_lock(&udc->connect_lock);
-	usb_udc_connect_control_locked(udc);
+	usb_udc_update_connection_locked(udc);
 	mutex_unlock(&udc->connect_lock);
 }
 
@@ -1175,12 +1186,12 @@ static void vbus_event_work(struct work_struct *work)
  * according to vbus status.
  *
  * This function can be invoked from interrupt context by irq handlers of
- * the gadget drivers, however, usb_udc_connect_control() has to run in
- * non-atomic context due to the following:
+ * the gadget drivers, however, usb_udc_update_connection_locked() has to run
+ * in non-atomic context due to the following:
  * a. Some of the gadget driver implementations expect the ->pullup
  * callback to be invoked in non-atomic context.
  * b. usb_gadget_disconnect() acquires udc_lock which is a mutex.
- * Hence offload invocation of usb_udc_connect_control() to workqueue.
+ * Hence offload invocation of usb_udc_update_connection_locked() to workqueue.
  */
 void usb_udc_vbus_handler(struct usb_gadget *gadget, bool status)
 {
@@ -1671,8 +1682,8 @@ static int gadget_bind_driver(struct device *dev)
 		goto err_start;
 	}
 	usb_gadget_enable_async_callbacks(udc);
-	udc->allow_connect = true;
-	ret = usb_udc_connect_control_locked(udc);
+	udc->bound = true;
+	ret = usb_udc_update_connection_locked(udc);
 	if (ret)
 		goto err_connect_control;
 
@@ -1682,7 +1693,8 @@ static int gadget_bind_driver(struct device *dev)
 	return 0;
 
  err_connect_control:
-	udc->allow_connect = false;
+	udc->bound = false;
+	usb_udc_update_allow_connect(udc);
 	usb_gadget_disable_async_callbacks(udc);
 	if (gadget->irq)
 		synchronize_irq(gadget->irq);
@@ -1718,14 +1730,23 @@ static void gadget_unbind_driver(struct device *dev)
 
 	dev_dbg(&udc->dev, "unbinding gadget driver [%s]\n", driver->function);
 
-	udc->allow_connect = false;
-	cancel_work_sync(&udc->vbus_work);
 	mutex_lock(&udc->connect_lock);
-	usb_gadget_disconnect_locked(gadget);
+	udc->bound = false;
+	usb_udc_update_connection_locked(udc);
+	/*
+	 * The UDC stops below even if the pullup refused to switch off (some
+	 * UDCs refuse without VBUS), so treat the gadget as disconnected from
+	 * now on. Neither a late VBUS event nor the next driver's bind should
+	 * act on a connection that ends with this driver.
+	 */
+	gadget->connected = false;
 	usb_gadget_disable_async_callbacks(udc);
 	if (gadget->irq)
 		synchronize_irq(gadget->irq);
 	mutex_unlock(&udc->connect_lock);
+
+	/* A VBUS event can no longer connect the gadget, so just wait it out */
+	cancel_work_sync(&udc->vbus_work);
 
 	udc->driver->unbind(gadget);
 
@@ -1733,6 +1754,7 @@ static void gadget_unbind_driver(struct device *dev)
 	usb_gadget_udc_stop_locked(udc);
 	/* The next gadget driver decides on its own deactivation */
 	gadget->deactivated = false;
+	udc->soft_disconnected = false;
 	mutex_unlock(&udc->connect_lock);
 
 	mutex_lock(&udc_lock);
@@ -1812,35 +1834,34 @@ static ssize_t soft_connect_store(struct device *dev,
 		struct device_attribute *attr, const char *buf, size_t n)
 {
 	struct usb_udc		*udc = container_of(dev, struct usb_udc, dev);
-	ssize_t			ret;
-
-	device_lock(&udc->gadget->dev);
-	if (!udc->driver) {
-		dev_err(dev, "soft-connect without a gadget driver\n");
-		ret = -EOPNOTSUPP;
-		goto out;
-	}
+	bool			disconnect;
 
 	if (sysfs_streq(buf, "connect")) {
-		mutex_lock(&udc->connect_lock);
-		usb_gadget_udc_start_locked(udc);
-		usb_gadget_connect_locked(udc->gadget);
-		mutex_unlock(&udc->connect_lock);
+		disconnect = false;
 	} else if (sysfs_streq(buf, "disconnect")) {
-		mutex_lock(&udc->connect_lock);
-		usb_gadget_disconnect_locked(udc->gadget);
-		usb_gadget_udc_stop_locked(udc);
-		mutex_unlock(&udc->connect_lock);
+		disconnect = true;
 	} else {
 		dev_err(dev, "unsupported command '%s'\n", buf);
-		ret = -EINVAL;
-		goto out;
+		return -EINVAL;
 	}
 
-	ret = n;
-out:
-	device_unlock(&udc->gadget->dev);
-	return ret;
+	guard(mutex)(&udc->connect_lock);
+
+	if (!udc->bound) {
+		dev_err(dev, "soft-connect without a gadget driver\n");
+		return -EOPNOTSUPP;
+	}
+
+	/*
+	 * "connect" only lifts the disconnect, it doesn't override VBUS etc.
+	 * The request stands even if the pullup fails to follow it, which
+	 * usb_gadget_{dis,}connect_locked() warn about, and the next update
+	 * retries it.
+	 */
+	udc->soft_disconnected = disconnect;
+	usb_udc_update_connection_locked(udc);
+
+	return n;
 }
 static DEVICE_ATTR_WO(soft_connect);
 
