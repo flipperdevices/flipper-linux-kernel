@@ -144,8 +144,6 @@ struct fusb302_chip {
 	bool tx_pending;
 	/* The driver sent a GoodCRC, for fusb302_pd_check_ack() */
 	bool ack_check;
-	/* INTERRUPT bits fusb302_pd_check_ack() read for fusb302_irq_work() */
-	u8 interrupt_stash;
 	bool vbus_present;
 	bool vbus_vsafe0v;
 	enum typec_cc_polarity cc_polarity;
@@ -1831,8 +1829,8 @@ static void fusb302_pd_tx_complete(struct fusb302_chip *chip,
  * See whether a GoodCRC the driver sent collided before releasing chip->lock:
  * by the next interrupt, TCPM may have started a transmission, and the
  * COLLISION would then be reported against it. The chip sets COLLISION when
- * TXON finds CC busy, so it is there to see by now. Keep the other bits that
- * reading the register clears for fusb302_irq_work().
+ * TXON finds CC busy, so it is there to see by now. Keep the other bits, which
+ * reading the register clears, pending for fusb302_irq_work().
  */
 static int fusb302_pd_check_ack(struct fusb302_chip *chip)
 {
@@ -1845,7 +1843,7 @@ static int fusb302_pd_check_ack(struct fusb302_chip *chip)
 		return ret;
 	if (interrupt & FUSB_REG_INTERRUPT_COLLISION)
 		fusb302_log(chip, "GoodCRC sent by the driver collided");
-	chip->interrupt_stash |= interrupt & ~FUSB_REG_INTERRUPT_COLLISION;
+	chip->pending_interrupt |= interrupt & ~FUSB_REG_INTERRUPT_COLLISION;
 
 	return 0;
 }
@@ -2066,8 +2064,6 @@ again:
 	chip->pending_interrupt = 0;
 	chip->pending_interrupta = 0;
 	chip->pending_interruptb = 0;
-	interrupt |= chip->interrupt_stash;
-	chip->interrupt_stash = 0;
 
 	/*
 	 * A message the chip didn't acknowledge raises CRC_CHK alone: read it
@@ -2190,7 +2186,7 @@ done:
 	 * retry queued meanwhile. Then handle what the check read.
 	 */
 	if (chip->ack_check && fusb302_pd_check_ack(chip) >= 0 &&
-	    chip->interrupt_stash)
+	    chip->pending_interrupt)
 		goto again;
 	mutex_unlock(&chip->lock);
 	enable_irq(chip->irq);
