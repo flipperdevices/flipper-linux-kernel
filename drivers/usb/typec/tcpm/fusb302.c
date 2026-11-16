@@ -2067,9 +2067,10 @@ again:
 
 	/*
 	 * A message the chip didn't acknowledge raises CRC_CHK alone: read it
-	 * out first thing, as its GoodCRC is past due already
+	 * out first thing, as its GoodCRC is past due already. Leave those that
+	 * came before PD was on, which nothing acknowledged, to the RX flush.
 	 */
-	if ((interrupt & FUSB_REG_INTERRUPT_CRC_CHK) &&
+	if (chip->pd_rx_on && (interrupt & FUSB_REG_INTERRUPT_CRC_CHK) &&
 	    !(interrupta & FUSB_REG_INTERRUPTA_TX_SUCCESS) &&
 	    !(interruptb & FUSB_REG_INTERRUPTB_GCRCSENT)) {
 		ret = fusb302_pd_read_messages(chip);
