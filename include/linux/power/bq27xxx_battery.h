@@ -68,6 +68,7 @@ struct bq27xxx_device_info {
 	bool removed;
 	unsigned long last_update;
 	union power_supply_propval last_status;
+	unsigned int status_checks;
 	struct delayed_work work;
 	struct power_supply *bat;
 	struct list_head list;

@@ -1156,6 +1156,10 @@ module_param_cb(poll_interval, &param_ops_poll_interval, &poll_interval, 0644);
 MODULE_PARM_DESC(poll_interval,
 		 "battery poll interval in seconds - 0 disables polling");
 
+/* Status checks after an external power change, and the delay between them */
+#define BQ27XXX_STATUS_CHECKS		5
+#define BQ27XXX_STATUS_CHECK_DELAY	(HZ / 2)
+
 /*
  * Common code for BQ27xxx devices
  */
@@ -1930,6 +1934,7 @@ static void bq27xxx_battery_update_unlocked(struct bq27xxx_device_info *di)
 	union power_supply_propval status = di->last_status;
 	struct bq27xxx_reg_cache cache = {0, };
 	bool has_singe_flag = di->opts & BQ27XXX_O_ZERO;
+	bool status_changed;
 
 	cache.flags = bq27xxx_read(di, BQ27XXX_REG_FLAGS, has_singe_flag);
 	if (di->chip == BQ27000 && (cache.flags & 0xff) == 0xff)
@@ -1945,9 +1950,10 @@ static void bq27xxx_battery_update_unlocked(struct bq27xxx_device_info *di)
 			bq27xxx_battery_current_and_status(di, NULL, &status, &cache);
 	}
 
+	status_changed = di->last_status.intval != status.intval;
+
 	if ((di->cache.capacity != cache.capacity) ||
-	    (di->cache.flags != cache.flags) ||
-	    (di->last_status.intval != status.intval)) {
+	    (di->cache.flags != cache.flags) || status_changed) {
 		di->last_status.intval = status.intval;
 		power_supply_changed(di->bat);
 	}
@@ -1957,7 +1963,22 @@ static void bq27xxx_battery_update_unlocked(struct bq27xxx_device_info *di)
 
 	di->last_update = jiffies;
 
-	if (!di->removed && poll_interval > 0)
+	if (di->removed)
+		return;
+
+	/*
+	 * Once the status reflects an external power change, stop checking for
+	 * it; otherwise use up the remaining checks before going back to polling.
+	 */
+	if (status_changed)
+		di->status_checks = 0;
+	else if (di->status_checks)
+		di->status_checks--;
+
+	if (di->status_checks)
+		mod_delayed_work(system_percpu_wq, &di->work,
+				 BQ27XXX_STATUS_CHECK_DELAY);
+	else if (poll_interval > 0)
 		mod_delayed_work(system_percpu_wq, &di->work, poll_interval * HZ);
 }
 
@@ -2233,8 +2254,16 @@ static void bq27xxx_external_power_changed(struct power_supply *psy)
 {
 	struct bq27xxx_device_info *di = power_supply_get_drvdata(psy);
 
-	/* After charger plug in/out wait 0.5s for things to stabilize */
-	mod_delayed_work(system_percpu_wq, &di->work, HZ / 2);
+	/*
+	 * After charger plug in/out the current takes a varying time to settle,
+	 * so check the status a few times rather than once on gauges that derive
+	 * it from the sign of the current.
+	 */
+	mutex_lock(&di->lock);
+	if (!(di->opts & BQ27XXX_O_ZERO))
+		di->status_checks = BQ27XXX_STATUS_CHECKS;
+	mod_delayed_work(system_percpu_wq, &di->work, BQ27XXX_STATUS_CHECK_DELAY);
+	mutex_unlock(&di->lock);
 }
 
 int bq27xxx_battery_setup(struct bq27xxx_device_info *di)
