@@ -1276,6 +1276,7 @@
 		compatible = "ti,bq28z620";
 		reg = <0x55>;
 		monitored-battery = <&battery>;
+		power-supplies = <&charger>;
 	};
 
 	charger: charger@6b {
