@@ -38,6 +38,7 @@ enum fomcu_cpu_states {
 	FOMCU_CPUSTATE_POWEROFF_REQ,	/* userspace preparing to power off */
 	FOMCU_CPUSTATE_SHUTTING_DOWN,	/* kernel reboot/power-off in progress */
 	FOMCU_CPUSTATE_POWERED_OFF,	/* safe to cut power to the PMIC */
+	FOMCU_CPUSTATE_RESTARTING,	/* safe to power-cycle the PMIC */
 	FOMCU_CPUSTATE_NUM_STATES
 };
 

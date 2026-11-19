@@ -167,6 +167,7 @@ static const char * const fomcu_state_names[FOMCU_CPUSTATE_NUM_STATES] = {
 	[FOMCU_CPUSTATE_POWEROFF_REQ]	= "poweroff-request",
 	[FOMCU_CPUSTATE_SHUTTING_DOWN]	= "shutting-down",
 	[FOMCU_CPUSTATE_POWERED_OFF]	= "powered-off",
+	[FOMCU_CPUSTATE_RESTARTING]	= "restarting",
 };
 
 /* States userspace is permitted to report through the cpustate sysfs file. */
@@ -252,6 +253,22 @@ static int fomcu_power_off(struct sys_off_data *data)
 	return NOTIFY_DONE;
 }
 
+static int fomcu_restart(struct sys_off_data *data)
+{
+	struct fomcu_device *ddata = data->cb_data;
+
+	/*
+	 * Runs after device_shutdown(), just before the machine restarts, so
+	 * the MCU may now power-cycle the host instead of waiting out a guess
+	 * at how long the shutdown takes. A kexec doesn't get here: the next
+	 * kernel runs on the same power.
+	 */
+	regmap_write(ddata->regmap, FOMCU_REG_CPUSTATE,
+		     FOMCU_CPUSTATE_RESTARTING);
+
+	return NOTIFY_DONE;
+}
+
 static int fomcu_probe(struct i2c_client *client)
 {
 	struct regmap_irq_chip_data *irq_data;
@@ -299,6 +316,14 @@ static int fomcu_probe(struct i2c_client *client)
 	if (ret)
 		return dev_err_probe(&client->dev, ret,
 				     "Failed to register power-off handler\n");
+
+	ret = devm_register_sys_off_handler(&client->dev,
+					    SYS_OFF_MODE_RESTART_PREPARE,
+					    SYS_OFF_PRIO_DEFAULT,
+					    fomcu_restart, ddata);
+	if (ret)
+		return dev_err_probe(&client->dev, ret,
+				     "Failed to register restart handler\n");
 
 	/*
 	 * Signal that early kernel init has reached this driver. Userspace is

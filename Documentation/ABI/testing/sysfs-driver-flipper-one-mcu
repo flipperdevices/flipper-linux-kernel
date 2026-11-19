@@ -28,6 +28,7 @@ Description:	(RW) Reports the CPU/system power state to the Flipper One MCU
 		restored after resume.
 
 		Other states (bootloader, kernel-init, suspend, shutting-down,
-		powered-off) are managed by the kernel and cannot be written.
+		powered-off, restarting) are managed by the kernel and cannot
+		be written.
 
 		Format: %s.
