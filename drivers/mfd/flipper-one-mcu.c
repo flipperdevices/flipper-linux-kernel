@@ -52,9 +52,16 @@ static const struct regmap_access_table fomcu_readable_regs = {
 	.n_no_ranges = ARRAY_SIZE(fomcu_unreadable_reg_ranges),
 };
 
+/*
+ * Settings only the host writes, which the MCU forgets when it restarts.
+ * The cache keeps them so they can be written back then. Everything else is
+ * either MCU-owned state or a command that must not be replayed.
+ */
 static const struct regmap_range fomcu_nonvolatile_reg_ranges[] = {
+	regmap_reg_range(FOMCU_REG_CPUSTATE, FOMCU_REG_CPUSTATE),
 	regmap_reg_range(FOMCU_REG_VERSION, FOMCU_REG_VERSION + 1),
 	regmap_reg_range(FOMCU_REG_INTMSK_INPUT, FOMCU_REG_INPUT_BTNS - 1),
+	regmap_reg_range(FOMCU_REG_LEDS_BR_LINK, FOMCU_REG_LEDS_COLOR_LINK4),
 };
 
 static const struct regmap_access_table fomcu_volatile_regs = {
@@ -83,6 +90,7 @@ static const struct regmap_config fomcu_regmap_config = {
 	.rd_table = &fomcu_readable_regs,
 	.volatile_table = &fomcu_volatile_regs,
 	.precious_table = &fomcu_precious_regs,
+	.cache_type = REGCACHE_MAPLE,
 };
 
 #define CAT(a, b) CAT_I(a, b)
@@ -98,14 +106,17 @@ static const struct regmap_irq fomcu_irqs[] = {
 	FOMCU_IRQ_REG(INPUT, HEADSET),
 	FOMCU_IRQ_REG(INPUT, SWBTN),
 	FOMCU_IRQ_REG(UCSI, EVENT),
+	FOMCU_IRQ_REG(SYSTEM, RESET),
 };
 
 static unsigned int irq_input_offsets[] = { FOMCU_INTOFF_INPUT };
 static unsigned int irq_ucsi_offsets[] = { FOMCU_INTOFF_UCSI };
+static unsigned int irq_system_offsets[] = { FOMCU_INTOFF_SYSTEM };
 
 static const struct regmap_irq_sub_irq_map fomcu_sub_irqs[] = {
 	REGMAP_IRQ_MAIN_REG_OFFSET(irq_input_offsets),
 	REGMAP_IRQ_MAIN_REG_OFFSET(irq_ucsi_offsets),
+	REGMAP_IRQ_MAIN_REG_OFFSET(irq_system_offsets),
 };
 
 static const struct regmap_irq_chip fomcu_irq_chip = {
@@ -269,6 +280,22 @@ static int fomcu_restart(struct sys_off_data *data)
 	return NOTIFY_DONE;
 }
 
+static irqreturn_t fomcu_reset_irq(int irq, void *data)
+{
+	struct fomcu_device *ddata = data;
+	int ret;
+
+	dev_info(&ddata->client->dev, "MCU restarted, restoring its settings\n");
+
+	regcache_mark_dirty(ddata->regmap);
+	ret = regcache_sync(ddata->regmap);
+	if (ret)
+		dev_err(&ddata->client->dev,
+			"Failed to restore MCU settings: %d\n", ret);
+
+	return IRQ_HANDLED;
+}
+
 static int fomcu_probe(struct i2c_client *client)
 {
 	struct regmap_irq_chip_data *irq_data;
@@ -295,6 +322,15 @@ static int fomcu_probe(struct i2c_client *client)
 	if (ret)
 		return dev_err_probe(&client->dev, ret,
 				     "Failed to add IRQ chip\n");
+
+	ret = devm_request_threaded_irq(&client->dev,
+					regmap_irq_get_virq(irq_data,
+							    FOMCU_INT_SYSTEM_RESET),
+					NULL, fomcu_reset_irq, IRQF_ONESHOT,
+					"flipper-one-mcu-reset", ddata);
+	if (ret)
+		return dev_err_probe(&client->dev, ret,
+				     "Failed to request MCU reset IRQ\n");
 
 	ret = devm_mfd_add_devices(&client->dev, PLATFORM_DEVID_AUTO,
 				   cells, ARRAY_SIZE(cells), NULL, 0,

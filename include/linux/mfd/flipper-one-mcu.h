@@ -17,6 +17,7 @@ enum fomcu_interrupts {
 	FOMCU_INT_INPUT_HEADSET,
 	FOMCU_INT_INPUT_SWBTN,
 	FOMCU_INT_UCSI_EVENT,
+	FOMCU_INT_SYSTEM_RESET,
 };
 
 #define FOMCU_REG_INTSTS		0x0000
@@ -65,8 +66,14 @@ enum fomcu_cpu_states {
 #define FOMCU_INTOFF_UCSI		0x2
 #define FOMCU_INTSTS_UCSI_EVENT		BIT(0)
 
+#define FOMCU_REG_INTSTS_SYSTEM		0x0104
+#define FOMCU_INTOFF_SYSTEM		0x4
+/* The MCU (re)started and lost the settings the host had written */
+#define FOMCU_INTSTS_SYSTEM_RESET	BIT(0)
+
 #define FOMCU_REG_INTMSK_INPUT		0x0180
 #define FOMCU_REG_INTMSK_UCSI		0x0182
+#define FOMCU_REG_INTMSK_SYSTEM		0x0184
 
 #define FOMCU_REG_INPUT_BTNS		0x0200
 #define FOMCU_REG_INPUT_TOUCH_X		0x0202
