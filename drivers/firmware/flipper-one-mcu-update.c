@@ -54,10 +54,13 @@ enum fo_fwupd_error {
 #define FO_FWUPD_CMD_START		1
 #define FO_FWUPD_CMD_ABORT		2
 
-/* Running firmware version, as packed by the MCU build */
-#define FO_FWUPD_VERSION_MAJOR		GENMASK(15, 12)
-#define FO_FWUPD_VERSION_MINOR		GENMASK(11, 4)
-#define FO_FWUPD_VERSION_PATCH		GENMASK(3, 0)
+/* Firmware version as packed by the MCU build, the patch level kept apart */
+#define FO_FWUPD_VERSION_MAJOR		GENMASK(15, 8)
+#define FO_FWUPD_VERSION_MINOR		GENMASK(7, 0)
+
+#define FO_FWUPD_BOOT_TYPE_NORMAL	0
+#define FO_FWUPD_BOOT_TYPE_FLASH_UPDATE	1
+
 
 #define FO_FWUPD_START_ACK_MS		1000
 #define FO_FWUPD_ERASE_MS		120000
@@ -74,6 +77,10 @@ enum fo_fwupd_error {
 /* The RP2350 boot ROM looks for the first picobin block in the first 4 KiB */
 #define PICOBIN_BLOCK_MARKER_START	0xffffded3
 #define PICOBIN_SEARCH_LEN		SZ_4K
+#define PICOBIN_ITEM_TYPE		GENMASK(6, 0)
+#define PICOBIN_ITEM_SIZE_2BYTES	BIT(7)
+#define PICOBIN_ITEM_IMAGE_TYPE		0x42
+#define PICOBIN_ITEM_LAST		0x7f
 
 /* UF2 container, as produced by picotool */
 #define UF2_MAGIC_START0		0x0a324655
@@ -119,6 +126,8 @@ struct fo_fwupd {
 	bool cancel_req;
 	bool done;
 	u8 frame[FOMCU_FWUPD_FRAME_LEN];
+	/* Start of the image, where its picobin blocks live */
+	u8 head[PICOBIN_SEARCH_LEN];
 };
 
 static const char * const fo_fwupd_err_names[FO_FWUPD_ERR_NUM] = {
@@ -234,6 +243,29 @@ err:
 	return ret;
 }
 
+/*
+ * Report the slot the MCU booted from and how it got there. Updaters from
+ * before try-before-you-buy images map no such register, and it reads as 0.
+ * Those can't switch to any image built since: the boot ROM runs such an
+ * image only from a flash-update boot, which they never make. They also read
+ * its version as a downgrade and wipe the running slot, leaving nothing to
+ * boot. Treat them as not supported at all.
+ */
+static int fo_fwupd_boot_status(struct fo_fwupd *fw, unsigned int *slot,
+				unsigned int *type)
+{
+	unsigned int val;
+	int ret;
+
+	ret = regmap_read(fw->regmap, FOMCU_REG_FWUPD_BOOT_STATUS, &val);
+	if (ret)
+		return ret;
+
+	*slot = FIELD_GET(FOMCU_FWUPD_BOOT_SLOT, val);
+	*type = FIELD_GET(FOMCU_FWUPD_BOOT_TYPE, val);
+	return *slot == 'A' || *slot == 'B' ? 0 : -EOPNOTSUPP;
+}
+
 /* Let suspend through again and forget any cancel of the finished update */
 static void fo_fwupd_finish(struct fo_fwupd *fw)
 {
@@ -331,13 +363,34 @@ static enum fw_upload_err fo_fwupd_next_block(struct fo_fwupd *fw,
 	return FW_UPLOAD_ERR_NONE;
 }
 
-static bool fo_fwupd_has_picobin_marker(const u8 *data, u32 len)
+/*
+ * Look for an image definition: a picobin block with an IMAGE_TYPE item.
+ * Other blocks, such as a partition table, don't define an image.
+ */
+static bool fo_fwupd_find_image_def(const u8 *data, u32 len)
 {
-	u32 off;
+	u32 off, item, word, size;
 
-	for (off = 0; off + 4 <= len; off += 4)
-		if (get_unaligned_le32(data + off) == PICOBIN_BLOCK_MARKER_START)
-			return true;
+	for (off = 0; off + 4 <= len; off += 4) {
+		if (get_unaligned_le32(data + off) != PICOBIN_BLOCK_MARKER_START)
+			continue;
+
+		for (item = off + 4; item + 4 <= len; item += size * 4) {
+			word = get_unaligned_le32(data + item);
+			if (word & PICOBIN_ITEM_SIZE_2BYTES)
+				size = (word >> 8) & 0xffff;
+			else
+				size = (word >> 8) & 0xff;
+
+			if (FIELD_GET(PICOBIN_ITEM_TYPE, word) == PICOBIN_ITEM_LAST ||
+			    !size)
+				break;
+
+			if (FIELD_GET(PICOBIN_ITEM_TYPE, word) ==
+						PICOBIN_ITEM_IMAGE_TYPE)
+				return true;
+		}
+	}
 
 	return false;
 }
@@ -349,9 +402,8 @@ static bool fo_fwupd_has_picobin_marker(const u8 *data, u32 len)
 static enum fw_upload_err fo_fwupd_parse(struct fo_fwupd *fw, const u8 *data,
 					 u32 size, u16 *crc)
 {
-	u32 off = 0, blocks = 0, len, consumed;
+	u32 off = 0, blocks = 0, len, consumed, head_off;
 	enum fw_upload_err ret;
-	bool marker = false;
 	const u8 *payload;
 
 	fw->uf2 = size >= sizeof(struct uf2_block) &&
@@ -377,8 +429,12 @@ static enum fw_upload_err fo_fwupd_parse(struct fo_fwupd *fw, const u8 *data,
 			return FW_UPLOAD_ERR_INVALID_SIZE;
 		}
 
-		if (!marker && blocks * FOMCU_FWUPD_BLOCK_SIZE < PICOBIN_SEARCH_LEN)
-			marker = fo_fwupd_has_picobin_marker(payload, len);
+		head_off = blocks * FOMCU_FWUPD_BLOCK_SIZE;
+		if (head_off < PICOBIN_SEARCH_LEN) {
+			memcpy(fw->head + head_off, payload, len);
+			memset(fw->head + head_off + len, 0,
+			       FOMCU_FWUPD_BLOCK_SIZE - len);
+		}
 
 		/* The MCU checks the image as sent, zero padding included */
 		*crc = crc_itu_t(*crc, payload, len);
@@ -393,8 +449,10 @@ static enum fw_upload_err fo_fwupd_parse(struct fo_fwupd *fw, const u8 *data,
 		return FW_UPLOAD_ERR_INVALID_SIZE;
 	}
 
-	if (!marker) {
-		dev_err(fw->dev, "Image has no RP2350 boot block\n");
+	if (!fo_fwupd_find_image_def(fw->head,
+				     min(blocks * FOMCU_FWUPD_BLOCK_SIZE,
+					 PICOBIN_SEARCH_LEN))) {
+		dev_err(fw->dev, "Image has no RP2350 image definition\n");
 		return FW_UPLOAD_ERR_FW_INVALID;
 	}
 
@@ -407,8 +465,9 @@ static enum fw_upload_err fo_fwupd_prepare(struct fw_upload *fwl,
 					   const u8 *data, u32 size)
 {
 	struct fo_fwupd *fw = fwl->dd_handle;
+	unsigned int val, slot, type;
 	enum fw_upload_err ret;
-	unsigned int val;
+	int err;
 	u16 crc;
 
 	scoped_guard(mutex, &fw->lock) {
@@ -419,6 +478,17 @@ static enum fw_upload_err fo_fwupd_prepare(struct fw_upload *fwl,
 
 	/* cancel_req is left alone: a cancel may arrive before prepare() */
 	fw->done = false;
+
+	err = fo_fwupd_boot_status(fw, &slot, &type);
+	if (err == -EOPNOTSUPP) {
+		dev_err(fw->dev, "MCU firmware does not support updates over I2C, update it over USB\n");
+		ret = FW_UPLOAD_ERR_HW_ERROR;
+		goto err;
+	}
+	if (err) {
+		ret = FW_UPLOAD_ERR_RW_ERROR;
+		goto err;
+	}
 
 	ret = fo_fwupd_parse(fw, data, size, &crc);
 	if (ret != FW_UPLOAD_ERR_NONE)
@@ -538,7 +608,16 @@ static enum fw_upload_err fo_fwupd_poll_complete(struct fw_upload *fwl)
 		return ret;
 
 	fw->done = true;
-	dev_info(fw->dev, "MCU firmware staged, it runs once the MCU restarts\n");
+
+	/*
+	 * The MCU has armed itself to boot the new image and power-cycle the
+	 * host once the host restarts or powers off. The host announces that
+	 * after its devices are shut down, so nothing needs waiting for.
+	 */
+	if (regmap_write(fw->regmap, FOMCU_REG_SYSRST_DELAY, 0))
+		dev_warn(fw->dev, "Failed to clear the MCU firmware switch delay\n");
+
+	dev_info(fw->dev, "MCU firmware staged, it runs once the host reboots or powers off\n");
 	return FW_UPLOAD_ERR_NONE;
 }
 
@@ -567,23 +646,84 @@ static const struct fw_upload_ops fo_fwupd_ops = {
 	.cleanup	= fo_fwupd_cleanup,
 };
 
-static ssize_t firmware_version_show(struct device *dev,
-				     struct device_attribute *attr, char *buf)
+static ssize_t fo_fwupd_show_version(struct fo_fwupd *fw, char *buf,
+				     unsigned int version_reg,
+				     unsigned int patch_reg)
 {
-	struct fo_fwupd *fw = dev_get_drvdata(dev);
-	unsigned int val;
+	unsigned int version, patch, slot, type;
 	int ret;
 
-	ret = regmap_read(fw->regmap, FOMCU_REG_FWUPD_VERSION, &val);
+	ret = fo_fwupd_boot_status(fw, &slot, &type);
 	if (ret)
 		return ret;
 
-	return sysfs_emit(buf, "%lu.%lu.%lu\n",
-			  FIELD_GET(FO_FWUPD_VERSION_MAJOR, val),
-			  FIELD_GET(FO_FWUPD_VERSION_MINOR, val),
-			  FIELD_GET(FO_FWUPD_VERSION_PATCH, val));
+	ret = regmap_read(fw->regmap, version_reg, &version);
+	if (ret)
+		return ret;
+
+	ret = regmap_read(fw->regmap, patch_reg, &patch);
+	if (ret)
+		return ret;
+
+	return sysfs_emit(buf, "%lu.%lu.%u\n",
+			  FIELD_GET(FO_FWUPD_VERSION_MAJOR, version),
+			  FIELD_GET(FO_FWUPD_VERSION_MINOR, version), patch);
+}
+
+static ssize_t firmware_version_show(struct device *dev,
+				     struct device_attribute *attr, char *buf)
+{
+	return fo_fwupd_show_version(dev_get_drvdata(dev), buf,
+				     FOMCU_REG_FWUPD_VERSION,
+				     FOMCU_REG_FWUPD_PATCH);
 }
 static DEVICE_ATTR_RO(firmware_version);
+
+static ssize_t staged_version_show(struct device *dev,
+				   struct device_attribute *attr, char *buf)
+{
+	return fo_fwupd_show_version(dev_get_drvdata(dev), buf,
+				     FOMCU_REG_FWUPD_STAGED_VERSION,
+				     FOMCU_REG_FWUPD_STAGED_PATCH);
+}
+static DEVICE_ATTR_RO(staged_version);
+
+static ssize_t boot_slot_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	struct fo_fwupd *fw = dev_get_drvdata(dev);
+	unsigned int slot, type;
+	int ret;
+
+	ret = fo_fwupd_boot_status(fw, &slot, &type);
+	if (ret)
+		return ret;
+
+	return sysfs_emit(buf, "%c\n", slot);
+}
+static DEVICE_ATTR_RO(boot_slot);
+
+static ssize_t boot_type_show(struct device *dev,
+			      struct device_attribute *attr, char *buf)
+{
+	struct fo_fwupd *fw = dev_get_drvdata(dev);
+	unsigned int slot, type;
+	int ret;
+
+	ret = fo_fwupd_boot_status(fw, &slot, &type);
+	if (ret)
+		return ret;
+
+	switch (type) {
+	case FO_FWUPD_BOOT_TYPE_NORMAL:
+		return sysfs_emit(buf, "normal\n");
+	case FO_FWUPD_BOOT_TYPE_FLASH_UPDATE:
+		return sysfs_emit(buf, "flash-update\n");
+	default:
+		return sysfs_emit(buf, "unknown\n");
+	}
+}
+static DEVICE_ATTR_RO(boot_type);
 
 static ssize_t target_show(struct device *dev, struct device_attribute *attr,
 			   char *buf)
@@ -595,7 +735,10 @@ static ssize_t target_show(struct device *dev, struct device_attribute *attr,
 static DEVICE_ATTR_RO(target);
 
 static struct attribute *fo_fwupd_attrs[] = {
+	&dev_attr_boot_slot.attr,
+	&dev_attr_boot_type.attr,
 	&dev_attr_firmware_version.attr,
+	&dev_attr_staged_version.attr,
 	&dev_attr_target.attr,
 	NULL
 };
