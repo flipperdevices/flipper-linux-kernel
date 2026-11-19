@@ -43,6 +43,16 @@ enum fomcu_cpu_states {
 
 #define FOMCU_REG_VERSION		0x0080
 
+#define FOMCU_REG_SYSRST		0x0090
+#define FOMCU_SYSRST_MAGIC		0x5a52
+/* MCU response to the host going down */
+#define FOMCU_REG_SYSRST_MODE		0x0092
+#define FOMCU_SYSRST_MODE_DISABLED	0
+#define FOMCU_SYSRST_MODE_RESET_MCU	1
+#define FOMCU_SYSRST_MODE_RESET_ALL	2
+/* Delay before that response, in 100 ms units */
+#define FOMCU_REG_SYSRST_DELAY		0x0094
+
 #define FOMCU_REG_INTSTS_INPUT		0x0100
 #define FOMCU_INTOFF_INPUT		0x0
 #define FOMCU_INTSTS_INPUT_BTN		BIT(0)
@@ -94,6 +104,12 @@ enum fomcu_cpu_states {
 #define FOMCU_FWUPD_STATUS_ERROR	GENMASK(15, 8)
 #define FOMCU_REG_FWUPD_VERSION		0xf002
 #define FOMCU_REG_FWUPD_CMD		0xf004
+#define FOMCU_REG_FWUPD_BOOT_STATUS	0xf006
+#define FOMCU_FWUPD_BOOT_SLOT		GENMASK(7, 0)
+#define FOMCU_FWUPD_BOOT_TYPE		GENMASK(15, 8)
+#define FOMCU_REG_FWUPD_STAGED_VERSION	0xf008
+#define FOMCU_REG_FWUPD_PATCH		0xf00a
+#define FOMCU_REG_FWUPD_STAGED_PATCH	0xf00c
 #define FOMCU_REG_FWUPD_CRC		0xf020
 #define FOMCU_REG_FWUPD_BLOCKS		0xf022
 /* One frame: block data, then le16 block index and le16 block CRC */

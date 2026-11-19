@@ -16,6 +16,7 @@
 
 static const struct regmap_range fomcu_writeable_reg_ranges[] = {
 	regmap_reg_range(FOMCU_REG_CPUSTATE, FOMCU_REG_CPUSTATE),
+	regmap_reg_range(FOMCU_REG_SYSRST, FOMCU_REG_SYSRST_DELAY),
 	regmap_reg_range(FOMCU_REG_INTMSK_INPUT,
 			 FOMCU_REG_INPUT_BTNS - 1),
 	regmap_reg_range(FOMCU_REG_LEDS_BR_LINK,
@@ -39,7 +40,8 @@ static const struct regmap_access_table fomcu_writeable_regs = {
 static const struct regmap_range fomcu_unreadable_reg_ranges[] = {
 	regmap_reg_range(FOMCU_REG_UCSI_MESSAGE_OUT_END + 1,
 			 FOMCU_REG_FWUPD_STATUS - 1),
-	regmap_reg_range(FOMCU_REG_FWUPD_CMD + 2, FOMCU_REG_FWUPD_CRC - 1),
+	regmap_reg_range(FOMCU_REG_FWUPD_STAGED_PATCH + 2,
+			 FOMCU_REG_FWUPD_CRC - 1),
 	regmap_reg_range(FOMCU_REG_FWUPD_BLOCKS + 2,
 			 FOMCU_REG_FWUPD_DATA - 1),
 	regmap_reg_range(FOMCU_REG_FWUPD_DATA, FOMCU_REG_MAX),
