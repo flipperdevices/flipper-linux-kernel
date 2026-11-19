@@ -269,6 +269,14 @@ static int fo_input_probe(struct platform_device *pdev)
 			return dev_err_probe(dev, err,
 					     "Failed to register %s input device\n",
 					     cfg->name);
+
+		/*
+		 * Report what is already pressed or plugged in: the MCU only
+		 * interrupts on changes. The handler reads the whole state, so
+		 * running it once also covers an interrupt taken before the
+		 * device was registered.
+		 */
+		cfg->handler(irq, idev);
 	}
 
 	return 0;
