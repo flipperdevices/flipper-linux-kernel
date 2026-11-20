@@ -208,13 +208,31 @@ generate tests:
       - dtbs
       - lava/testjob.yaml
 
+# helper to avoid uploading the full artifacts as part of the LAVA job;
+# instead the LAVA job will fetch the files on demand from Gitlab.
+lava job definition:
+  image: debian:trixie-slim
+  stage: generate
+  tags:
+    - lightweight
+  variables:
+    GIT_STRATEGY: none
+    ARTIFACT_DOWNLOAD_ATTEMPTS: 3
+  needs:
+    - "generate tests"
+  script:
+    - test -f lava/testjob.yaml
+  artifacts:
+    paths:
+      - lava/testjob.yaml
+
 .lava test:
   stage: lava
   environment: $DEVTYPE
   tags:
     - lava-runner
   needs:
-    - "generate tests"
+    - "lava job definition"
   script:
     - submit lava/testjob.yaml
   artifacts:
