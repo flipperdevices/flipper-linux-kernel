@@ -138,6 +138,7 @@ int dwc3_gadget_set_link_state(struct dwc3 *dwc, enum dwc3_link_state state)
 
 	return -ETIMEDOUT;
 }
+EXPORT_SYMBOL_GPL(dwc3_gadget_set_link_state);
 
 static void dwc3_ep0_reset_state(struct dwc3 *dwc)
 {

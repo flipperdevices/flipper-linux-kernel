@@ -66,6 +66,13 @@ static void dwc3_rockchip_phy_post_reset(struct dwc3_rockchip *dwc_rk, int port)
 			reg = dwc3_readl(dwc, DWC3_GUSB3PIPECTL(port));
 			reg &= ~DWC3_GUSB3PIPECTL_PHYSOFTRST;
 			dwc3_writel(dwc, DWC3_GUSB3PIPECTL(port), reg);
+
+			if (dwc->current_dr_role != DWC3_GCTL_PRTCAP_DEVICE)
+				break;
+			if (!dwc->pullups_connected)
+				break;
+
+			dwc3_gadget_set_link_state(dwc, DWC3_LINK_STATE_RX_DET);
 		}
 	}
 
