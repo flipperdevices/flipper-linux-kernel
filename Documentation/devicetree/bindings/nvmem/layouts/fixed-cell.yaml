@@ -19,6 +19,17 @@ properties:
           addresses.
           It can be stored in a plain binary format (cell length 6) or as an
           ASCII text like "00:11:22:33:44:55" (cell length 17).
+      - const: rockchip,cpuid
+        description: >
+          Cell with the unique CPU ID of a Rockchip SoC (cell length 16).
+          An Ethernet controller referencing it as its "unique-id" NVMEM cell
+          derives its MAC address from it. The base of such addresses consists
+          of the first six octets of the SHA-256 digest of the 32-character
+          string of lowercase hexadecimal digits representing the 16 CPU ID
+          bytes in stored order, without separators or a terminator. In the
+          first octet, the multicast bit (bit 0) is then cleared and the
+          locally administered bit (bit 1) set. The number N of the
+          controller's "ethernetN" alias is XORed into the last octet.
 
   reg:
     maxItems: 1
@@ -48,6 +59,19 @@ allOf:
           const: 1
       required:
         - "#nvmem-cell-cells"
+  - if:
+      properties:
+        compatible:
+          contains:
+            const: rockchip,cpuid
+      required: [ compatible ]
+    then:
+      properties:
+        reg:
+          items:
+            - items:
+                - description: Offset of the CPU ID
+                - const: 16
 
 required:
   - reg
