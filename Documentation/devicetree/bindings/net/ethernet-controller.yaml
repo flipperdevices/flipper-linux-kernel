@@ -24,10 +24,17 @@ properties:
   nvmem-cells:
     maxItems: 1
     description:
-      Reference to an nvmem node for the MAC address
+      Reference to an nvmem node for the MAC address, or for an identifier
+      unique to the device from which the MAC address is derived
 
   nvmem-cell-names:
-    const: mac-address
+    oneOf:
+      - const: mac-address
+      - const: unique-id
+        description:
+          Identifier unique to the device, such as a SoC serial number, from
+          which a stable MAC address is derived. How the address is derived
+          is defined by the binding of the referenced cell.
 
   phy-connection-type:
     description:
