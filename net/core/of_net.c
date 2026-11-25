@@ -4,7 +4,9 @@
  *
  * Initially copied out of arch/powerpc/kernel/prom_parse.c
  */
+#include <crypto/sha2.h>
 #include <linux/etherdevice.h>
+#include <linux/hex.h>
 #include <linux/kernel.h>
 #include <linux/of_net.h>
 #include <linux/of_platform.h>
@@ -97,6 +99,99 @@ int of_get_mac_address_nvmem(struct device_node *np, u8 *addr)
 }
 EXPORT_SYMBOL(of_get_mac_address_nvmem);
 
+#define ROCKCHIP_CPUID_LEN	16
+
+/*
+ * Rockchip bootloaders hash the CPU ID as a lowercase hex string with SHA-256
+ * and XOR the index into the last octet, see rockchip_setup_macaddr() in
+ * U-Boot's arch/arm/mach-rockchip/board.c.
+ */
+static int of_mac_from_rockchip_cpuid(const u8 *id, size_t len, int index,
+				      u8 *addr)
+{
+	char hex[ROCKCHIP_CPUID_LEN * 2];
+	u8 digest[SHA256_DIGEST_SIZE];
+
+	if (len != ROCKCHIP_CPUID_LEN || index > U8_MAX)
+		return -EINVAL;
+
+	bin2hex(hex, id, ROCKCHIP_CPUID_LEN);
+	sha256(hex, sizeof(hex), digest);
+
+	memcpy(addr, digest, ETH_ALEN);
+	addr[0] &= 0xfe;	/* clear the multicast bit */
+	addr[0] |= 0x02;	/* set the locally administered bit */
+	addr[5] ^= index;
+
+	return 0;
+}
+
+struct of_mac_unique_id {
+	const char *compatible;
+	int (*derive)(const u8 *id, size_t len, int index, u8 *addr);
+};
+
+/* Derivations by the compatible of the unique ID cell */
+static const struct of_mac_unique_id of_mac_unique_ids[] = {
+	{ "rockchip,cpuid", of_mac_from_rockchip_cpuid },
+};
+
+/*
+ * Derive a MAC address from a "unique-id" NVMEM cell the way the cell's
+ * binding defines it, indexed by the "ethernetN" alias of the device, as that
+ * is how bootloaders assign the derived addresses to interfaces.
+ */
+static int of_get_mac_address_unique_id(struct device_node *np, u8 *addr)
+{
+	const struct of_mac_unique_id *entry = NULL;
+	struct of_phandle_args cell_spec;
+	struct nvmem_cell *cell;
+	int index, alias, ret, i;
+	size_t len;
+	u8 *id;
+
+	index = of_property_match_string(np, "nvmem-cell-names", "unique-id");
+	if (index < 0)
+		return -ENOENT;
+
+	ret = of_parse_phandle_with_optional_args(np, "nvmem-cells",
+						  "#nvmem-cell-cells",
+						  index, &cell_spec);
+	if (ret)
+		return ret;
+
+	for (i = 0; i < ARRAY_SIZE(of_mac_unique_ids); i++) {
+		if (of_device_is_compatible(cell_spec.np,
+					    of_mac_unique_ids[i].compatible)) {
+			entry = &of_mac_unique_ids[i];
+			break;
+		}
+	}
+	of_node_put(cell_spec.np);
+	if (!entry)
+		return -EOPNOTSUPP;
+
+	alias = of_alias_get_id(np, "ethernet");
+	if (alias < 0)
+		return alias;
+
+	cell = of_nvmem_cell_get(np, "unique-id");
+	if (IS_ERR(cell))
+		return PTR_ERR(cell);
+
+	id = nvmem_cell_read(cell, &len);
+	nvmem_cell_put(cell);
+	if (IS_ERR(id))
+		return PTR_ERR(id);
+
+	ret = entry->derive(id, len, alias, addr);
+	kfree(id);
+	if (ret)
+		return ret;
+
+	return is_valid_ether_addr(addr) ? 0 : -EINVAL;
+}
+
 /**
  * of_get_mac_address()
  * @np:		Caller's Device Node
@@ -108,7 +203,9 @@ EXPORT_SYMBOL(of_get_mac_address_nvmem);
  * because that is the default address. If that isn't set, then the obsolete
  * 'address' is checked, just in case we're using an old device tree. If any
  * of the above isn't set, then try to get MAC address from nvmem cell named
- * 'mac-address'.
+ * 'mac-address'. As the last resort, derive one from an identifier unique to
+ * the device in an nvmem cell named 'unique-id', if the way to do so is known
+ * for that cell.
  *
  * Note that the 'address' property is supposed to contain a virtual address of
  * the register set, but some DTS files have redefined that property to be the
@@ -142,7 +239,11 @@ int of_get_mac_address(struct device_node *np, u8 *addr)
 	if (!ret)
 		return 0;
 
-	return of_get_mac_address_nvmem(np, addr);
+	ret = of_get_mac_address_nvmem(np, addr);
+	if (!ret || ret == -EPROBE_DEFER)
+		return ret;
+
+	return of_get_mac_address_unique_id(np, addr);
 }
 EXPORT_SYMBOL(of_get_mac_address);
 
