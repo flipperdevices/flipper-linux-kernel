@@ -101,7 +101,6 @@ config DRM_PIXPAPER
 config TINYDRM_FLIPPER_ONE_DISPLAY
 	tristate "DRM support for Flipper One display"
 	depends on DRM && SPI
-	select DRM_CLIENT_SELECTION
 	select DRM_GEM_DMA_HELPER
 	select DRM_KMS_HELPER
 	default y

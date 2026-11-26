@@ -4,14 +4,12 @@
  * SPI protocol driver for the Flipper One display
  */
 
-#include <drm/clients/drm_client_setup.h>
 #include <drm/drm_atomic.h>
 #include <drm/drm_atomic_helper.h>
 #include <drm/drm_connector.h>
 #include <drm/drm_damage_helper.h>
 #include <drm/drm_drv.h>
 #include <drm/drm_fb_dma_helper.h>
-#include <drm/drm_fbdev_dma.h>
 #include <drm/drm_format_helper.h>
 #include <drm/drm_framebuffer.h>
 #include <drm/drm_gem_atomic_helper.h>
@@ -63,7 +61,6 @@ static const struct drm_driver fo_drm_driver = {
 	.driver_features	= DRIVER_GEM | DRIVER_MODESET | DRIVER_ATOMIC,
 	.fops			= &fo_fops,
 	DRM_GEM_DMA_DRIVER_OPS_VMAP,
-	DRM_FBDEV_DMA_DRIVER_OPS,
 	.name			= "flipper_one_display",
 	.desc			= "Flipper One LCD screen",
 	.major			= 1,
@@ -403,7 +400,12 @@ static int fo_probe(struct spi_device *spi)
 	if (ret)
 		return dev_err_probe(dev, ret, "Failed to register drm device.\n");
 
-	drm_client_setup(drm, NULL);
+	/*
+	 * No in-kernel DRM client: the MCU keeps showing the last frame it was
+	 * sent, and an fbdev client would replace it with its own blank one
+	 * whenever the last userspace client lets go of the device, such as
+	 * across a kexec.
+	 */
 
 	return 0;
 }
